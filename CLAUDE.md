@@ -142,6 +142,15 @@ How it works (details in `core/boot.lua`'s header):
   `core/override/` replace the SMBX2 file at the same path under `scripts/`
   (only `lockdown.lua` and `ffi_mem.lua` so far), and `core/patches.lua` lists
   in-memory source edits.
+- `mem()` (`override/.../ffi_mem.lua`) sends every address to `xtech_mem_get/set`
+  in `xtech_lua_bindings.cpp`: globals go to mememu, and object arrays are
+  made-up address ranges (`s_objMemArrays`) mapped onto engine objects through
+  mememu's per-object emulators (`PlayerMemory`, `NPCMemory`, `BlockMemory`,
+  `BackgroundMemory` in `src/script/luna/mememu.cpp`). Unknown addresses log
+  once as `smbx2compat: mem() read outside emulated memory`.
+- Custom params: the `CustomParams` field on `Block_t`/`Background_t`/`NPC_t`
+  (set in `level_file.cpp`) + `core/extrasettings.lua` (needs SMBX2's
+  `PGE/configs/SMBX2-Integration` .ini/.json files in the data folder).
 - Paths handed to scripts carry a virtual `C:` (`C:/Users/...`), because SMBX2
   checks for a drive letter to decide a path is absolute; `core.normalize` strips it.
 - Gaps log `[smbx2core] missing: X` once each, plus a summary at level exit.
@@ -171,10 +180,10 @@ How it works (details in `core/boot.lua`'s header):
 
 ## Known issues
 
-- In core mode, SMBX2 boots fully on `smoke/bonus1` but object memory (`mem()` on
-  players/NPCs/blocks), custom params, drawing and most audio are still missing;
-  see ROADMAP.md Phase 1 "Progress". SMATRS 1-1 hasn't been tried in core mode yet
-  (with the shim it stops at `getSMBXVersionString`, which core mode provides).
+- In core mode, `smoke/bonus1` and SMATRS 1-1 boot and run; players, NPCs,
+  blocks and BGOs are in `mem()`, but property tables, layers/events/warps/water/
+  sections, `mem()` strings, `PlayerSettings`, drawing and most audio are still
+  missing, and SMBX2-only IDs load as ID 1. See ROADMAP.md Phase 1 "Next round".
 
 ## Game data (not in git)
 

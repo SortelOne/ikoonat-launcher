@@ -26,6 +26,8 @@
 
 struct Player_t;
 struct NPC_t;
+struct Block_t; // smbx2compat
+struct Background_t; // smbx2compat
 
 #define GM_BASE             0x00B25000
 #define GM_END              0x00B2E000
@@ -44,5 +46,11 @@ num_t GetMem(Player_t *obj, size_t offset, FIELDTYPE ftype);
 void MemAssign(NPC_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype);
 bool CheckMem(NPC_t *obj, size_t offset, num_t value, COMPARETYPE ctype, FIELDTYPE ftype);
 num_t GetMem(NPC_t *obj, size_t offset, FIELDTYPE ftype);
+
+// smbx2compat: Block and BGO relative, for SMBX2 scripts
+void MemAssign(Block_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype);
+num_t GetMem(Block_t *obj, size_t offset, FIELDTYPE ftype);
+void MemAssign(Background_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype);
+num_t GetMem(Background_t *obj, size_t offset, FIELDTYPE ftype);
 
 #endif // MEMEMU_H

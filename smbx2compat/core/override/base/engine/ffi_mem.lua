@@ -1,8 +1,10 @@
 --[[
   smbx2compat core: replaces SMBX2's base/engine/ffi_mem.lua, which reads and
-  writes SMBX 1.3's process memory through raw pointers. TheXTech emulates the
-  global part of that memory (src/script/luna/mememu.cpp); object memory
-  (players, NPCs, blocks, ...) is Phase 2.
+  writes SMBX 1.3's process memory through raw pointers. Here every address
+  goes to the engine (xtech_mem_get/set in xtech_lua_bindings.cpp): globals go
+  to TheXTech's memory emulator (src/script/luna/mememu.cpp), and the object
+  arrays (players, NPCs, blocks, BGOs) to the matching object's fields. The
+  engine logs each address it doesn't know once.
 ]]
 
 local core = __smbx2core
@@ -12,27 +14,7 @@ local FIELD_WORD = FIELD_WORD
 local FIELD_STRING = FIELD_STRING
 local FIELD_BOOL = FIELD_BOOL
 
--- mememu.h: GM_BASE..GM_END
-local GLOBAL_FIRST = 0x00B25000
-local GLOBAL_LAST  = 0x00B2E000
-
-local function isGlobal(addr)
-    return addr >= GLOBAL_FIRST and addr <= GLOBAL_LAST
-end
-
--- One "missing" entry for all object memory; the first address is logged for a clue
-local function objectMemory(what, addr)
-    if not core.missing["mem() " .. what] then
-        core.warn(string.format("first mem() %s outside globals: 0x%08X", what, addr))
-    end
-    core.missingAPI("mem() " .. what)
-end
-
 local function readmem(addr, dtype)
-    if not isGlobal(addr) then
-        objectMemory("reads", addr)
-        return (dtype == FIELD_BOOL) and false or 0
-    end
     if (dtype == FIELD_STRING) then
         core.missingAPI("mem() strings")
         return ""
@@ -43,10 +25,6 @@ local function readmem(addr, dtype)
 end
 
 local function writemem(addr, dtype, val)
-    if not isGlobal(addr) then
-        objectMemory("writes", addr)
-        return
-    end
     if (dtype == FIELD_STRING) then
         core.missingAPI("mem() strings")
     elseif (dtype == FIELD_BOOL) then

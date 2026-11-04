@@ -403,6 +403,12 @@ function dll.LunaLuaGetRawKeymapArray()
     return rawKeymap
 end
 
+-- Player(1000 + id): the stored state of a character not in play. These live in
+-- the engine's mem() emulation (xtech_mem_get), 0 for IDs it has no room for.
+function dll.LunaLuaGetTemplateAddressForCharacter(id)
+    return xtech_mem_templateAddress(id)
+end
+
 -- Zero-terminated. TheXTech has SMBX 1.3's five characters.
 local characterIds
 function dll.LunaLuaGetValidCharacterIDArray()

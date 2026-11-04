@@ -198,30 +198,48 @@ objects); `Player` fields (`_ptr` nil: object memory); drawing (`FFI_TextDraw`,
 `Graphics.drawImage`). Object memory reads/writes return 0 (Phase 2), and the NPC
 and block property tables (`npc-n.txt` config) point at address 0 until then.
 
+*Done in the next round (2026-11-04):*
+- **Custom params.** Blocks, BGOs and NPCs keep their level-file JSON in a new
+  `CustomParams` field (an index into `g_objectCustomParams`, so it survives
+  TheXTech's post-load sorting); level and section params are kept too.
+  `xtech_misc_customParams` hands them to `core/extrasettings.lua`, a port of
+  LunaLua's config-pack defaults merge (`config_manager.cpp`), reading
+  `PGE/configs/SMBX2-Integration` (its .ini/.json files were extracted from the
+  bundle) and `scripts/extra-settings`.
+- **SMATRS 1-1 boots in core mode** and runs its episode scripts; it first
+  segfaulted on `LunaLuaAlloc` returning nothing (now LuaJIT buffers kept
+  for a frame). `run-level.sh` force-kills a game stuck in its crash dialog.
+- **Phase 2 started: object memory.** `xtech_mem_get/set` answer the pointer
+  globals for players (`0x00B25A20`), NPCs (`0x00B259E8`), blocks (`0x00B25A04`)
+  and BGOs (`0x00B259B0`) with made-up base addresses (`0x10000000`... in
+  `xtech_lua_bindings.cpp`) and map `base + idx*size + offset` to the object
+  through mememu. New in mememu: `BlockMemory`, `BackgroundMemory`, NPC `0x64`
+  (generator) and globals `qScreen`/`selSave`. Character templates
+  (`Player(1000+id)`) are our own `Player_t` copies. MemEmu log warnings went
+  from ~34,000 to ~100 per 15 s run.
+
+*Where bonus1 and SMATRS 1-1 stand:* both run without crashing; the two
+remaining script errors are `PlayerSettings` (a LunaLua class: per-character
+hitboxes, grab and sprite offsets) and `darkness.lua` reading NPC/BGO config.
+1-1 also has 863 objects with SMBX2-only IDs, which the engine resets to ID 1
+on load (Phase 3).
+
 *Next round, in order:*
-1. **Custom params** (`ffi_customparams.lua`). LunaLua exports
-   (`LuaProxyFFI.cpp` ~187–260): `LunaLuaGet{Level,Section,Npc,Bgo,Block}CustomParams`
-   return the level file's JSON strings (`const char**`, indexed like the object
-   arrays, 0-based) and `LunaLuaGetDefault*CustomParams` the defaults from
-   `npc-n.txt`/config. PGE already parses them (`custom_params` on LevelNPC,
-   LevelBGO, LevelBlock, LevelSection, level head in `lvl_filedata.h`), but
-   `src/main/level_file.cpp` drops them; keep them per object at load (check
-   whether TheXTech reorders blocks/BGOs, e.g. sorting, so indexes still match)
-   and expose a binding. Note `NPC.count()` reads object memory, so these loops
-   only really run after Phase 2; until then return empty arrays (NULL-safe).
-2. **SMATRS 1-1 in core mode** (`run-level.sh "../TheXTech-data/smatrs/SMATRS
-   Chapter 1+2/<1-1 file>"`; check the exact path): collect its first errors
-   and missing list, compare with bonus1's.
-3. **Phase 2 start: object memory.** `ffi_player` reads `mem(0x00B25A20)` for the
-   player array base, then `mem(base + idx*0x184 + offset)`; same pattern for NPCs
-   (`0x00B259E8`), blocks, BGOs, etc. (the `MemEmu: Unknown SInt32 address`
-   warnings list the pointers asked for). Plan: `ffi_mem.lua` hands out fake base
-   addresses for those pointers and turns `base + idx*stride + offset` back into
-   (array, idx, offset), forwarding to mememu's per-object `GetMem(Player_t*/NPC_t*,
-   offset)` through new bindings. Strides are in LunaLua's `SMBXInternal/*.h`.
-Load time is ~2.3 s in the Debug build (sprite lookups for every BGO/NPC ID);
-check again in Release before optimizing.
-### Phase 2 — `mem()` and object classes
+1. **Property tables** (`Misc.__getNPCPropertyTableAddress` /
+   `__getBlockPropertyTableAddress`, still 0): `npcconfig_core.lua` /
+   `blockconfig_core.lua` read NPC/block config as `mem(table + id*size)`; give
+   them made-up regions too, backed by TheXTech's traits (`NPCTraits`,
+   `BlockIsSizable`, ...). Fixes `darkness.lua` and the reads near address 0
+   logged as "mem() read outside emulated memory".
+2. **`PlayerSettings`** in `core/classes.lua` over a binding to TheXTech's
+   per-character hitbox tables (LunaLua: `LuaProxyPlayerSettings.cpp`).
+3. **The other arrays:** layers (`0x00B2C6B0`), events (`0x00B2C6CC`), warps
+   (`0x00B258F4`), water (`0x00B256F4`), section tables and camera
+   (`ffi_section.lua`, `ffi_camera.lua`); the remaining MemEmu warnings list them.
+4. **`mem()` strings** (layer/event names on objects), then Phase 3 IDs.
+Load time is ~2.5 s in the Debug build; check again in Release before optimizing.
+
+### Phase 2 — `mem()` and object classes (started 2026-11-04)
 - Lua `mem(addr, FIELD_*)` and `obj:mem(off, FIELD_*)` backed by `mememu`.
   Extend `mememu` to cover the offsets SMATRS and the libraries use (start with
   the 16 + 92 measured above), plus `Block`/`BGO`/`Layer`/`Section` objects.

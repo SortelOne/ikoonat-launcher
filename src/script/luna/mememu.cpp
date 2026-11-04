@@ -601,6 +601,8 @@ public:
     void buildTable()
     {
         insert(0x00B2504C, &TakeScreen);
+        insert(0x00B2B9E4, &qScreen); // smbx2compat: camera is panning between sections
+        insert(0x00B2C62A, &selSave); // smbx2compat: current save slot
         insert(0x00B250D6, &numLocked);
         insert(0x00B250E2, // Pause menu visible
             [](FIELDTYPE ftype)->num_t
@@ -1981,6 +1983,24 @@ public:
         //             NPCQueues::Active.erase(n);
         //     }
         // );
+        // smbx2compat: SMBX2 reads this for every NPC every frame (NPC.get skips generators)
+        insert(0x00000064, // Generator
+            [](const NPC_t& n, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((bool)n.Generator, ftype);
+            },
+            [](NPC_t& n, num_t in, FIELDTYPE ftype)->void
+            {
+                bool temp = n.Generator;
+                memToValue(temp, in, ftype);
+                n.Generator = temp;
+
+                if(n.Generator)
+                    NPCQueues::Active.insert(n);
+                else if(!NPCQueues::check_active(n))
+                    NPCQueues::Active.erase(n);
+            }
+        );
         // all removed
         // insert(0x00000068, &NPC_t::GeneratorTimeMax);
         // insert(0x0000006c, &NPC_t::GeneratorTime);
@@ -2257,9 +2277,164 @@ public:
     }
 };
 
+
+// smbx2compat: SMBX 1.3's Block layout (0x68 bytes; LunaLua's SMBXInternal/Blocks.h),
+// for SMBX2 scripts. Strings (event and layer names) aren't mapped yet.
+static constexpr char block_t_name[] = "Block_t";
+typedef SMBXObjectMemoryEmulator<Block_t, block_t_name, 0x68> BlockParent;
+class BlockMemory final : public BlockParent
+{
+public:
+    BlockMemory() noexcept : BlockParent()
+    {
+        buildTable();
+    }
+
+    void buildTable()
+    {
+        insert(0x00, &Block_t::Slippy);
+        insert(0x02, // RespawnDelay
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)b.RespawnDelay_ScreensLeft, ftype);
+            },
+            [](Block_t& b, num_t in, FIELDTYPE ftype)->void
+            {
+                int temp = 0;
+                memToValue(temp, in, ftype);
+                b.RespawnDelay_ScreensLeft = (uint16_t)temp;
+            }
+        );
+        insert(0x04, &Block_t::RapidHit);
+        insert(0x06, &Block_t::DefaultType);
+        insert(0x08, &Block_t::DefaultSpecial);
+        // 0x0C..0x1B: TriggerHit, TriggerDeath, TriggerLast, Layer (strings)
+        insert(0x1C, &Block_t::Hidden);
+        insert(0x1E, &Block_t::Type);
+        // 0x20..0x4F: Location (getValue/setValue)
+        insert(0x50, &Block_t::Special);
+        // 0x52..0x57: ShakeY, ShakeY2, ShakeY3; TheXTech keeps one counter and offset
+        insert(0x56, // ShakeY3: the render offset
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)b.ShakeOffset, ftype);
+            },
+            [](Block_t& b, num_t in, FIELDTYPE ftype)->void
+            {
+                int temp = 0;
+                memToValue(temp, in, ftype);
+                b.ShakeOffset = (int8_t)temp;
+            }
+        );
+        insert(0x58, &Block_t::Kill);
+        insert(0x5A, &Block_t::Invis);
+        insert(0x5C, // NPC: what a P-Switch coin block turns back into
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)b.coinSwitchNpcType, ftype);
+            },
+            [](Block_t& b, num_t in, FIELDTYPE ftype)->void
+            {
+                int temp = 0;
+                memToValue(temp, in, ftype);
+                b.coinSwitchNpcType = NPCID(temp);
+            }
+        );
+        insert(0x5E, &Block_t::tempBlockVehiclePlr);
+        insert(0x60, // IsNPC
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)b.tempBlockNpcType, ftype);
+            },
+            [](Block_t& b, num_t in, FIELDTYPE ftype)->void
+            {
+                int temp = 0;
+                memToValue(temp, in, ftype);
+                b.tempBlockNpcType = NPCID(temp);
+            }
+        );
+        insert(0x62, &Block_t::tempBlockVehicleYOffset);
+        // 0x64: noProjClipping (derived in TheXTech: tempBlockNoProjClipping())
+        insert(0x66, &Block_t::tempBlockNpcIdx);
+    }
+
+    num_t getValue(Block_t *obj, size_t address, FIELDTYPE ftype) override
+    {
+        if(address >= 0x20 && address < 0x50) // Location
+            return s_locMem.getValue(&obj->Location, address - 0x20, ftype);
+        return BlockParent::getValue(obj, address, ftype);
+    }
+
+    void setValue(Block_t *obj, size_t address, num_t value, FIELDTYPE ftype) override
+    {
+        if(address >= 0x20 && address < 0x50) // Location
+            s_locMem.setValue(&obj->Location, address - 0x20, value, ftype);
+        else
+            BlockParent::setValue(obj, address, value, ftype);
+
+        // moved, resized or hidden: update the block's place in the collision trees
+        if((address >= 0x20 && address < 0x40) || address == 0x1C)
+        {
+            int index = obj - &Block[0];
+            if(index >= 0 && index <= maxBlocks)
+                syncLayersTrees_Block(index);
+        }
+    }
+};
+
+// smbx2compat: SMBX 1.3's BGO layout (0x38 bytes; LunaLua's SMBXInternal/BGOs.h).
+// BGOs have no speed in TheXTech: speeds read 0 and writes are dropped.
+static constexpr char background_t_name[] = "Background_t";
+typedef SMBXObjectMemoryEmulator<Background_t, background_t_name, 0x38> BackgroundParent;
+class BackgroundMemory final : public BackgroundParent
+{
+public:
+    BackgroundMemory() noexcept : BackgroundParent()
+    {
+        buildTable();
+    }
+
+    void buildTable()
+    {
+        // 0x00: Layer (string)
+        insert(0x04, &Background_t::Hidden);
+        insert(0x06, &Background_t::Type);
+        // 0x08..0x37: Location (getValue/setValue)
+    }
+
+    num_t getValue(Background_t *obj, size_t address, FIELDTYPE ftype) override
+    {
+        if(address >= 0x08 && address < 0x28) // Location
+            return s_spLocMem.getValue(&obj->Location, address - 0x08, ftype);
+        else if(address >= 0x28 && address < 0x38) // SpeedX, SpeedY
+            return 0;
+        return BackgroundParent::getValue(obj, address, ftype);
+    }
+
+    void setValue(Background_t *obj, size_t address, num_t value, FIELDTYPE ftype) override
+    {
+        if(address >= 0x28 && address < 0x38) // SpeedX, SpeedY
+            return;
+
+        if(address >= 0x08 && address < 0x28) // Location
+            s_spLocMem.setValue(&obj->Location, address - 0x08, value, ftype);
+        else
+            BackgroundParent::setValue(obj, address, value, ftype);
+
+        if((address >= 0x08 && address < 0x28) || address == 0x04 || address == 0x06)
+        {
+            int index = obj - &Background[1] + 1;
+            if(index >= 1 && index <= maxBackgrounds + maxWarps)
+                syncLayers_BGO(index);
+        }
+    }
+};
+
 static SMBXMemoryEmulator   s_emu;
 static PlayerMemory         s_emuPlayer;
 static NPCMemory            s_emuNPC;
+static BlockMemory          s_emuBlock; // smbx2compat
+static BackgroundMemory     s_emuBackground; // smbx2compat
 
 template<typename T, class D>
 SDL_FORCE_INLINE void opAdd(D &mem, size_t addr, num_t o2, FIELDTYPE ftype)
@@ -3011,4 +3186,26 @@ num_t GetMem(NPC_t *obj, size_t offset, FIELDTYPE ftype)
 #else
     return s_emuNPC.getValue(obj, offset, ftype);
 #endif
+}
+
+
+// smbx2compat: blocks and BGOs, for SMBX2 scripts
+void MemAssign(Block_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype)
+{
+    MemAssignType(s_emuBlock, obj, address, value, operation, ftype);
+}
+
+num_t GetMem(Block_t *obj, size_t offset, FIELDTYPE ftype)
+{
+    return s_emuBlock.getValue(obj, offset, ftype);
+}
+
+void MemAssign(Background_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype)
+{
+    MemAssignType(s_emuBackground, obj, address, value, operation, ftype);
+}
+
+num_t GetMem(Background_t *obj, size_t offset, FIELDTYPE ftype)
+{
+    return s_emuBackground.getValue(obj, offset, ftype);
 }

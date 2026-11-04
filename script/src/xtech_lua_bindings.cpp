@@ -23,6 +23,7 @@
 #include <list>
 #include <vector>
 #include <map>
+#include <set>
 #include <memory>
 #include <chrono>
 
@@ -2015,15 +2016,149 @@ static double misc_clock()
     return duration<double>(steady_clock::now().time_since_epoch()).count();
 }
 
-// smbx2compat: SMBX2's mem() on global addresses, through TheXTech's memory emulator
-static num_t mem_get(unsigned int addr, int ftype)
+// smbx2compat: SMBX2's mem(), through TheXTech's memory emulator (mememu).
+// Globals map directly. For SMBX 1.3's object arrays, SMBX2 reads each array's
+// address from a pointer global (mem(0x00B25A20, FIELD_DWORD) for the players)
+// and adds index * struct size + field offset; we hand out a made-up address
+// per array, far from the globals, and turn those sums back into an object and
+// an offset. Character templates (LunaLua's getTemplateForCharacter) are our
+// own Player_t copies, since TheXTech has none.
+enum ObjMemKind
 {
-    return GetMem(addr, static_cast<FIELDTYPE>(ftype));
+    OBJMEM_PLAYER,
+    OBJMEM_NPC,
+    OBJMEM_BLOCK,
+    OBJMEM_BGO,
+    OBJMEM_TEMPLATE,
+};
+
+struct ObjMemArray
+{
+    unsigned pointerGlobal; //!< where SMBX 1.3 keeps the array's address (0 = none)
+    ObjMemKind kind;
+    unsigned base;          //!< made-up address of the first element
+    unsigned size;          //!< struct size in SMBX 1.3
+    int first;              //!< index of the first element (VB6 lower bound)
+    int last;
+};
+
+static constexpr int c_numTemplates = 32;
+static Player_t s_templatePlayers[c_numTemplates];
+
+static const ObjMemArray s_objMemArrays[] =
+{
+    {0x00B25A20, OBJMEM_PLAYER,   0x10000000, 0x184, 0,    maxPlayers},
+    {0x00B259E8, OBJMEM_NPC,      0x11000000, 0x158, -128, maxNPCs},
+    {0x00B25A04, OBJMEM_BLOCK,    0x12000000, 0x68,  0,    maxBlocks},
+    {0x00B259B0, OBJMEM_BGO,      0x13000000, 0x38,  1,    maxBackgrounds + maxWarps},
+    {0,          OBJMEM_TEMPLATE, 0x14000000, 0x184, 0,    c_numTemplates - 1},
+};
+
+static const ObjMemArray *objMemArrayAt(unsigned addr, int &index, unsigned &offset)
+{
+    for(const auto &a : s_objMemArrays)
+    {
+        unsigned end = a.base + a.size * (unsigned)(a.last - a.first + 1);
+        if(addr >= a.base && addr < end)
+        {
+            index = a.first + (int)((addr - a.base) / a.size);
+            offset = (addr - a.base) % a.size;
+            return &a;
+        }
+    }
+    return nullptr;
+}
+
+// Each unknown address is logged once
+static void mem_unknown(const char *what, unsigned addr)
+{
+    static std::set<unsigned> s_logged;
+    if(s_logged.size() < 100 && s_logged.insert(addr).second)
+        pLogWarning("smbx2compat: mem() %s outside emulated memory: 0x%08X", what, addr);
+}
+
+static double mem_get(unsigned int addr, int ftype)
+{
+    FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
+
+    for(const auto &a : s_objMemArrays)
+    {
+        if(a.pointerGlobal != 0 && addr == a.pointerGlobal)
+            return (double)a.base;
+    }
+
+    int index;
+    unsigned offset;
+    if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
+    {
+        switch(a->kind)
+        {
+        case OBJMEM_PLAYER:
+            return (double)GetMem(&Player[index], offset, ft);
+        case OBJMEM_NPC:
+            return (double)GetMem(&NPC[index], offset, ft);
+        case OBJMEM_BLOCK:
+            return (double)GetMem(&Block[index], offset, ft);
+        case OBJMEM_BGO:
+            return (double)GetMem(&Background[index], offset, ft);
+        case OBJMEM_TEMPLATE:
+            return (double)GetMem(&s_templatePlayers[index], offset, ft);
+        }
+    }
+
+    if(addr >= GM_BASE && addr < GM_END)
+        return (double)GetMem(addr, ft);
+
+    mem_unknown("read", addr);
+    return 0;
 }
 
 static void mem_set(unsigned int addr, int ftype, num_t value)
 {
-    MemAssign(addr, value, OP_Assign, static_cast<FIELDTYPE>(ftype));
+    FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
+
+    int index;
+    unsigned offset;
+    if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
+    {
+        switch(a->kind)
+        {
+        case OBJMEM_PLAYER:
+            MemAssign(&Player[index], offset, value, OP_Assign, ft);
+            return;
+        case OBJMEM_NPC:
+            MemAssign(&NPC[index], offset, value, OP_Assign, ft);
+            return;
+        case OBJMEM_BLOCK:
+            MemAssign(&Block[index], offset, value, OP_Assign, ft);
+            return;
+        case OBJMEM_BGO:
+            MemAssign(&Background[index], offset, value, OP_Assign, ft);
+            return;
+        case OBJMEM_TEMPLATE:
+            MemAssign(&s_templatePlayers[index], offset, value, OP_Assign, ft);
+            return;
+        }
+    }
+
+    if(addr >= GM_BASE && addr < GM_END)
+    {
+        MemAssign(addr, value, OP_Assign, ft);
+        return;
+    }
+
+    mem_unknown("write", addr);
+}
+
+// Address of the character template for LunaLua's character ID, 0 if none
+static unsigned mem_templateAddress(int character)
+{
+    for(const auto &a : s_objMemArrays)
+    {
+        if(a.kind == OBJMEM_TEMPLATE && character >= a.first && character <= a.last)
+            return a.base + a.size * (unsigned)(character - a.first);
+    }
+    return 0;
 }
 
 } // namespace LuaMisc
@@ -2895,6 +3030,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_imagePixels", &LuaMisc::misc_imagePixels), // smbx2compat
         def("xtech_mem_get", &LuaMisc::mem_get), // smbx2compat
         def("xtech_mem_set", &LuaMisc::mem_set), // smbx2compat
+        def("xtech_mem_templateAddress", &LuaMisc::mem_templateAddress), // smbx2compat
         // xtech_misc_wait: registered manually (luabind::object param)
         // P3: Sysval functions
         def("xtech_sysval_getLives", &LuaMisc::sysval_getLives),
