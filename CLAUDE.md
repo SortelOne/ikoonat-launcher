@@ -148,6 +148,11 @@ How it works (details in `core/boot.lua`'s header):
   Script errors log once as `[smbx2core] ==> file:line: message` with a traceback.
 - `run-level.sh` passes an absolute level path; LunaLua's episode paths are always
   absolute.
+- Reading a run: `grep -n "Lua: \|Lua error\|smbx2core" <log> | grep -v MemEmu`;
+  a distinct-error tally: `grep "==>" <log> | sed 's/.*==> //' | sort | uniq -c`.
+  The Lua files under `core/` can be syntax-checked with the system LuaJIT
+  (`/opt/homebrew/bin/luajit -e "assert(loadfile('f.lua'))"`); it runs here,
+  unlike `build/output/bin/luajit`.
 
 ## Lua error handling
 

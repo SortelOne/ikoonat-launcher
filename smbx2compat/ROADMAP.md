@@ -198,7 +198,27 @@ objects); `Player` fields (`_ptr` nil: object memory); drawing (`FFI_TextDraw`,
 `Graphics.drawImage`). Object memory reads/writes return 0 (Phase 2), and the NPC
 and block property tables (`npc-n.txt` config) point at address 0 until then.
 
-*Next:* custom params from the level file; then SMATRS 1-1 to see its own list.
+*Next round, in order:*
+1. **Custom params** (`ffi_customparams.lua`). LunaLua exports
+   (`LuaProxyFFI.cpp` ~187–260): `LunaLuaGet{Level,Section,Npc,Bgo,Block}CustomParams`
+   return the level file's JSON strings (`const char**`, indexed like the object
+   arrays, 0-based) and `LunaLuaGetDefault*CustomParams` the defaults from
+   `npc-n.txt`/config. PGE already parses them (`custom_params` on LevelNPC,
+   LevelBGO, LevelBlock, LevelSection, level head in `lvl_filedata.h`), but
+   `src/main/level_file.cpp` drops them; keep them per object at load (check
+   whether TheXTech reorders blocks/BGOs, e.g. sorting, so indexes still match)
+   and expose a binding. Note `NPC.count()` reads object memory, so these loops
+   only really run after Phase 2; until then return empty arrays (NULL-safe).
+2. **SMATRS 1-1 in core mode** (`run-level.sh "../TheXTech-data/smatrs/SMATRS
+   Chapter 1+2/<1-1 file>"`; check the exact path): collect its first errors
+   and missing list, compare with bonus1's.
+3. **Phase 2 start: object memory.** `ffi_player` reads `mem(0x00B25A20)` for the
+   player array base, then `mem(base + idx*0x184 + offset)`; same pattern for NPCs
+   (`0x00B259E8`), blocks, BGOs, etc. (the `MemEmu: Unknown SInt32 address`
+   warnings list the pointers asked for). Plan: `ffi_mem.lua` hands out fake base
+   addresses for those pointers and turns `base + idx*stride + offset` back into
+   (array, idx, offset), forwarding to mememu's per-object `GetMem(Player_t*/NPC_t*,
+   offset)` through new bindings. Strides are in LunaLua's `SMBXInternal/*.h`.
 Load time is ~2.3 s in the Debug build (sprite lookups for every BGO/NPC ID);
 check again in Release before optimizing.
 ### Phase 2 — `mem()` and object classes
