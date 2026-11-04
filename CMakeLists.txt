@@ -1425,8 +1425,8 @@ if(APPLE)
         target_link_libraries(A2XT_Int INTERFACE iconv)
     endif()
 
-    if(PGE_USE_LUAJIT)
-        # Required to link on 64-bit macOS
+    if(PGE_USE_LUAJIT AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+        # Required to link on 64-bit Intel macOS (Apple Silicon kills binaries with a custom __PAGEZERO)
         # See: http://luajit.org/install.html
         set_property(TARGET thextech APPEND_STRING PROPERTY
             LINK_FLAGS " -pagezero_size 10000 -image_base 100000000"
