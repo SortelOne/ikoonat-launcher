@@ -143,11 +143,19 @@ How it works (details in `core/boot.lua`'s header):
   (only `lockdown.lua` and `ffi_mem.lua` so far), and `core/patches.lua` lists
   in-memory source edits.
 - `mem()` (`override/.../ffi_mem.lua`) sends every address to `xtech_mem_get/set`
-  in `xtech_lua_bindings.cpp`: globals go to mememu, and object arrays are
-  made-up address ranges (`s_objMemArrays`) mapped onto engine objects through
-  mememu's per-object emulators (`PlayerMemory`, `NPCMemory`, `BlockMemory`,
-  `BackgroundMemory` in `src/script/luna/mememu.cpp`). Unknown addresses log
-  once as `smbx2compat: mem() read outside emulated memory`.
+  (strings: `xtech_mem_getString/setString`) in `xtech_lua_bindings.cpp`.
+  Globals go to mememu. SMBX keeps arrays behind pointer globals; each gets a
+  made-up address range:
+  - `s_objMemArrays`: struct arrays. Players/NPCs/blocks/BGOs go through
+    mememu's per-object emulators (`PlayerMemory`, `NPCMemory`, `BlockMemory`,
+    `BackgroundMemory` in `src/script/luna/mememu.cpp`); layers, events, warps,
+    water, cameras, and every object's string fields go through the `MemField`
+    tables next to it (SMBX offset -> engine getter/setter).
+  - `s_memTypeArrays`: arrays of one value per ID or section (NPC/block
+    config, section bounds, ...). IDs past the engine's limits are storage.
+  Unknown addresses log once as `smbx2compat: mem() read outside emulated
+  memory`. To find who reads one, temporarily log `debug.traceback()` in
+  `ffi_mem.lua`'s `readmem` for that address range.
 - Custom params: the `CustomParams` field on `Block_t`/`Background_t`/`NPC_t`
   (set in `level_file.cpp`) + `core/extrasettings.lua` (needs SMBX2's
   `PGE/configs/SMBX2-Integration` .ini/.json files in the data folder).
@@ -180,10 +188,10 @@ How it works (details in `core/boot.lua`'s header):
 
 ## Known issues
 
-- In core mode, `smoke/bonus1` and SMATRS 1-1 boot and run; players, NPCs,
-  blocks and BGOs are in `mem()`, but property tables, layers/events/warps/water/
-  sections, `mem()` strings, `PlayerSettings`, drawing and most audio are still
-  missing, and SMBX2-only IDs load as ID 1. See ROADMAP.md Phase 1 "Next round".
+- In core mode, `smoke/bonus1` and SMATRS 1-1 boot and run with no unknown
+  `mem()` addresses; `FileFormats`, collision groups, drawing and most audio
+  are still missing, and SMBX2-only IDs load as ID 1. See ROADMAP.md Phase 1
+  "Next round".
 
 ## Game data (not in git)
 

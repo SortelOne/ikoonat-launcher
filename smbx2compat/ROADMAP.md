@@ -224,19 +224,55 @@ hitboxes, grab and sprite offsets) and `darkness.lua` reading NPC/BGO config.
 1-1 also has 863 objects with SMBX2-only IDs, which the engine resets to ID 1
 on load (Phase 3).
 
+*Done in the third round (2026-11-04), all in `xtech_lua_bindings.cpp` unless noted:*
+- **Type arrays** (`s_memTypeArrays`): SMBX's per-type arrays behind pointer
+  globals: the 40 NPC config arrays (`NPCWidth` ... `NPCFrameStyle`, onto
+  `NPCTraits`), the block ones (`BlockIsSizable`, slopes, sizes, frames, lava,
+  ...), `BackgroundFence`, camera X/Y, section tables (bounds, music,
+  background, wrap, underwater, ...), `iBlock`, the event queue delays, tile/
+  scene/level frames. LunaLua's extended NPC/block properties
+  (`Misc.__getNPCPropertyTableAddress`) are plain storage. IDs past the engine's
+  limits (SMBX2 goes to 1000 NPCs / 2000 blocks / 1000 BGOs) are storage too, so
+  `npc-N.txt` values for SMBX2's own NPCs read back.
+- **`PlayerSettings`** (`core/classes.lua`) over `Physics.PlayerWidth/Height/
+  DuckHeight/GrabSpotX/Y` and `PlayerFrameX/Y`. This was what stopped
+  `lunabase.lua` at line 6, and with it `bgoconfig` (the `darkness.lua` error).
+- **Struct arrays without a mememu emulator** (`MemField` tables): layers,
+  events (SMBX2's `ffi_events.lua` layout, stride 0x588, which is 8 bytes off
+  LunaLua's `Types.h`), warps, water, cameras (`vScreen`), the event queue
+  (`NewEvent`) and section music paths.
+- **`mem()` strings**: `xtech_mem_getString/setString`. Object fields map
+  layer/event names onto TheXTech's indexes (`FindLayer`/`FindEvent` + the
+  `syncLayers_*` call); globals come from mememu (`GetMemString`). A string
+  field read as a DWORD gives 0 when empty, which `ffi_layer.lua` relies on.
+- mememu: `LevelMacro` (win state), `ScreenShake` (writes shake the screen),
+  `ClearBuffer`, `selWorld`, `GoToLevel`, `iBlocks`, checkpoint and file-name
+  strings; `0xB2D710` is now `newEventNum` (it was mapped to `numEvents`, which
+  SMBX doesn't store); NPC `Special`..`Special5` take doubles without warnings.
+- Compromises: the block lookup (`FirstBlock`/`LastBlock`) spans all blocks, so
+  `Block.iterateIntersecting` scans everything; the sizable list is rebuilt from
+  the engine when its length is read; NPC traits TheXTech derives from the ID
+  (`isyoshi`, `isshoe`, ...) are read-only; water `Buoy` reads 0.
+
+*Where bonus1 and SMATRS 1-1 stand now:* no unknown `mem()` addresses; ~15 MemEmu
+lines per run (episode list `0xB250FC` and one-time float writes to physics
+globals). Errors, each logged once:
+- `editorevents.lua:495` `FileFormats` (LunaLua namespace) and, after it,
+  `editorevents.lua:702` `beatTimer`;
+- `ffi_player.lua:252` `ffiGroup`: collision groups
+  (`LunaLuaCollisionMatrixGetGroupFromIndex`);
+- SMATRS: `graphicalQuality.lua:34` (`section.darkness` nil),
+  `extraBGOProperties.lua:314` (per-section BGO list nil),
+  `ambientSound.lua:91` (audio sources), `debugtools.lua:136`;
+- bonus1: `ffi_graphics.lua:1598` (`img` type), `npc-21.lua:42`.
+
 *Next round, in order:*
-1. **Property tables** (`Misc.__getNPCPropertyTableAddress` /
-   `__getBlockPropertyTableAddress`, still 0): `npcconfig_core.lua` /
-   `blockconfig_core.lua` read NPC/block config as `mem(table + id*size)`; give
-   them made-up regions too, backed by TheXTech's traits (`NPCTraits`,
-   `BlockIsSizable`, ...). Fixes `darkness.lua` and the reads near address 0
-   logged as "mem() read outside emulated memory".
-2. **`PlayerSettings`** in `core/classes.lua` over a binding to TheXTech's
-   per-character hitbox tables (LunaLua: `LuaProxyPlayerSettings.cpp`).
-3. **The other arrays:** layers (`0x00B2C6B0`), events (`0x00B2C6CC`), warps
-   (`0x00B258F4`), water (`0x00B256F4`), section tables and camera
-   (`ffi_section.lua`, `ffi_camera.lua`); the remaining MemEmu warnings list them.
-4. **`mem()` strings** (layer/event names on objects), then Phase 3 IDs.
+1. **`FileFormats`** (LunaLua's level/world file reader for Lua; TheXTech has
+   PGE built in) and the collision matrix exports.
+2. **SMATRS's section darkness and BGO lists**: find why `section.darkness`
+   is never made (the darkness/section-settings `onStart` chain).
+3. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`) and
+   **audio** (Phase 5); then Phase 3 IDs.
 Load time is ~2.5 s in the Debug build; check again in Release before optimizing.
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)

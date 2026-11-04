@@ -3,8 +3,8 @@
   SMBX2's ffi_*.lua files: LunaLuaMain.cpp's LUAHELPER_DEF_CLASS list. Loaded by
   boot.lua after host.lua.
 
-  Done: Animation (SMBX effects).
-  Not yet: PlayerSettings, Data, Logger, RECT/RECTd, Mix_Chunk,
+  Done: Animation (SMBX effects), PlayerSettings.
+  Not yet: Data, Logger, RECT/RECTd, Mix_Chunk,
   PlayingSfxInstance, NativeInputConfig; the world-map classes (World, Tile,
   Scenery, Path, Musicbox, Level objects) come with Phase 6.
 ]]
@@ -123,3 +123,87 @@ _G.Animation = setmetatable(Animation, {
         return animationAt(idx)
     end,
 })
+
+
+--------------------
+-- PlayerSettings --
+--------------------
+-- Hitbox, grab spot and sprite offsets per character and powerup
+-- (LuaProxyPlayerSettings.cpp); the engine keeps them in Physics and
+-- PlayerFrameX/Y. LunaLua raises an error for a bad character or powerup.
+
+local settingsGet = xtech_playerSettings_get
+local settingsSet = xtech_playerSettings_set
+local NUM_CHARACTERS = 50 -- numCharacters in global_constants.h
+local NUM_STATES = 50     -- numStates
+
+local PlayerSettings = {}
+local PlayerSettingsMT = { __type = "PlayerSettings" }
+
+local settingsFields = {
+    hitboxWidth = true,
+    hitboxHeight = true,
+    hitboxDuckHeight = true,
+    grabOffsetX = true,
+    grabOffsetY = true,
+}
+
+local function checkSettings(character, powerup)
+    if type(character) ~= "number" or character < 1 or character > NUM_CHARACTERS then
+        error("Invalid character id " .. tostring(character) .. "!", 3)
+    end
+    if type(powerup) ~= "number" or powerup < 1 or powerup > NUM_STATES then
+        error("Invalid powerup id " .. tostring(powerup) .. "!", 3)
+    end
+end
+
+local function spriteOffset(self, y, indexX, indexY, value)
+    checkSettings(self.character, self.powerup)
+    local ok
+    if value == nil then
+        ok = xtech_playerSettings_getSpriteOffset(self.character, self.powerup, y, indexX, indexY)
+    else
+        ok = xtech_playerSettings_setSpriteOffset(self.character, self.powerup, y, indexX, indexY, value)
+    end
+    if not ok then
+        error(string.format("indexX (%d) with indexY (%d) are invalid coordinate indexes", indexX, indexY), 3)
+    end
+    return ok
+end
+
+local methods = {
+    getSpriteOffsetX = function(self, x, y) return spriteOffset(self, false, x, y) end,
+    getSpriteOffsetY = function(self, x, y) return spriteOffset(self, true, x, y) end,
+    setSpriteOffsetX = function(self, x, y, v) spriteOffset(self, false, x, y, v) end,
+    setSpriteOffsetY = function(self, x, y, v) spriteOffset(self, true, x, y, v) end,
+}
+
+PlayerSettingsMT.__index = function(self, key)
+    if settingsFields[key] then
+        checkSettings(rawget(self, "character"), rawget(self, "powerup"))
+        return settingsGet(rawget(self, "character"), rawget(self, "powerup"), key)
+    end
+    local method = methods[key]
+    if method == nil then
+        core.missingAPI("PlayerSettings." .. tostring(key))
+    end
+    return method
+end
+
+PlayerSettingsMT.__newindex = function(self, key, value)
+    if settingsFields[key] then
+        checkSettings(rawget(self, "character"), rawget(self, "powerup"))
+        settingsSet(rawget(self, "character"), rawget(self, "powerup"), key, value)
+    elseif key == "character" or key == "powerup" then
+        rawset(self, key, value)
+    else
+        error("Cannot set PlayerSettings." .. tostring(key), 2)
+    end
+end
+
+function PlayerSettings.get(character, powerup)
+    checkSettings(character, powerup)
+    return setmetatable({ character = character, powerup = powerup }, PlayerSettingsMT)
+end
+
+_G.PlayerSettings = PlayerSettings

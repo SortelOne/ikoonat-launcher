@@ -152,16 +152,14 @@ Misc = hostTable("Misc", {
     __enablePerfTracker = stub("Misc.__enablePerfTracker"),
     __disablePerfTracker = stub("Misc.__disablePerfTracker"),
     __getPerfTrackerData = stub("Misc.__getPerfTrackerData"),
-    -- npcconfig_core/blockconfig_core read NPC/block properties at
-    -- address + stride * id. Address 0 until Phase 2 maps them onto the
-    -- engine's traits, so the reads land in ffi_mem's "outside globals" path (0).
+    -- npcconfig_core/blockconfig_core read LunaLua's extended NPC/block
+    -- properties at address + stride * id; the engine keeps them
+    -- (s_memTypeArrays in xtech_lua_bindings.cpp)
     __getNPCPropertyTableAddress = function(name)
-        core.missingAPI("NPC property tables (npc-n.txt config)")
-        return 0
+        return xtech_mem_propertyTableAddress("npc", name)
     end,
     __getBlockPropertyTableAddress = function(name)
-        core.missingAPI("block property tables (block-n.txt config)")
-        return 0
+        return xtech_mem_propertyTableAddress("block", name)
     end,
     npcToCoins = stub("Misc.npcToCoins"),
     doPOW = stub("Misc.doPOW"),

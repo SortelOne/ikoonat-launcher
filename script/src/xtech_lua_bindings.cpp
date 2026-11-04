@@ -26,6 +26,7 @@
 #include <set>
 #include <memory>
 #include <chrono>
+#include <algorithm> // smbx2compat: std::remove
 
 extern "C"
 {
@@ -58,6 +59,8 @@ extern "C"
 #include "core/msgbox.h"
 #include "game_main.h"
 #include "npc_traits.h"
+#include "npc_constant_traits.h" // smbx2compat: mem() NPC type arrays
+#include "screen.h" // smbx2compat: mem() camera arrays
 #include "effect.h"
 #include "main/cheat_code.h"
 #include "main/level_medals.h"
@@ -2021,8 +2024,352 @@ static double misc_clock()
 // address from a pointer global (mem(0x00B25A20, FIELD_DWORD) for the players)
 // and adds index * struct size + field offset; we hand out a made-up address
 // per array, far from the globals, and turn those sums back into an object and
-// an offset. Character templates (LunaLua's getTemplateForCharacter) are our
-// own Player_t copies, since TheXTech has none.
+// an offset. Players, NPCs, blocks and BGOs go to mememu's per-object
+// emulators; the structs it doesn't have (layers, events, warps, water) and
+// all string fields go to the field tables below. Character templates
+// (LunaLua's getTemplateForCharacter) are our own Player_t copies, since
+// TheXTech has none.
+
+// Names behind TheXTech's layer and event indexes ("" for none)
+static std::string memLayerName(layerindex_t l)
+{
+    return (l == LAYER_NONE) ? std::string() : Layer[l].Name;
+}
+
+static std::string memEventName(eventindex_t e)
+{
+    return (e == EVENT_NONE) ? std::string() : Events[e].Name;
+}
+
+// SMBX's Location_t is six doubles: X, Y, Height, Width, SpeedX, SpeedY.
+// Section bounds and event positions keep the bottom in Height and the right
+// edge in Width.
+static double memLocGet(const SpeedlessLocation_t &loc, int k)
+{
+    switch(k)
+    {
+    case 0:
+        return (double)loc.X;
+    case 1:
+        return (double)loc.Y;
+    case 2:
+        return (double)loc.Height;
+    case 3:
+        return (double)loc.Width;
+    default:
+        return 0; // no speed
+    }
+}
+
+static void memLocSet(SpeedlessLocation_t &loc, int k, double v)
+{
+    switch(k)
+    {
+    case 0:
+        loc.X = num_t(v, nullptr);
+        break;
+    case 1:
+        loc.Y = num_t(v, nullptr);
+        break;
+    case 2:
+        loc.Height = num_t(v, nullptr);
+        break;
+    case 3:
+        loc.Width = num_t(v, nullptr);
+        break;
+    default:
+        break;
+    }
+}
+
+static int32_t *memIntLoc(IntegerLocation_t &loc, int k)
+{
+    switch(k)
+    {
+    case 0:
+        return &loc.X;
+    case 1:
+        return &loc.Y;
+    case 2:
+        return &loc.Height;
+    case 3:
+        return &loc.Width;
+    default:
+        return nullptr;
+    }
+}
+
+static double memIntLocGet(IntegerLocation_t &loc, int k)
+{
+    int32_t *v = memIntLoc(loc, k);
+    return v ? *v : 0;
+}
+
+static void memIntLocSet(IntegerLocation_t &loc, int k, double v)
+{
+    if(int32_t *f = memIntLoc(loc, k))
+        *f = (int32_t)v;
+}
+
+// SMBX's Controls_t: ten VB6 booleans in this order
+static bool &memControl(Controls_t &c, int k)
+{
+    switch(k)
+    {
+    case 0:
+        return c.Up;
+    case 1:
+        return c.Down;
+    case 2:
+        return c.Left;
+    case 3:
+        return c.Right;
+    case 4:
+        return c.Jump;
+    case 5:
+        return c.AltJump;
+    case 6:
+        return c.Run;
+    case 7:
+        return c.AltRun;
+    case 8:
+        return c.Drop;
+    default:
+        return c.Start;
+    }
+}
+
+// An event's HideLayer/ShowLayer/ToggleLayer(0 To 20); TheXTech keeps only the set ones
+static std::string memLayerListGet(const std::vector<layerindex_t> &list, int k)
+{
+    return (k < (int)list.size()) ? memLayerName(list[k]) : std::string();
+}
+
+static void memLayerListSet(std::vector<layerindex_t> &list, int k, const std::string &name)
+{
+    if(k >= (int)list.size())
+        list.resize(k + 1, LAYER_NONE);
+    list[k] = FindLayer(name);
+    list.erase(std::remove(list.begin(), list.end(), LAYER_NONE), list.end());
+}
+
+static void memSetLayerName(int i, const std::string &name)
+{
+    if(i < numLayers)
+        RenameLayer(i, name);
+    else if(i == numLayers && i <= maxLayers && !name.empty() && FindLayer(name) == LAYER_NONE)
+    {
+        Layer[i] = Layer_t();
+        Layer[i].Name = name;
+        numLayers++;
+    }
+}
+
+static void memSetEventName(int i, const std::string &name)
+{
+    if(i < numEvents)
+        RenameEvent(i, name);
+    else if(i == numEvents && i <= maxEvents && !name.empty() && FindEvent(name) == EVENT_NONE)
+    {
+        // SMBX2's Events.add: name the first unused event
+        InitializeEvent(Events[i]);
+        Events[i].Name = name;
+        numEvents++;
+    }
+}
+
+struct MemField
+{
+    unsigned offset;        //!< in the SMBX 1.3 struct
+    FIELDTYPE type;         //!< FT_DWORD for VB6 strings (a pointer in SMBX), which have getS/setS
+    int count;              //!< elements of an array field (1 = plain field)
+    unsigned stride;        //!< distance between them
+    double (*get)(int i, int k);
+    void (*set)(int i, int k, double v); //!< nullptr = writes dropped
+    std::string (*getS)(int i, int k);
+    void (*setS)(int i, int k, const std::string &v);
+};
+
+#define MF_FLAG(off, lvalue) {off, FT_WORD, 1, 0, \
+    [](int i, int) -> double { return (lvalue) ? -1 : 0; }, \
+    [](int i, int, double v) { (lvalue) = (v != 0); }, nullptr, nullptr}
+#define MF_INT(off, ft, ctype, lvalue) {off, ft, 1, 0, \
+    [](int i, int) -> double { return (double)(lvalue); }, \
+    [](int i, int, double v) { (lvalue) = (ctype)v; }, nullptr, nullptr}
+#define MF_FLOAT(off, lvalue) {off, FT_FLOAT, 1, 0, \
+    [](int i, int) -> double { return (double)(num_t)(lvalue); }, \
+    [](int i, int, double v) { (lvalue) = static_cast<numf_t>(num_t(v, nullptr)); }, nullptr, nullptr}
+#define MF_NUM(off, lvalue) {off, FT_DFLOAT, 1, 0, \
+    [](int i, int) -> double { return (double)(lvalue); }, \
+    [](int i, int, double v) { (lvalue) = num_t(v, nullptr); }, nullptr, nullptr}
+#define MF_LOC(off, loc, sync) {off, FT_DFLOAT, 6, 8, \
+    [](int i, int k) -> double { return memLocGet(loc, k); }, \
+    [](int i, int k, double v) { memLocSet(loc, k, v); sync; }, nullptr, nullptr}
+#define MF_LAYER(off, lvalue, sync) {off, FT_DWORD, 1, 0, nullptr, nullptr, \
+    [](int i, int) -> std::string { return memLayerName(lvalue); }, \
+    [](int i, int, const std::string &v) { (lvalue) = FindLayer(v); sync; }}
+#define MF_EVENT(off, lvalue) {off, FT_DWORD, 1, 0, nullptr, nullptr, \
+    [](int i, int) -> std::string { return memEventName(lvalue); }, \
+    [](int i, int, const std::string &v) { (lvalue) = FindEvent(v); }}
+#define MF_TEXT(off, lvalue) {off, FT_DWORD, 1, 0, nullptr, nullptr, \
+    [](int i, int) -> std::string { return GetS(lvalue); }, \
+    [](int i, int, const std::string &v) { SetS(lvalue, v); }}
+
+static constexpr int c_smbxSections = 21; // SMBX 1.3's maxSections + 1, for struct layouts
+
+static const MemField s_npcStringFields[] =
+{
+    MF_LAYER(0x00, NPC[i].AttLayer, (void)0),
+    MF_EVENT(0x2C, NPC[i].TriggerActivate),
+    MF_EVENT(0x30, NPC[i].TriggerDeath),
+    MF_EVENT(0x34, NPC[i].TriggerTalk),
+    MF_EVENT(0x38, NPC[i].TriggerLast),
+    MF_LAYER(0x3C, NPC[i].Layer, syncLayers_NPC(i)),
+    MF_TEXT(0x4C, NPC[i].Text),
+};
+
+static const MemField s_blockStringFields[] =
+{
+    MF_EVENT(0x0C, Block[i].TriggerHit),
+    MF_EVENT(0x10, Block[i].TriggerDeath),
+    MF_EVENT(0x14, Block[i].TriggerLast),
+    MF_LAYER(0x18, Block[i].Layer, syncLayersTrees_Block(i)),
+};
+
+static const MemField s_bgoStringFields[] =
+{
+    MF_LAYER(0x00, Background[i].Layer, syncLayers_BGO(i)),
+};
+
+static const MemField s_layerFields[] =
+{
+    MF_FLAG(0x00, Layer[i].EffectStop),
+    {0x04, FT_DWORD, 1, 0, nullptr, nullptr,
+        [](int i, int) -> std::string { return (i < numLayers) ? Layer[i].Name : std::string(); },
+        [](int i, int, const std::string &v) { memSetLayerName(i, v); }},
+    MF_FLAG(0x08, Layer[i].Hidden),
+    // TheXTech's SetLayerSpeed also stops the layer's objects when both speeds reach 0
+    {0x0C, FT_FLOAT, 1, 0,
+        [](int i, int) -> double { return (double)(num_t)Layer[i].SpeedX; },
+        [](int i, int, double v) { SetLayerSpeed(i, num_t(v, nullptr), (num_t)Layer[i].SpeedY); }, nullptr, nullptr},
+    {0x10, FT_FLOAT, 1, 0,
+        [](int i, int) -> double { return (double)(num_t)Layer[i].SpeedY; },
+        [](int i, int, double v) { SetLayerSpeed(i, (num_t)Layer[i].SpeedX, num_t(v, nullptr)); }, nullptr, nullptr},
+};
+
+// SMBX2's ffi_events.lua layout (stride 0x588)
+static const MemField s_eventFields[] =
+{
+    MF_FLAG(0x00, Events[i].LayerSmoke),
+    MF_INT(0x02, FT_WORD, vbint_t, Events[i].Sound),
+    {0x04, FT_DWORD, 1, 0, nullptr, nullptr,
+        [](int i, int) -> std::string { return (i < numEvents) ? Events[i].Name : std::string(); },
+        [](int i, int, const std::string &v) { memSetEventName(i, v); }},
+    MF_TEXT(0x08, Events[i].Text),
+    {0x0C, FT_DWORD, 21, 4, nullptr, nullptr,
+        [](int i, int k) -> std::string { return memLayerListGet(Events[i].HideLayer, k); },
+        [](int i, int k, const std::string &v) { memLayerListSet(Events[i].HideLayer, k, v); }},
+    {0x60, FT_DWORD, 21, 4, nullptr, nullptr,
+        [](int i, int k) -> std::string { return memLayerListGet(Events[i].ShowLayer, k); },
+        [](int i, int k, const std::string &v) { memLayerListSet(Events[i].ShowLayer, k, v); }},
+    {0xB4, FT_DWORD, 21, 4, nullptr, nullptr,
+        [](int i, int k) -> std::string { return memLayerListGet(Events[i].ToggleLayer, k); },
+        [](int i, int k, const std::string &v) { memLayerListSet(Events[i].ToggleLayer, k, v); }},
+    {0x108, FT_WORD, c_smbxSections, 2,
+        [](int i, int k) -> double { return Events[i].section[k].music_id; },
+        [](int i, int k, double v) { Events[i].section[k].music_id = (vbint_t)v; }, nullptr, nullptr},
+    {0x132, FT_WORD, c_smbxSections, 2,
+        [](int i, int k) -> double { return Events[i].section[k].background_id; },
+        [](int i, int k, double v) { Events[i].section[k].background_id = (vbint_t)v; }, nullptr, nullptr},
+    {0x15C, FT_DFLOAT, c_smbxSections * 6, 8,
+        [](int i, int k) -> double { return memIntLocGet(Events[i].section[k / 6].position, k % 6); },
+        [](int i, int k, double v) { memIntLocSet(Events[i].section[k / 6].position, k % 6, v); }, nullptr, nullptr},
+    MF_INT(0x54C, FT_WORD, int, Events[i].EndGame),
+    MF_EVENT(0x550, Events[i].TriggerEvent),
+    MF_INT(0x554, FT_DFLOAT, vbint_t, Events[i].TriggerDelay),
+    {0x55C, FT_WORD, 10, 2,
+        [](int i, int k) -> double { return memControl(Events[i].Controls, k) ? -1 : 0; },
+        [](int i, int k, double v) { memControl(Events[i].Controls, k) = (v != 0); }, nullptr, nullptr},
+    MF_LAYER(0x570, Events[i].MoveLayer, (void)0),
+    MF_FLOAT(0x574, Events[i].SpeedX),
+    MF_FLOAT(0x578, Events[i].SpeedY),
+    MF_FLOAT(0x57C, Events[i].AutoX),
+    MF_FLOAT(0x580, Events[i].AutoY),
+    MF_INT(0x584, FT_WORD, int, Events[i].AutoSection),
+    MF_FLAG(0x586, Events[i].AutoStart),
+};
+
+static const MemField s_warpFields[] =
+{
+    MF_FLAG(0x00, Warp[i].Locked),
+    MF_FLAG(0x02, Warp[i].WarpNPC),
+    MF_FLAG(0x04, Warp[i].NoYoshi),
+    MF_LAYER(0x08, Warp[i].Layer, syncLayers_Warp(i)),
+    MF_FLAG(0x0C, Warp[i].Hidden),
+    MF_FLAG(0x0E, Warp[i].PlacedEnt),
+    MF_FLAG(0x10, Warp[i].PlacedExit),
+    MF_INT(0x12, FT_WORD, vbint_t, Warp[i].Stars),
+    MF_LOC(0x14, Warp[i].Entrance, (void)0),
+    MF_LOC(0x44, Warp[i].Exit, (void)0),
+    MF_INT(0x74, FT_WORD, vbint_t, Warp[i].Effect),
+    MF_TEXT(0x78, Warp[i].level),
+    MF_INT(0x7C, FT_WORD, vbint_t, Warp[i].LevelWarp),
+    MF_FLAG(0x7E, Warp[i].LevelEnt),
+    MF_INT(0x80, FT_WORD, int8_t, Warp[i].Direction),
+    MF_INT(0x82, FT_WORD, int8_t, Warp[i].Direction2),
+    MF_FLAG(0x84, Warp[i].MapWarp),
+    MF_INT(0x86, FT_WORD, vbint_t, Warp[i].MapX),
+    MF_INT(0x88, FT_WORD, vbint_t, Warp[i].MapY),
+    MF_INT(0x8A, FT_WORD, uint8_t, Warp[i].curStars),
+};
+
+static const MemField s_waterFields[] =
+{
+    MF_LAYER(0x00, Water[i].Layer, syncLayers_Water(i)),
+    MF_FLAG(0x04, Water[i].Hidden),
+    {0x08, FT_FLOAT, 1, 0, [](int, int) -> double { return 0; }, nullptr, nullptr, nullptr}, // Buoy: unused by SMBX
+    {0x0C, FT_WORD, 1, 0,
+        [](int i, int) -> double { return (Water[i].Type == PHYSID_QUICKSAND) ? -1 : 0; },
+        [](int i, int, double v) { Water[i].Type = (v != 0) ? PHYSID_QUICKSAND : PHYSID_WATER; }, nullptr, nullptr},
+    MF_LOC(0x10, Water[i].Location, syncLayers_Water(i)),
+};
+
+// vScreen(0 To 2): each camera's place on the screen and size
+static const MemField s_cameraFields[] =
+{
+    MF_INT(0x00, FT_DFLOAT, int, vScreen[i].Left),
+    MF_INT(0x08, FT_DFLOAT, int, vScreen[i].Top),
+    MF_INT(0x10, FT_DFLOAT, int, vScreen[i].Width),
+    MF_INT(0x18, FT_DFLOAT, int, vScreen[i].Height),
+    MF_FLAG(0x20, vScreen[i].Visible),
+    MF_NUM(0x24, vScreen[i].tempX),
+    MF_NUM(0x2C, vScreen[i].TempY),
+    MF_INT(0x34, FT_WORD, int, vScreen[i].TempDelay),
+};
+
+// NewEvent(1 To 100): names of the queued events
+static const MemField s_newEventFields[] =
+{
+    MF_EVENT(0x00, NewEvent[i]),
+};
+
+// CustomMusic(0 To maxSections): each section's music file
+static const MemField s_sectionMusicFields[] =
+{
+    {0x00, FT_DWORD, 1, 0, nullptr, nullptr,
+        [](int i, int) -> std::string { return CustomMusic[i]; },
+        [](int i, int, const std::string &v) { CustomMusic[i] = v; }},
+};
+
+#undef MF_FLAG
+#undef MF_INT
+#undef MF_FLOAT
+#undef MF_NUM
+#undef MF_LOC
+#undef MF_LAYER
+#undef MF_EVENT
+#undef MF_TEXT
+
 enum ObjMemKind
 {
     OBJMEM_PLAYER,
@@ -2030,6 +2377,7 @@ enum ObjMemKind
     OBJMEM_BLOCK,
     OBJMEM_BGO,
     OBJMEM_TEMPLATE,
+    OBJMEM_FIELDS, //!< only the field table
 };
 
 struct ObjMemArray
@@ -2040,19 +2388,32 @@ struct ObjMemArray
     unsigned size;          //!< struct size in SMBX 1.3
     int first;              //!< index of the first element (VB6 lower bound)
     int last;
+    const MemField *fields; //!< looked at before mememu
+    size_t numFields;
 };
 
 static constexpr int c_numTemplates = 32;
 static Player_t s_templatePlayers[c_numTemplates];
 
+#define MEM_FIELDS(table) table, sizeof(table) / sizeof(table[0])
+
 static const ObjMemArray s_objMemArrays[] =
 {
-    {0x00B25A20, OBJMEM_PLAYER,   0x10000000, 0x184, 0,    maxPlayers},
-    {0x00B259E8, OBJMEM_NPC,      0x11000000, 0x158, -128, maxNPCs},
-    {0x00B25A04, OBJMEM_BLOCK,    0x12000000, 0x68,  0,    maxBlocks},
-    {0x00B259B0, OBJMEM_BGO,      0x13000000, 0x38,  1,    maxBackgrounds + maxWarps},
-    {0,          OBJMEM_TEMPLATE, 0x14000000, 0x184, 0,    c_numTemplates - 1},
+    {0x00B25A20, OBJMEM_PLAYER,   0x10000000, 0x184, 0,    maxPlayers, nullptr, 0},
+    {0x00B259E8, OBJMEM_NPC,      0x11000000, 0x158, -128, maxNPCs, MEM_FIELDS(s_npcStringFields)},
+    {0x00B25A04, OBJMEM_BLOCK,    0x12000000, 0x68,  0,    maxBlocks, MEM_FIELDS(s_blockStringFields)},
+    {0x00B259B0, OBJMEM_BGO,      0x13000000, 0x38,  1,    maxBackgrounds + maxWarps, MEM_FIELDS(s_bgoStringFields)},
+    {0,          OBJMEM_TEMPLATE, 0x14000000, 0x184, 0,    c_numTemplates - 1, nullptr, 0},
+    {0x00B2C6B0, OBJMEM_FIELDS,   0x15000000, 0x14,  0,    maxLayers, MEM_FIELDS(s_layerFields)},
+    {0x00B2C6CC, OBJMEM_FIELDS,   0x16000000, 0x588, 0,    maxEvents, MEM_FIELDS(s_eventFields)},
+    {0x00B258F4, OBJMEM_FIELDS,   0x17000000, 0x90,  1,    maxWarps, MEM_FIELDS(s_warpFields)},
+    {0x00B256F4, OBJMEM_FIELDS,   0x18000000, 0x40,  0,    maxWater, MEM_FIELDS(s_waterFields)},
+    {0x00B2D6E8, OBJMEM_FIELDS,   0x19000000, 0x4,   1,    maxEvents, MEM_FIELDS(s_newEventFields)},
+    {0x00B257B8, OBJMEM_FIELDS,   0x19100000, 0x4,   0,    maxSections, MEM_FIELDS(s_sectionMusicFields)},
+    {0x00B25124, OBJMEM_FIELDS,   0x19200000, 0x38,  0,    c_vScreenCount, MEM_FIELDS(s_cameraFields)},
 };
+
+#undef MEM_FIELDS
 
 static const ObjMemArray *objMemArrayAt(unsigned addr, int &index, unsigned &offset)
 {
@@ -2067,6 +2428,391 @@ static const ObjMemArray *objMemArrayAt(unsigned addr, int &index, unsigned &off
         }
     }
     return nullptr;
+}
+
+// The field of a at offset, and the element k of an array field
+static const MemField *memFieldAt(const ObjMemArray &a, unsigned offset, int &k)
+{
+    for(size_t f = 0; f < a.numFields; f++)
+    {
+        const MemField &m = a.fields[f];
+        if(offset < m.offset)
+            continue;
+
+        unsigned rel = offset - m.offset;
+        if(m.count == 1 ? rel == 0 : (rel % m.stride == 0 && rel / m.stride < (unsigned)m.count))
+        {
+            k = (m.count == 1) ? 0 : (int)(rel / m.stride);
+            return &m;
+        }
+    }
+    return nullptr;
+}
+
+// smbx2compat: SMBX 1.3's per-type arrays (NPCWidth(0 To maxNPCType), BlockFrame,
+// vScreenX, ...) and LunaLua's extended NPC/block properties, which SMBX2 finds
+// with Misc.__getNPCPropertyTableAddress. npcconfig_core.lua reads them at
+// address + stride * ID. Each table gets a made-up range; IDs the engine has map
+// onto its traits, and the rest (SMBX2's IDs past the engine's limits, and the
+// extended properties, which TheXTech doesn't use) are kept as plain storage,
+// so values set from npc-N.txt or Lua read back.
+// SMBX's list of sizable blocks, top to bottom; TheXTech draws them without one
+static std::vector<int> s_sizableBlocks;
+
+static int memSizableBlockCount()
+{
+    s_sizableBlocks.clear();
+    for(int i = 1; i <= numBlock; i++)
+    {
+        if(BlockIsSizable[Block[i].Type] && !Block[i].Hidden)
+            s_sizableBlocks.push_back(i);
+    }
+    std::stable_sort(s_sizableBlocks.begin(), s_sizableBlocks.end(),
+                     [](int a, int b) { return Block[a].Location.Y < Block[b].Location.Y; });
+    return (int)s_sizableBlocks.size();
+}
+
+static double memSizableBlock(int i)
+{
+    return (i >= 1 && i <= (int)s_sizableBlocks.size()) ? s_sizableBlocks[i - 1] : 0;
+}
+
+struct MemTypeArray
+{
+    unsigned pointerGlobal; //!< where SMBX 1.3 keeps the array's address (0 = none)
+    const char *kind;       //!< "npc"/"block" for LunaLua's extended properties, else nullptr
+    const char *name;       //!< extended property name
+    FIELDTYPE type;
+    int first;              //!< index of the first element (VB6 lower bound)
+    int last;               //!< last index the engine has (get/set); past it, storage
+    int storeLast;          //!< last index scripts may use
+    double (*get)(int i);   //!< nullptr = storage only
+    void (*set)(int i, double v); //!< nullptr = writes to engine-backed indices are dropped
+};
+
+static constexpr int c_smbx2NpcMaxId = 1000;   // LunaLua's NPC::MAX_ID
+static constexpr int c_smbx2BlockMaxId = 2000; // Block::MAX_ID
+static constexpr int c_smbx2BgoMaxId = 1000;   // SMBX_BGO::MAX_ID
+
+#define MEM_NPC_TRAIT(field) \
+    [](int i) -> double { return (double)NPCTraits[i].field; }, \
+    [](int i, double v) { NPCTraits[i].field = (int16_t)v; }
+#define MEM_NPC_FLAG(field) \
+    [](int i) -> double { return NPCTraits[i].field ? -1 : 0; }, \
+    [](int i, double v) { NPCTraits[i].field = (v != 0); }
+#define MEM_NPC_CONST(func) \
+    [](int i) -> double { return func(NPCID(i)) ? -1 : 0; }, nullptr
+#define MEM_ARRAY(arr, ctype) \
+    [](int i) -> double { return (double)arr[i]; }, \
+    [](int i, double v) { arr[i] = (ctype)v; }
+#define MEM_FLAGS(arr) \
+    [](int i) -> double { return arr[i] ? -1 : 0; }, \
+    [](int i, double v) { arr[i] = (v != 0); }
+
+#define MEM_NPC_TABLE(ptr, type) ptr, nullptr, nullptr, type, 0, maxNPCType, c_smbx2NpcMaxId
+#define MEM_BLOCK_TABLE(ptr, type, first) ptr, nullptr, nullptr, type, first, maxBlockType, c_smbx2BlockMaxId
+
+static const MemTypeArray s_memTypeArrays[] =
+{
+    {MEM_NPC_TABLE(0x00B25B70, FT_WORD), MEM_NPC_TRAIT(FrameOffsetX)},
+    {MEM_NPC_TABLE(0x00B25B8C, FT_WORD), MEM_NPC_TRAIT(FrameOffsetY)},
+    {MEM_NPC_TABLE(0x00B25BA8, FT_WORD), MEM_NPC_TRAIT(TWidth)},
+    {MEM_NPC_TABLE(0x00B25BC4, FT_WORD), MEM_NPC_TRAIT(THeight)},
+    {MEM_NPC_TABLE(0x00B25BE0, FT_WORD), MEM_NPC_TRAIT(WidthGFX)},
+    {MEM_NPC_TABLE(0x00B25BFC, FT_WORD), MEM_NPC_TRAIT(HeightGFX)},
+    {MEM_NPC_TABLE(0x00B25C18, FT_FLOAT),
+        [](int i) -> double { return (double)(num_t)NPCTraits[i].Speedvar; },
+        [](int i, double v) { NPCTraits[i].Speedvar = static_cast<numf_t>(num_t(v, nullptr)); }},
+    {MEM_NPC_TABLE(0x00B25C34, FT_WORD), MEM_NPC_FLAG(IsAShell)},
+    {MEM_NPC_TABLE(0x00B25C50, FT_WORD), MEM_NPC_FLAG(IsABlock)},
+    {MEM_NPC_TABLE(0x00B25C6C, FT_WORD), MEM_NPC_FLAG(IsAHit1Block)},
+    {MEM_NPC_TABLE(0x00B25C88, FT_WORD), MEM_NPC_FLAG(IsABonus)},
+    {MEM_NPC_TABLE(0x00B25CA4, FT_WORD), MEM_NPC_FLAG(IsACoin)},
+    {MEM_NPC_TABLE(0x00B25CC0, FT_WORD), MEM_NPC_FLAG(IsAVine)},
+    {MEM_NPC_TABLE(0x00B25CDC, FT_WORD), MEM_NPC_CONST(NPCIsAnExit)},
+    {MEM_NPC_TABLE(0x00B25CF8, FT_WORD), MEM_NPC_CONST(NPCIsAParaTroopa)},
+    {MEM_NPC_TABLE(0x00B25D14, FT_WORD), MEM_NPC_FLAG(IsFish)},
+    {MEM_NPC_TABLE(0x00B25D30, FT_WORD), MEM_NPC_FLAG(JumpHurt)},
+    {MEM_NPC_TABLE(0x00B25D4C, FT_WORD), MEM_NPC_FLAG(NoClipping)},
+    {MEM_NPC_TABLE(0x00B25D68, FT_WORD),
+        [](int i) -> double { return (double)NPCTraits[i].Score; },
+        [](int i, double v) { NPCTraits[i].Score = (int8_t)v; }},
+    {MEM_NPC_TABLE(0x00B25D84, FT_WORD), MEM_NPC_FLAG(CanWalkOn)},
+    {MEM_NPC_TABLE(0x00B25DA0, FT_WORD), MEM_NPC_FLAG(GrabFromTop)},
+    {MEM_NPC_TABLE(0x00B25DBC, FT_WORD), MEM_NPC_FLAG(TurnsAtCliffs)},
+    {MEM_NPC_TABLE(0x00B25DD8, FT_WORD), MEM_NPC_FLAG(WontHurt)},
+    {MEM_NPC_TABLE(0x00B25DF4, FT_WORD), MEM_NPC_FLAG(MovesPlayer)},
+    {MEM_NPC_TABLE(0x00B25E10, FT_WORD), MEM_NPC_FLAG(StandsOnPlayer)},
+    {MEM_NPC_TABLE(0x00B25E2C, FT_WORD), MEM_NPC_FLAG(IsGrabbable)},
+    {MEM_NPC_TABLE(0x00B25E48, FT_WORD), MEM_NPC_CONST(NPCIsBoot)},
+    {MEM_NPC_TABLE(0x00B25E64, FT_WORD), MEM_NPC_CONST(NPCIsYoshi)},
+    {MEM_NPC_TABLE(0x00B25E80, FT_WORD), MEM_NPC_CONST(NPCIsToad)},
+    {MEM_NPC_TABLE(0x00B25E9C, FT_WORD), MEM_NPC_FLAG(NoYoshi)},
+    {MEM_NPC_TABLE(0x00B25EB8, FT_WORD), MEM_NPC_FLAG(Foreground)},
+    {MEM_NPC_TABLE(0x00B25ED4, FT_WORD), MEM_NPC_CONST(NPCIsABot)},
+    {MEM_NPC_TABLE(0x00B25EF0, FT_WORD), MEM_NPC_CONST(NPCDefaultMovement)},
+    {MEM_NPC_TABLE(0x00B25F0C, FT_WORD), MEM_NPC_CONST(NPCIsVeggie)},
+    {MEM_NPC_TABLE(0x00B25F28, FT_WORD), MEM_NPC_FLAG(NoFireBall)},
+    {MEM_NPC_TABLE(0x00B25F44, FT_WORD), MEM_NPC_FLAG(NoIceBall)},
+    {MEM_NPC_TABLE(0x00B25F60, FT_WORD), MEM_NPC_FLAG(NoGravity)},
+    {MEM_NPC_TABLE(0x00B25F7C, FT_WORD), MEM_NPC_TRAIT(TFrames)},
+    {MEM_NPC_TABLE(0x00B25F98, FT_WORD), MEM_NPC_TRAIT(FrameSpeed)},
+    {MEM_NPC_TABLE(0x00B25FB4, FT_WORD), MEM_NPC_TRAIT(FrameStyle)},
+
+    {MEM_BLOCK_TABLE(0x00B2B930, FT_WORD, 0), MEM_FLAGS(BlockIsSizable)},
+    {MEM_BLOCK_TABLE(0x00B2B94C, FT_WORD, 0), MEM_ARRAY(BlockSlope, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2B968, FT_WORD, 0), MEM_ARRAY(BlockSlope2, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2B9F8, FT_WORD, 0), MEM_ARRAY(BlockWidth, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2BA14, FT_WORD, 0), MEM_ARRAY(BlockHeight, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2BEA0, FT_WORD, 1), MEM_ARRAY(BlockFrame, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2BEBC, FT_WORD, 1), MEM_ARRAY(BlockFrame2, vbint_t)},
+    {MEM_BLOCK_TABLE(0x00B2C048, FT_WORD, 0), MEM_FLAGS(BlockOnlyHitspot1)},
+    {MEM_BLOCK_TABLE(0x00B2C064, FT_WORD, 0), MEM_FLAGS(BlockKills)},
+    {MEM_BLOCK_TABLE(0x00B2C080, FT_WORD, 0), MEM_FLAGS(BlockKills2)},
+    {MEM_BLOCK_TABLE(0x00B2C09C, FT_WORD, 0), MEM_FLAGS(BlockHurts)},
+    {MEM_BLOCK_TABLE(0x00B2C0B8, FT_WORD, 0), MEM_FLAGS(BlockPSwitch)},
+    {MEM_BLOCK_TABLE(0x00B2C0D4, FT_WORD, 0), MEM_FLAGS(BlockNoClipping)},
+
+    // Blocks being bumped (iBlock(0 To maxBlocks); the count is a mememu global)
+    {0x00B25798, nullptr, nullptr, FT_WORD, 0, maxBlocks, maxBlocks, MEM_ARRAY(iBlock, vbint_t)},
+
+    // SMBX's block lookup by 32-pixel column (FirstBlock/LastBlock(-8000 To 8000)) into
+    // its X-sorted blocks. TheXTech uses a quadtree instead, so every column spans all
+    // blocks; SMBX2's Block.iterateIntersecting still checks each one.
+    {0x00B25758, nullptr, nullptr, FT_WORD, -8000, 8000, 8000,
+        [](int) -> double { return 1; }, nullptr},
+    {0x00B25774, nullptr, nullptr, FT_WORD, -8000, 8000, 8000,
+        [](int) -> double { return numBlock; }, nullptr},
+
+    // Sizable blocks (sBlockArray(1 To 1000)), rebuilt when SMBX2 reads the count
+    {0x00B2BED8, nullptr, nullptr, FT_WORD, 1, 1000, 1000,
+        [](int i) -> double { return memSizableBlock(i); }, nullptr},
+
+    // Climbable BGOs (bgoconfig.lua's "climbable")
+    {0x00B25B54, nullptr, nullptr, FT_WORD, 0, maxBackgroundType, c_smbx2BgoMaxId, MEM_FLAGS(BackgroundFence)},
+
+    // Camera position, negated (vScreenX(0 To maxPlayers))
+    {0x00B2B984, nullptr, nullptr, FT_DFLOAT, 0, c_vScreenCount, c_vScreenCount,
+        [](int i) -> double { return (double)vScreen[i].X; },
+        [](int i, double v) { vScreen[i].X = num_t(v, nullptr); }},
+    {0x00B2B9A0, nullptr, nullptr, FT_DFLOAT, 0, c_vScreenCount, c_vScreenCount,
+        [](int i) -> double { return (double)vScreen[i].Y; },
+        [](int i, double v) { vScreen[i].Y = num_t(v, nullptr); }},
+
+    // Sections (0 To maxSections). Bounds are six doubles per section (see memLocGet), flattened
+    {0x00B257D4, nullptr, nullptr, FT_DFLOAT, 0, (maxSections + 1) * 6 - 1, (maxSections + 1) * 6 - 1,
+        [](int i) -> double { return memLocGet(level[i / 6], i % 6); },
+        [](int i, double v) { memLocSet(level[i / 6], i % 6, v); }},
+    {0x00B2587C, nullptr, nullptr, FT_DFLOAT, 0, (maxSections + 1) * 6 - 1, (maxSections + 1) * 6 - 1,
+        [](int i) -> double { return memIntLocGet(LevelREAL[i / 6], i % 6); },
+        [](int i, double v) { memIntLocSet(LevelREAL[i / 6], i % 6, v); }},
+    {0x00B257F0, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_FLAGS(LevelWrap)},
+    {0x00B2580C, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_FLAGS(OffScreenExit)},
+    {0x00B25828, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_ARRAY(bgMusic, vbint_t)},
+    {0x00B25844, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_ARRAY(bgMusicREAL, vbint_t)},
+    {0x00B25860, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_ARRAY(Background2REAL, vbint_t)},
+    {0x00B258B8, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_ARRAY(Background2, vbint_t)},
+    {0x00B2C5EC, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_FLAGS(NoTurnBack)},
+    {0x00B2C608, nullptr, nullptr, FT_WORD, 0, maxSections, maxSections, MEM_FLAGS(UnderWater)},
+
+    // Delays of the queued events (the names are NewEvent, in s_objMemArrays)
+    {0x00B2D704, nullptr, nullptr, FT_WORD, 1, maxEvents, maxEvents, MEM_ARRAY(newEventDelay, vbint_t)},
+
+    // World map and effect animation frames
+    {0x00B2BEF8, nullptr, nullptr, FT_WORD, 1, maxSceneType, maxSceneType, MEM_ARRAY(SceneFrame, vbint_t)},
+    {0x00B2BF30, nullptr, nullptr, FT_WORD, 0, 9, 100, MEM_ARRAY(SpecialFrame, vbint_t)},
+    {0x00B2BFA0, nullptr, nullptr, FT_WORD, 1, maxTileType, maxTileType, MEM_ARRAY(TileFrame, vbint_t)},
+    {0x00B2BFD8, nullptr, nullptr, FT_WORD, 1, 100, 100, MEM_ARRAY(LevelFrame, vbint_t)},
+
+    // LunaLua's extended properties (NPCs.cpp/Blocks.cpp GetPropertyTableAddress)
+    {0, "npc", "vulnerableharmtypes",  FT_DWORD,  0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "spinjumpsafe",         FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "nowaterphysics",       FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "harmlessgrab",         FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "harmlessthrown",       FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "ignorethrownnpcs",     FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "linkshieldable",       FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "noshieldfireeffect",   FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "notcointransformable", FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "staticdirection",      FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "luahandlesspeed",      FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "terminalvelocity",     FT_DFLOAT, 0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "npc", "falloffvineonstomp",   FT_WORD,   0, -1, c_smbx2NpcMaxId, nullptr, nullptr},
+    {0, "block", "bumpable",           FT_WORD,   0, -1, c_smbx2BlockMaxId, nullptr, nullptr},
+    {0, "block", "playerfilter",       FT_WORD,   0, -1, c_smbx2BlockMaxId, nullptr, nullptr},
+    {0, "block", "npcfilter",          FT_WORD,   0, -1, c_smbx2BlockMaxId, nullptr, nullptr},
+    {0, "block", "walkpaststair",      FT_WORD,   0, -1, c_smbx2BlockMaxId, nullptr, nullptr},
+};
+
+#undef MEM_NPC_TRAIT
+#undef MEM_NPC_FLAG
+#undef MEM_NPC_CONST
+#undef MEM_ARRAY
+#undef MEM_FLAGS
+#undef MEM_NPC_TABLE
+#undef MEM_BLOCK_TABLE
+
+static constexpr size_t c_numMemTypeArrays = sizeof(s_memTypeArrays) / sizeof(s_memTypeArrays[0]);
+static constexpr unsigned c_memTypeArraysBase = 0x20000000;
+static constexpr unsigned c_memTypeArraySpan = 0x10000; // per table; 2001 doubles fit
+
+static unsigned memFieldSize(FIELDTYPE ft)
+{
+    switch(ft)
+    {
+    case FT_BYTE:
+        return 1;
+    case FT_WORD:
+        return 2;
+    case FT_DFLOAT:
+        return 8;
+    default:
+        return 4;
+    }
+}
+
+// Storage behind each table, made on first use
+static std::vector<uint8_t> &memTypeArrayStore(size_t t)
+{
+    static std::vector<uint8_t> s_stores[c_numMemTypeArrays];
+    std::vector<uint8_t> &s = s_stores[t];
+    if(s.empty())
+    {
+        const MemTypeArray &a = s_memTypeArrays[t];
+        s.resize(memFieldSize(a.type) * (size_t)(a.storeLast - a.first + 1) + 8);
+        // LunaLua's NPC::InitProperties: everything 0 except terminal velocity
+        if(a.name && std::strcmp(a.name, "terminalvelocity") == 0)
+        {
+            for(int i = 0; i <= a.storeLast - a.first; i++)
+            {
+                double v = 8.0;
+                std::memcpy(s.data() + i * 8, &v, 8);
+            }
+        }
+    }
+    return s;
+}
+
+static const MemTypeArray *memTypeArrayAt(unsigned addr, size_t &t, int &index, unsigned &offset)
+{
+    if(addr < c_memTypeArraysBase || addr >= c_memTypeArraysBase + c_memTypeArraySpan * c_numMemTypeArrays)
+        return nullptr;
+
+    t = (addr - c_memTypeArraysBase) / c_memTypeArraySpan;
+    const MemTypeArray &a = s_memTypeArrays[t];
+    unsigned size = memFieldSize(a.type);
+    unsigned rel = (addr - c_memTypeArraysBase) % c_memTypeArraySpan;
+    index = a.first + (int)(rel / size);
+    offset = rel % size;
+    if(index > a.storeLast)
+        return nullptr;
+    return &a;
+}
+
+static double memTypeArrayGet(size_t t, int index, unsigned offset, FIELDTYPE ft)
+{
+    const MemTypeArray &a = s_memTypeArrays[t];
+    if(a.get && offset == 0 && index <= a.last)
+        return a.get(index);
+
+    std::vector<uint8_t> &s = memTypeArrayStore(t);
+    size_t pos = memFieldSize(a.type) * (size_t)(index - a.first) + offset;
+    if(pos + memFieldSize(ft) > s.size())
+        return 0;
+
+    const uint8_t *p = s.data() + pos;
+    switch(ft)
+    {
+    case FT_BYTE:
+        return *p;
+    case FT_WORD:
+    {
+        int16_t v;
+        std::memcpy(&v, p, sizeof(v));
+        return v;
+    }
+    case FT_FLOAT:
+    {
+        float v;
+        std::memcpy(&v, p, sizeof(v));
+        return v;
+    }
+    case FT_DFLOAT:
+    {
+        double v;
+        std::memcpy(&v, p, sizeof(v));
+        return v;
+    }
+    default:
+    {
+        int32_t v;
+        std::memcpy(&v, p, sizeof(v));
+        return v;
+    }
+    }
+}
+
+static void memTypeArraySet(size_t t, int index, unsigned offset, FIELDTYPE ft, double value)
+{
+    const MemTypeArray &a = s_memTypeArrays[t];
+    if(a.get && offset == 0 && index <= a.last)
+    {
+        if(a.set)
+            a.set(index, value);
+        else
+        {
+            static std::set<size_t> s_logged;
+            if(s_logged.insert(t).second)
+                pLogWarning("smbx2compat: mem() write to read-only type array 0x%08X dropped", a.pointerGlobal);
+        }
+        return;
+    }
+
+    std::vector<uint8_t> &s = memTypeArrayStore(t);
+    size_t pos = memFieldSize(a.type) * (size_t)(index - a.first) + offset;
+    if(pos + memFieldSize(ft) > s.size())
+        return;
+
+    uint8_t *p = s.data() + pos;
+    switch(ft)
+    {
+    case FT_BYTE:
+        *p = (uint8_t)(int)value;
+        break;
+    case FT_WORD:
+    {
+        int16_t v = (int16_t)(int32_t)value;
+        std::memcpy(p, &v, sizeof(v));
+        break;
+    }
+    case FT_FLOAT:
+    {
+        float v = (float)value;
+        std::memcpy(p, &v, sizeof(v));
+        break;
+    }
+    case FT_DFLOAT:
+        std::memcpy(p, &value, sizeof(value));
+        break;
+    default:
+    {
+        int32_t v = (int32_t)(int64_t)value;
+        std::memcpy(p, &v, sizeof(v));
+        break;
+    }
+    }
+}
+
+// Address of LunaLua's extended property table (kind "npc" or "block"), 0 if unknown
+static unsigned mem_propertyTableAddress(const std::string &kind, const std::string &name)
+{
+    for(size_t t = 0; t < c_numMemTypeArrays; t++)
+    {
+        const MemTypeArray &a = s_memTypeArrays[t];
+        if(a.kind && kind == a.kind && name == a.name)
+            return c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t;
+    }
+    return 0;
 }
 
 // Each unknown address is logged once
@@ -2087,12 +2833,37 @@ static double mem_get(unsigned int addr, int ftype)
             return (double)a.base;
     }
 
+    for(size_t t = 0; t < c_numMemTypeArrays; t++)
+    {
+        if(s_memTypeArrays[t].pointerGlobal != 0 && addr == s_memTypeArrays[t].pointerGlobal)
+            return (double)(c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t);
+    }
+
+    // sBlockNum: the sizable list (sBlockArray) is rebuilt when SMBX2 reads its length
+    if(addr == 0x00B2BEE4)
+        return memSizableBlockCount();
+
     int index;
     unsigned offset;
+    size_t table;
+    if(memTypeArrayAt(addr, table, index, offset))
+        return memTypeArrayGet(table, index, offset, ft);
+
     if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
     {
+        int k;
+        if(const MemField *f = memFieldAt(*a, offset, k))
+        {
+            // A string field read as a DWORD is SMBX's string pointer: 0 when empty
+            if(f->getS)
+                return f->getS(index, k).empty() ? 0 : 1;
+            return f->get ? f->get(index, k) : 0;
+        }
+
         switch(a->kind)
         {
+        case OBJMEM_FIELDS:
+            break;
         case OBJMEM_PLAYER:
             return (double)GetMem(&Player[index], offset, ft);
         case OBJMEM_NPC:
@@ -2104,6 +2875,9 @@ static double mem_get(unsigned int addr, int ftype)
         case OBJMEM_TEMPLATE:
             return (double)GetMem(&s_templatePlayers[index], offset, ft);
         }
+
+        mem_unknown("read", addr);
+        return 0;
     }
 
     if(addr >= GM_BASE && addr < GM_END)
@@ -2117,12 +2891,32 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
 {
     FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
 
+    if(addr == 0x00B2BEE4)
+        return; // sBlockNum follows the engine's blocks
+
     int index;
     unsigned offset;
+    size_t table;
+    if(memTypeArrayAt(addr, table, index, offset))
+    {
+        memTypeArraySet(table, index, offset, ft, (double)value);
+        return;
+    }
+
     if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
     {
+        int k;
+        if(const MemField *f = memFieldAt(*a, offset, k))
+        {
+            if(f->set)
+                f->set(index, k, (double)value);
+            return;
+        }
+
         switch(a->kind)
         {
+        case OBJMEM_FIELDS:
+            break;
         case OBJMEM_PLAYER:
             MemAssign(&Player[index], offset, value, OP_Assign, ft);
             return;
@@ -2139,6 +2933,9 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
             MemAssign(&s_templatePlayers[index], offset, value, OP_Assign, ft);
             return;
         }
+
+        mem_unknown("write", addr);
+        return;
     }
 
     if(addr >= GM_BASE && addr < GM_END)
@@ -2148,6 +2945,109 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
     }
 
     mem_unknown("write", addr);
+}
+
+// SMBX2's mem(addr, FIELD_STRING): VB6 strings in objects and globals
+static std::string mem_getString(unsigned int addr)
+{
+    int index, k;
+    unsigned offset;
+    std::string ret;
+    if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
+    {
+        const MemField *f = memFieldAt(*a, offset, k);
+        if(f && f->getS)
+            return f->getS(index, k);
+    }
+    else if(GetMemString(addr, ret))
+        return ret;
+
+    mem_unknown("string read", addr);
+    return ret;
+}
+
+static void mem_setString(unsigned int addr, const std::string &value)
+{
+    int index, k;
+    unsigned offset;
+    if(const ObjMemArray *a = objMemArrayAt(addr, index, offset))
+    {
+        const MemField *f = memFieldAt(*a, offset, k);
+        if(f && f->setS)
+        {
+            f->setS(index, k, value);
+            return;
+        }
+    }
+    else if(SetMemString(addr, value))
+        return;
+
+    mem_unknown("string write", addr);
+}
+
+// smbx2compat: LunaLua's PlayerSettings (CustomGraphics.h): hitbox, duck height
+// and grab spot per character and powerup, and sprite offsets per frame.
+// Character and powerup are checked in Lua (core/classes.lua).
+static int *playerSettingsField(int character, int state, const std::string &field)
+{
+    if(character < 1 || character > numCharacters || state < 1 || state > numStates)
+        return nullptr;
+    if(field == "hitboxWidth")
+        return &Physics.PlayerWidth[character][state];
+    if(field == "hitboxHeight")
+        return &Physics.PlayerHeight[character][state];
+    if(field == "hitboxDuckHeight")
+        return &Physics.PlayerDuckHeight[character][state];
+    if(field == "grabOffsetX")
+        return &Physics.PlayerGrabSpotX[character][state];
+    if(field == "grabOffsetY")
+        return &Physics.PlayerGrabSpotY[character][state];
+    return nullptr;
+}
+
+static int playerSettings_get(int character, int state, const std::string &field)
+{
+    int *v = playerSettingsField(character, state, field);
+    return v ? *v : 0;
+}
+
+static void playerSettings_set(int character, int state, const std::string &field, int value)
+{
+    if(int *v = playerSettingsField(character, state, field))
+        *v = value;
+}
+
+// Sprite offset for the frame at (indexX, indexY) of the sprite sheet's 10x10
+// grid; same sign as SMBX's MarioFrameX. Returns false for a bad index.
+static bool playerSettingsFrame(int character, int state, int indexX, int indexY, int &frame)
+{
+    if(character < 1 || character > numCharacters || state < 1 || state > numStates)
+        return false;
+    if(indexX < 0 || indexY < 0 || indexX > 9 || indexY > 9)
+        return false;
+    frame = (indexY + 10 * indexX) - 49 + state * 100;
+    return true;
+}
+
+static luabind::object playerSettings_getSpriteOffset(int character, int state, bool y, int indexX, int indexY)
+{
+    lua_State* L = xtech_lua_getState();
+    int frame;
+    if(!playerSettingsFrame(character, state, indexX, indexY, frame))
+        return luabind::object(); // nil: invalid index
+    return luabind::object(L, (int)(y ? PlayerFrameY[character][frame] : PlayerFrameX[character][frame]));
+}
+
+static bool playerSettings_setSpriteOffset(int character, int state, bool y, int indexX, int indexY, int value)
+{
+    int frame;
+    if(!playerSettingsFrame(character, state, indexX, indexY, frame))
+        return false;
+    if(y)
+        PlayerFrameY[character][frame] = (int8_t)value;
+    else
+        PlayerFrameX[character][frame] = (int8_t)value;
+    return true;
 }
 
 // Address of the character template for LunaLua's character ID, 0 if none
@@ -3031,6 +3931,13 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_mem_get", &LuaMisc::mem_get), // smbx2compat
         def("xtech_mem_set", &LuaMisc::mem_set), // smbx2compat
         def("xtech_mem_templateAddress", &LuaMisc::mem_templateAddress), // smbx2compat
+        def("xtech_mem_propertyTableAddress", &LuaMisc::mem_propertyTableAddress), // smbx2compat
+        def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat
+        def("xtech_mem_setString", &LuaMisc::mem_setString), // smbx2compat
+        def("xtech_playerSettings_get", &LuaMisc::playerSettings_get), // smbx2compat
+        def("xtech_playerSettings_set", &LuaMisc::playerSettings_set), // smbx2compat
+        def("xtech_playerSettings_getSpriteOffset", &LuaMisc::playerSettings_getSpriteOffset), // smbx2compat
+        def("xtech_playerSettings_setSpriteOffset", &LuaMisc::playerSettings_setSpriteOffset), // smbx2compat
         // xtech_misc_wait: registered manually (luabind::object param)
         // P3: Sysval functions
         def("xtech_sysval_getLives", &LuaMisc::sysval_getLives),

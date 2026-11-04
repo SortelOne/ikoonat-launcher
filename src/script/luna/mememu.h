@@ -22,6 +22,7 @@
 #define MEMEMU_H
 
 #include <cstddef>
+#include <string>
 #include "lunadefs.h"
 
 struct Player_t;
@@ -52,5 +53,9 @@ void MemAssign(Block_t *obj, size_t address, num_t value, OPTYPE operation, FIEL
 num_t GetMem(Block_t *obj, size_t offset, FIELDTYPE ftype);
 void MemAssign(Background_t *obj, size_t address, num_t value, OPTYPE operation, FIELDTYPE ftype);
 num_t GetMem(Background_t *obj, size_t offset, FIELDTYPE ftype);
+
+// smbx2compat: string globals (false if the address isn't one)
+bool GetMemString(size_t address, std::string &out);
+bool SetMemString(size_t address, const std::string &value);
 
 #endif // MEMEMU_H

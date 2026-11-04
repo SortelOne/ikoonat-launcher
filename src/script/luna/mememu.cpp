@@ -32,6 +32,7 @@
 #include "main/trees.h" // treeNPCUpdate
 #include "npc/npc_queues.h"
 #include "main/cheat_code.h"
+#include "graphics.h" // smbx2compat: doShakeScreen
 
 #include <unordered_map>
 #include <functional>
@@ -603,6 +604,41 @@ public:
         insert(0x00B2504C, &TakeScreen);
         insert(0x00B2B9E4, &qScreen); // smbx2compat: camera is panning between sections
         insert(0x00B2C62A, &selSave); // smbx2compat: current save slot
+        insert(0x00B2C628, &selWorld); // smbx2compat: current episode
+        insert(0x00B250D4, &ClearBuffer); // smbx2compat
+        insert(0x00B250B0, &Checkpoint); // smbx2compat: level of the last checkpoint
+        insert(0x00B25720, &GoToLevel); // smbx2compat: level to load next
+        insert(0x00B25784, &iBlocks); // smbx2compat: blocks being bumped
+        insert(0x00B2C5A4, &FileName); // smbx2compat
+        insert(0x00B2C618, &FullFileName); // smbx2compat
+        insert(0x00B2C61C, &FileNamePath); // smbx2compat
+        insert(0x00B2C59E, // smbx2compat: LevelMacro, how the level is being won (SMBX2's Level.winState)
+            [](FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)LevelMacro, ftype);
+            },
+            [](num_t in, FIELDTYPE ftype)->void
+            {
+                int tmp = 0;
+                memToValue(tmp, in, ftype);
+                LevelMacro = static_cast<LevelMacro_t>(tmp);
+            }
+        );
+        insert(0x00B2C5A0, &LevelMacroCounter); // smbx2compat
+        insert(0x00B250AC, // smbx2compat: ScreenShake (SMBX2's Defines.earthquake)
+            [](FIELDTYPE)->num_t
+            {
+                // TheXTech keeps the shake state in gfx_update.cpp; scripts only use it as a minimum
+                return 0;
+            },
+            [](num_t in, FIELDTYPE ftype)->void
+            {
+                int force = 0;
+                memToValue(force, in, ftype);
+                if(force > 0)
+                    doShakeScreen(force, SHAKE_RANDOM);
+            }
+        );
         insert(0x00B250D6, &numLocked);
         insert(0x00B250E2, // Pause menu visible
             [](FIELDTYPE ftype)->num_t
@@ -763,7 +799,7 @@ public:
         insert(0x00B2D6CC, &SharedCursor.Primary);
         insert(0x00B2D6D0, &MenuMouseRelease);
         insert(0x00B2D6D2, &SharedCursor.Move);
-        insert(0x00B2D710, &numEvents);
+        insert(0x00B2D710, &newEventNum); // smbx2compat: SMBX 1.3 keeps the event queue length here (was numEvents)
         insert(0x00B2D740, &BattleMode);
         // was previously unlinked with sound engine status, replaced by (1) !g_config.audio_enable and (2) !g_mixerLoaded
         // If we wanted to reimplement, should probably read from (2) and write to (1), including the (expensive!) UpdateConfig hook
@@ -969,6 +1005,45 @@ public:
         default:
             break;
         }
+    }
+
+    // smbx2compat: string globals, for SMBX2's mem(addr, FIELD_STRING)
+    bool getString(size_t address, std::string &out) const
+    {
+        auto sres = m_sf.find(address);
+        if(sres != m_sf.end())
+        {
+            out = *sres->second;
+            return true;
+        }
+
+        auto lres = m_sff.find(address);
+        if(lres != m_sff.end())
+        {
+            out = lres->second.first();
+            return true;
+        }
+
+        return false;
+    }
+
+    bool setString(size_t address, const std::string &value)
+    {
+        auto sres = m_sf.find(address);
+        if(sres != m_sf.end())
+        {
+            *sres->second = value;
+            return true;
+        }
+
+        auto lres = m_sff.find(address);
+        if(lres != m_sff.end())
+        {
+            lres->second.second(value);
+            return true;
+        }
+
+        return false;
     }
 };
 
@@ -2067,11 +2142,18 @@ public:
         insert(0x000000e4, &NPC_t::Frame);
         insert(0x000000e8, &NPC_t::FrameCount);
         insert(0x000000ec, &NPC_t::Direction);
-        insert(0x000000f0, &NPC_t::Special);
-        insert(0x000000f8, &NPC_t::Special2);
-        insert(0x00000100, &NPC_t::Special3);
-        insert(0x00000108, &NPC_t::Special4);
-        insert(0x00000110, &NPC_t::Special5);
+        // smbx2compat: Special..Special5 are Doubles in SMBX (SMBX2's ai1..ai5) but whole numbers
+        // here; take any field type without a mismatch warning
+#define NPC_SPECIAL(addr, field) \
+        insert(addr, \
+            [](const NPC_t& n, FIELDTYPE ftype)->num_t { return valueToMem(n.field, ftype); }, \
+            [](NPC_t& n, num_t in, FIELDTYPE ftype)->void { memToValue(n.field, in, ftype); })
+        NPC_SPECIAL(0x000000f0, Special);
+        NPC_SPECIAL(0x000000f8, Special2);
+        NPC_SPECIAL(0x00000100, Special3);
+        NPC_SPECIAL(0x00000108, Special4);
+        NPC_SPECIAL(0x00000110, Special5);
+#undef NPC_SPECIAL
         // insert(0x00000118, &NPC_t::Special6); // removed!
         insert(0x00000120, // TurnAround
             [](const NPC_t& n, FIELDTYPE ftype)->num_t
@@ -3208,4 +3290,14 @@ void MemAssign(Background_t *obj, size_t address, num_t value, OPTYPE operation,
 num_t GetMem(Background_t *obj, size_t offset, FIELDTYPE ftype)
 {
     return s_emuBackground.getValue(obj, offset, ftype);
+}
+
+bool GetMemString(size_t address, std::string &out)
+{
+    return s_emu.getString(address, out);
+}
+
+bool SetMemString(size_t address, const std::string &value)
+{
+    return s_emu.setString(address, value);
 }
