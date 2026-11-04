@@ -1,0 +1,230 @@
+diff --git a/lvl_filedata.h b/lvl_filedata.h
+index a4e960d..2ca616e 100644
+--- a/lvl_filedata.h
++++ b/lvl_filedata.h
+@@ -166,12 +166,18 @@ struct LevelBlock
+     long special_data2 = 0;
+     //! Name of a parent layer. Default value is "Default"
+     PGESTRING   layer = DEFAULT_LAYER_NAME;
++    //! TheXTech-Lua: Optional object name for scripts (LVLX "NA" field, default is empty)
++    PGESTRING   name;
+     //! 38A: Custom graphic file base name (default is empty)
+     PGESTRING   gfx_name;
+     //! 38A: Graphics extend x
+     long gfx_dx = 0;
+     //! 38A: Graphics extend y
+     long gfx_dy = 0;
++    //! TheXTech-Lua: Frame X offset in sprite sheet (in GFX-width units)
++    long extx = 0;
++    //! TheXTech-Lua: Frame Y offset in sprite sheet (in GFX-height units)
++    long exty = 0;
+     //! Trigger event on destroying of this block
+     PGESTRING event_destroy;
+     //! Trigger event on hiting of this block
+@@ -220,6 +226,10 @@ struct LevelBGO
+     long gfx_dx = 0;
+     //! 38A: Graphics extend y
+     long gfx_dy = 0;
++    //! TheXTech-Lua: Frame X offset in sprite sheet (in GFX-width units)
++    long extx = 0;
++    //! TheXTech-Lua: Frame Y offset in sprite sheet (in GFX-height units)
++    long exty = 0;
+     /*!
+      * \brief Z order Modes of background objects
+      */
+@@ -274,6 +284,10 @@ struct LevelNPC
+     long gfx_dx = 0;
+     //! 38A: Graphics extend y
+     long gfx_dy = 0;
++    //! TheXTech-Lua: Frame X offset in sprite sheet (in GFX-width units)
++    long extx = 0;
++    //! TheXTech-Lua: Frame Y offset in sprite sheet (in GFX-height units)
++    long exty = 0;
+     //! <Container-NPC specific!> Contained NPC in this container.
+     long contents = 0;
+     //! 38A: GFX Autoscale
+@@ -380,6 +394,8 @@ struct LevelNPC
+     bool is_boss = false;
+     //! Name of a parent layer. Default value is "Default"
+     PGESTRING layer = DEFAULT_LAYER_NAME;
++    //! TheXTech-Lua: Optional object name for scripts (LVLX "NA" field, default is empty)
++    PGESTRING name;
+     //! Trigger event on actiovation of this NPC (on appearence on screen)
+     PGESTRING event_activate;
+     //! Trigger event on death of this NPC
+diff --git a/npc_filedata.h b/npc_filedata.h
+index 27b0f04..902b40e 100644
+--- a/npc_filedata.h
++++ b/npc_filedata.h
+@@ -261,6 +261,113 @@ struct NPCConfigFile
+     //! At player-set resolutions, should the NPC still activate based on the content's default resolution?
+     bool usedefaultcam = false;
+ 
++/*
++ * TheXTech-Lua extended traits (each value is applied only when its en_ flag is set)
++ */
++    bool en_gfxsplitheight = false;
++    //! Height of one split part of the sprite
++    uint32_t gfxsplitheight = 0;
++
++    bool en_nolava = false;
++    //! Immune to lava
++    bool nolava = false;
++
++    bool en_noleaf = false;
++    //! Immune to leaf/tanooki tail
++    bool noleaf = false;
++
++    bool en_noblockhit = false;
++    //! Immune to damage from block hits
++    bool noblockhit = false;
++
++    bool en_spinjump = false;
++    //! Allows spin jump stomp
++    bool spinjump = false;
++
++    bool en_spinjumphurt = false;
++    //! Hurts player on spin jump
++    bool spinjumphurt = false;
++
++    bool en_waterjumphurt = false;
++    //! Hurts player on water jump
++    bool waterjumphurt = false;
++
++    bool en_yoshihurt = false;
++    //! Hurts yoshi-rider on stomp
++    bool yoshihurt = false;
++
++    bool en_instantkill = false;
++    //! Instant kill on contact
++    bool instantkill = false;
++
++    bool en_immortal = false;
++    //! Cannot be killed
++    bool immortal = false;
++
++    bool en_groundpoundbreak = false;
++    //! Ground pound breaks this NPC
++    bool groundpoundbreak = false;
++
++    bool en_megabreak = false;
++    //! Mega form breaks this NPC
++    bool megabreak = false;
++
++    bool en_turboweak = false;
++    //! Turbo dash deals shell damage
++    bool turboweak = false;
++
++    bool en_nosectionwrap = false;
++    //! Ignores section wrap
++    bool nosectionwrap = false;
++
++    bool en_npcblockside = false;
++    //! Blocks NPCs at side
++    bool npcblockside = false;
++
++    bool en_float = false;
++    //! Floats on water surface ("float" key)
++    bool float_npc = false;
++
++    bool en_nopiercingdmg = false;
++    //! Immune to piercing damage
++    bool nopiercingdmg = false;
++
++    bool en_pushable = false;
++    //! Can be pushed by player
++    bool pushable = false;
++
++    bool en_stackable = false;
++    //! Stays still when on another stackable NPC
++    bool stackable = false;
++
++    bool en_canmeltblock = false;
++    //! Can melt ice blocks on contact
++    bool canmeltblock = false;
++
++    bool en_wingsforever = false;
++    //! Wings don't disappear when hurt
++    bool wingsforever = false;
++
++    bool en_nonpccollision = false;
++    //! Skip NPC-NPC collision
++    bool nonpccollision = false;
++
++    bool en_frozentime = false;
++    //! Freeze duration in frames (-1 = never)
++    int32_t frozentime = 0;
++
++    bool en_yoshitransform = false;
++    //! NPC ID after yoshi swallow (0 = no transform)
++    uint32_t yoshitransform = 0;
++
++    bool en_frozentransform = false;
++    //! NPC ID after frozen (0 = no transform)
++    uint32_t frozentransform = 0;
++
++    bool en_jumptransform = false;
++    //! NPC ID after jump stomp (0 = no transform)
++    uint32_t jumptransform = 0;
++
+ };
+ 
+ #endif // NPC_FILEDATA_H
+diff --git a/src/pgex/file_rw_lvlx.cpp b/src/pgex/file_rw_lvlx.cpp
+index 3d7da9a..f3637ad 100644
+--- a/src/pgex/file_rw_lvlx.cpp
++++ b/src/pgex/file_rw_lvlx.cpp
+@@ -478,6 +478,7 @@ bool FileFormats::ReadExtendedLvlFile(PGE_FileFormats_misc::TextInput &in, const
+                         PGEX_SLongVal("S1", block.special_data) //Special value 1
+                         PGEX_SLongVal("S2", block.special_data2) //Special value 2
+                         PGEX_StrVal("LR", block.layer) //Layer name
++                        PGEX_StrVal("NA", block.name) //TheXTech-Lua: Object name
+                         PGEX_StrVal("ED", block.event_destroy) //Destroy event slot
+                         PGEX_StrVal("EH", block.event_hit) //Hit event slot
+                         PGEX_StrVal("EE", block.event_emptylayer) //Hit event slot
+@@ -554,6 +555,7 @@ bool FileFormats::ReadExtendedLvlFile(PGE_FileFormats_misc::TextInput &in, const
+                         PGEX_BoolVal("NM", npcdata.nomove) //Don't move
+                         PGEX_BoolVal("BS", npcdata.is_boss) //Enable boss mode!
+                         PGEX_StrVal("LR", npcdata.layer) //Layer
++                        PGEX_StrVal("NA", npcdata.name) //TheXTech-Lua: Object name
+                         PGEX_StrVal("LA", npcdata.attach_layer) //Attach Layer
+                         PGEX_StrVal("SV", npcdata.send_id_to_variable) //Send ID to variable
+                         PGEX_StrVal("EA", npcdata.event_activate) //Event slot "Activated"
+diff --git a/src/smbx64/file_rw_npc_txt.cpp b/src/smbx64/file_rw_npc_txt.cpp
+index 85e50b2..b06cd8f 100644
+--- a/src/smbx64/file_rw_npc_txt.cpp
++++ b/src/smbx64/file_rw_npc_txt.cpp
+@@ -251,6 +251,33 @@ bool FileFormats::ReadNpcTXTFile(PGE_FileFormats_misc::TextInput &inf, NPCConfig
+             SINT_ENTRY(gridoffsety),
+             UINT_ENTRY(gridalign),
+             BOOL_ENTRY(usedefaultcam),
++            // TheXTech-Lua extended traits
++            UINT_ENTRY(gfxsplitheight),
++            BOOL_ENTRY(nolava),
++            BOOL_ENTRY(noleaf),
++            BOOL_ENTRY(noblockhit),
++            BOOL_ENTRY(spinjump),
++            BOOL_ENTRY(spinjumphurt),
++            BOOL_ENTRY(waterjumphurt),
++            BOOL_ENTRY(yoshihurt),
++            BOOL_ENTRY(instantkill),
++            BOOL_ENTRY(immortal),
++            BOOL_ENTRY(groundpoundbreak),
++            BOOL_ENTRY(megabreak),
++            BOOL_ENTRY(turboweak),
++            BOOL_ENTRY(nosectionwrap),
++            BOOL_ENTRY(npcblockside),
++            { "float", [&](PGESTRING &param) { handlerBool(fileData.en_float, fileData.float_npc, param);} },
++            BOOL_ENTRY(nopiercingdmg),
++            BOOL_ENTRY(pushable),
++            BOOL_ENTRY(stackable),
++            BOOL_ENTRY(canmeltblock),
++            BOOL_ENTRY(wingsforever),
++            BOOL_ENTRY(nonpccollision),
++            SINT_ENTRY(frozentime),
++            UINT_ENTRY(yoshitransform),
++            UINT_ENTRY(frozentransform),
++            UINT_ENTRY(jumptransform),
+         };
+ 
+         //Read NPC.TXT File config

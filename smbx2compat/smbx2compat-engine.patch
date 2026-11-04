@@ -1,0 +1,258 @@
+diff --git a/script/src/xtech_lua_bindings.cpp b/script/src/xtech_lua_bindings.cpp
+index dbb2fe5..7f1b850 100644
+--- a/script/src/xtech_lua_bindings.cpp
++++ b/script/src/xtech_lua_bindings.cpp
+@@ -41,6 +41,7 @@ extern "C"
+ #include <fmt_format_ne.h>
+ 
+ #include "globals.h"
++#include "luabind_num_t.h" // smbx2compat: num_t <-> Lua number
+ #include "global_dirs.h"
+ #include "global_strings.h"
+ #include "location.h"
+diff --git a/script/src/xtech_lua_main.cpp b/script/src/xtech_lua_main.cpp
+index 8efa4b3..48e7648 100644
+--- a/script/src/xtech_lua_main.cpp
++++ b/script/src/xtech_lua_main.cpp
+@@ -55,6 +55,8 @@ static bool g_luaWorking = false;
+ static bool g_luaInitialized = false;
+ static bool g_gameLoaded = false;
+ static int g_sandboxRef = LUA_NOREF;
++static int g_episodeSandboxRef = LUA_NOREF;  // smbx2compat: episode-wide luna.lua
++static bool g_compatLoaded = false;          // smbx2compat: shim loaded into _G
+ static bool s_wasOnMap = false;
+ 
+ // Lua function references (level)
+@@ -336,6 +338,48 @@ static luabind::object getSandboxFunc(int sandboxRef, const char* funcName)
+ }
+ 
+ 
++// ============================================================================
++// smbx2compat: run a script file in a fresh sandbox; returns registry ref
++// ============================================================================
++
++static int runSandboxed(const std::string &path)
++{
++    Files::Data data = Files::load_file(path);
++    if(data.empty())
++        return LUA_NOREF;
++
++    if(luaL_loadbuffer(g_L, data.c_str(), data.size(), path.c_str()) != 0)
++    {
++        pLogWarning("Lua: Error loading %s: %s", path.c_str(), lua_tostring(g_L, -1));
++        lua_pop(g_L, 1);
++        return LUA_NOREF;
++    }
++
++    lua_newtable(g_L);                           // [chunk][sandbox]
++    lua_newtable(g_L);                           // [chunk][sandbox][mt]
++    lua_pushvalue(g_L, LUA_GLOBALSINDEX);
++    lua_setfield(g_L, -2, "__index");            // mt.__index = _G
++    lua_pushcfunction(g_L, sandbox_newindex);
++    lua_setfield(g_L, -2, "__newindex");
++    lua_setmetatable(g_L, -2);                   // [chunk][sandbox]
++
++    int ref = luaL_ref(g_L, LUA_REGISTRYINDEX);  // [chunk]
++    lua_rawgeti(g_L, LUA_REGISTRYINDEX, ref);    // [chunk][sandbox]
++    lua_setfenv(g_L, -2);                        // [chunk]
++
++    if(lua_pcall(g_L, 0, 0, 0) != 0)
++    {
++        pLogWarning("Lua: Error running %s: %s", path.c_str(), lua_tostring(g_L, -1));
++        lua_pop(g_L, 1);
++        luaL_unref(g_L, LUA_REGISTRYINDEX, ref);
++        return LUA_NOREF;
++    }
++
++    pLogInfo("Lua: Loaded and ran script: %s", path.c_str());
++    return ref;
++}
++
++
+ // ============================================================================
+ // Revised xtech_lua_loadLevel
+ // ============================================================================
+@@ -368,53 +412,86 @@ void xtech_lua_loadLevel()
+         luaL_unref(g_L, LUA_REGISTRYINDEX, g_sandboxRef);
+         g_sandboxRef = LUA_NOREF;
+     }
++    if(g_episodeSandboxRef != LUA_NOREF)
++    {
++        luaL_unref(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef);
++        g_episodeSandboxRef = LUA_NOREF;
++    }
+ 
+-    // Find level script
+-    std::string levelPath = g_dirCustom.resolveFileCaseExistsAbs("level.lua");
++    // smbx2compat: load the SMBX2 compatibility shim into _G once
++    if(!g_compatLoaded)
++    {
++        std::string shim = g_dirEpisode.resolveFileCaseExistsAbs("smbx2compat.lua");
++        if(shim.empty())
++        {
++            std::string assetShim = AppPathManager::assetsRoot() + "scripts/smbx2compat.lua";
++            if(Files::fileExists(assetShim))
++                shim = assetShim;
++        }
++        if(!shim.empty())
++            g_compatLoaded = loadAndRunLuaFile(shim, "smbx2compat.lua");
++    }
++
++    // Find level script (SMBX2 uses luna.lua; the fork's own names still work)
++    std::string levelPath = g_dirCustom.resolveFileCaseExistsAbs("luna.lua");
+     if(levelPath.empty())
+-        levelPath = g_dirCustom.resolveFileCaseExistsAbs("lunadll.lua");
++        levelPath = g_dirCustom.resolveFileCaseExistsAbs("level.lua");
+     if(levelPath.empty())
+-        return;
++        levelPath = g_dirCustom.resolveFileCaseExistsAbs("lunadll.lua");
+ 
+-    // Read and load the chunk
+-    Files::Data data = Files::load_file(levelPath);
+-    if(data.empty())
++    // smbx2compat: SMBX2 also runs an episode-wide luna.lua in every level
++    std::string episodePath = g_compatLoaded ? g_dirEpisode.resolveFileCaseExistsAbs("luna.lua") : std::string();
++
++    if(levelPath.empty() && episodePath.empty())
+         return;
+ 
+-    int result = luaL_loadbuffer(g_L, data.c_str(), data.size(), levelPath.c_str());
+-    if(result != 0)
++    if(g_compatLoaded)
+     {
+-        pLogWarning("Lua: Error loading level script: %s", lua_tostring(g_L, -1));
+-        lua_pop(g_L, 1);
+-        return;
++        lua_getglobal(g_L, "__smbx2_beginLevel");
++        if(lua_isfunction(g_L, -1))
++        {
++            lua_pushstring(g_L, g_dirCustom.getCurDir().c_str());
++            lua_pushstring(g_L, g_dirEpisode.getCurDir().c_str());
++            if(lua_pcall(g_L, 2, 0, 0) != 0)
++            {
++                pLogWarning("Lua: __smbx2_beginLevel failed: %s", lua_tostring(g_L, -1));
++                lua_pop(g_L, 1);
++            }
++        }
++        else
++            lua_pop(g_L, 1);
+     }
+ 
+-    // Create sandbox table
+-    lua_newtable(g_L);                           // [chunk][sandbox]
++    if(!episodePath.empty())
++        g_episodeSandboxRef = runSandboxed(episodePath);
++    if(!levelPath.empty())
++        g_sandboxRef = runSandboxed(levelPath);
+ 
+-    // Create metatable for sandbox
+-    lua_newtable(g_L);                           // [chunk][sandbox][mt]
+-    lua_pushvalue(g_L, LUA_GLOBALSINDEX);        // [chunk][sandbox][mt][_G]
+-    lua_setfield(g_L, -2, "__index");            // mt.__index = _G
+-    lua_pushcfunction(g_L, sandbox_newindex);    // [chunk][sandbox][mt][func]
+-    lua_setfield(g_L, -2, "__newindex");         // mt.__newindex = sandbox_newindex
+-    lua_setmetatable(g_L, -2);                   // setmetatable(sandbox, mt)
+-    // [chunk][sandbox]
+-
+-    // Save sandbox ref before setfenv
+-    g_sandboxRef = luaL_ref(g_L, LUA_REGISTRYINDEX); // [chunk], sandbox stored
+-
+-    // Push sandbox back, set as chunk env, execute
+-    lua_rawgeti(g_L, LUA_REGISTRYINDEX, g_sandboxRef); // [chunk][sandbox]
+-    lua_setfenv(g_L, -2);                                // [chunk]
+-    result = lua_pcall(g_L, 0, 0, 0);                   // []
+-    if(result != 0)
++    // Hooks are looked up in the level sandbox; fall back to the episode one
++    if(g_sandboxRef == LUA_NOREF && g_episodeSandboxRef != LUA_NOREF)
+     {
+-        pLogWarning("Lua: Error running level script: %s", lua_tostring(g_L, -1));
+-        lua_pop(g_L, 1);
+-        luaL_unref(g_L, LUA_REGISTRYINDEX, g_sandboxRef);
+-        g_sandboxRef = LUA_NOREF;
++        lua_rawgeti(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef);
++        g_sandboxRef = luaL_ref(g_L, LUA_REGISTRYINDEX);
++    }
++    if(g_sandboxRef == LUA_NOREF)
+         return;
++
++    if(g_compatLoaded)
++    {
++        lua_getglobal(g_L, "__smbx2_attach");
++        if(lua_isfunction(g_L, -1))
++        {
++            int nargs = 0;
++            if(g_episodeSandboxRef != LUA_NOREF) { lua_rawgeti(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef); nargs++; }
++            if(!levelPath.empty()) { lua_rawgeti(g_L, LUA_REGISTRYINDEX, g_sandboxRef); nargs++; }
++            if(lua_pcall(g_L, nargs, 0, 0) != 0)
++            {
++                pLogWarning("Lua: __smbx2_attach failed: %s", lua_tostring(g_L, -1));
++                lua_pop(g_L, 1);
++            }
++        }
++        else
++            lua_pop(g_L, 1);
+     }
+ 
+     pLogInfo("Lua: Loaded and ran level script");
+@@ -475,6 +552,11 @@ void xtech_lua_unloadLevel()
+         luaL_unref(g_L, LUA_REGISTRYINDEX, g_sandboxRef);
+         g_sandboxRef = LUA_NOREF;
+     }
++    if(g_episodeSandboxRef != LUA_NOREF)
++    {
++        luaL_unref(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef);
++        g_episodeSandboxRef = LUA_NOREF;
++    }
+ }
+ 
+ 
+@@ -738,6 +820,11 @@ bool xtech_lua_quit()
+         luaL_unref(g_L, LUA_REGISTRYINDEX, g_sandboxRef);
+         g_sandboxRef = LUA_NOREF;
+     }
++    if(g_episodeSandboxRef != LUA_NOREF)
++    {
++        luaL_unref(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef);
++        g_episodeSandboxRef = LUA_NOREF;
++    }
+ 
+     g_luaWorking = false;
+     g_gameLoaded = false;
+diff --git a/script/src/luabind_num_t.h b/script/src/luabind_num_t.h
+new file mode 100644
+index 0000000..066c3f6
+--- /dev/null
++++ b/script/src/luabind_num_t.h
+@@ -0,0 +1,32 @@
++// luabind_num_t.h (smbx2compat patch) — teach luabind to pass TheXTech's num_t as a plain Lua number.
++// Include after <luabind/luabind.hpp> and numeric_types.h, before any module(L)[...] registration.
++#pragma once
++#include <luabind/luabind.hpp>
++#include "numeric_types.h"
++
++namespace luabind
++{
++    template <>
++    struct default_converter<num_t> : native_converter_base<num_t>
++    {
++        static int compute_score(lua_State* L, int index)
++        {
++            return lua_type(L, index) == LUA_TNUMBER ? 0 : no_match;
++        }
++        num_t to_cpp_deferred(lua_State* L, int index)
++        {
++            #ifdef THEXTECH_FIXED_POINT
++            return num_t(lua_tonumber(L, index), nullptr); // num_t(double) is deleted on purpose
++#else
++            return num_t((long double)lua_tonumber(L, index), nullptr);
++#endif
++        }
++        void to_lua_deferred(lua_State* L, num_t const& value)
++        {
++            lua_pushnumber(L, (double)value);
++        }
++    };
++
++    template <>
++    struct default_converter<num_t const&> : default_converter<num_t> {};
++}

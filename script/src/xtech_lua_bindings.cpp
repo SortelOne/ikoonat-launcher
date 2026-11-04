@@ -41,6 +41,7 @@ extern "C"
 #include <fmt_format_ne.h>
 
 #include "globals.h"
+#include "luabind_num_t.h" // smbx2compat: num_t <-> Lua number
 #include "global_dirs.h"
 #include "global_strings.h"
 #include "location.h"
@@ -173,7 +174,7 @@ static void npc_setQuicksand(NPC_t *n, int v) { if(n) n->Quicksand = (uint8_t)v;
 static int npc_getPermID(NPC_t *n)
 {
     if(!n) return -1;
-    ptrdiff_t idx = n - const_cast<NPC_t*>(NPC.base());
+    ptrdiff_t idx = n - &NPC[0];
     if(idx >= 0 && idx < numNPCs)
         return (int)(idx + 1); // 1-based
     return -1;
@@ -582,7 +583,7 @@ static void forEach(int type, luabind::object callback)
 static int block_getPermID(Block_t *b)
 {
     if(!b) return -1;
-    ptrdiff_t idx = b - const_cast<Block_t*>(Block.base());
+    ptrdiff_t idx = b - &Block[0];
     if(idx >= 0 && idx < numBlock)
         return (int)(idx + 1); // 1-based
     return -1;
@@ -1006,7 +1007,7 @@ static void forEach(int type, luabind::object callback)
 static int bgo_getPermID(Background_t *b)
 {
     if(!b) return -1;
-    ptrdiff_t idx = b - const_cast<Background_t*>(Background.base());
+    ptrdiff_t idx = b - &Background[1] + 1;
     if(idx >= 0 && idx < numBackground)
         return (int)(idx + 1); // 1-based
     return -1;
@@ -1045,7 +1046,7 @@ static Water_t* getByPermID(int permId)
 static int water_getPermID(Water_t *w)
 {
     if(!w) return -1;
-    ptrdiff_t idx = w - const_cast<Water_t*>(Water.base());
+    ptrdiff_t idx = w - &Water[0];
     if(idx >= 0 && idx < numWater)
         return (int)(idx + 0); // 0-based
     return -1;
@@ -1101,7 +1102,7 @@ static Warp_t* getByPermID(int permId)
 static int warp_getPermID(Warp_t *w)
 {
     if(!w) return -1;
-    ptrdiff_t idx = w - const_cast<Warp_t*>(Warp.base());
+    ptrdiff_t idx = w - &Warp[1] + 1;
     if(idx >= 0 && idx < numWarps)
         return (int)(idx + 1); // 1-based
     return -1;
