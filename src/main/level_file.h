@@ -24,6 +24,7 @@
 #define LEVEL_FILE_H
 
 #include <string>
+#include <vector>
 #include <PGE_File_Formats/lvl_filedata.h>
 
 extern void addMissingLvlSuffix(std::string &fileName);
@@ -38,6 +39,13 @@ void ClearLevel();
 
 //! checks for stars in warps the lead to another level
 void FindStars();
+
+// smbx2compat: custom params (JSON) from the loaded level file, for SMBX2 scripts
+extern std::string g_levelCustomParams;
+//! by section ID
+extern std::vector<std::string> g_sectionCustomParams;
+//! distinct params of blocks, BGOs and NPCs, indexed by their CustomParams field; [0] is ""
+extern std::vector<std::string> g_objectCustomParams;
 
 //! NEW: routines to check if it is possible to convert to legacy file formats and to remove all non-legacy content
 // Removed, let PGE-FL handle conversion on its own.

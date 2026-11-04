@@ -1957,6 +1957,57 @@ static std::string misc_getGameData()
     return s_smbx2GameData;
 }
 
+// smbx2compat: custom params (JSON) from the level file, for SMBX2's
+// ffi_customparams. kind "level" returns the string; "section" a table by
+// section ID; "npc", "bgo" and "block" return { ids = {...}, params = {...} }
+// by engine index, where params has no entry for objects without any.
+template<class T>
+static luabind::object objectCustomParams(lua_State* L, T& arr, int count)
+{
+    luabind::object ids = luabind::newtable(L);
+    luabind::object params = luabind::newtable(L);
+    for(int i = 1; i <= count; i++)
+    {
+        ids[i] = (int)arr[i].Type;
+        uint32_t p = arr[i].CustomParams;
+        if(p > 0 && p < g_objectCustomParams.size())
+            params[i] = g_objectCustomParams[p];
+    }
+
+    luabind::object t = luabind::newtable(L);
+    t["ids"] = ids;
+    t["params"] = params;
+    return t;
+}
+
+static luabind::object misc_customParams(const std::string &kind)
+{
+    lua_State* L = xtech_lua_getState();
+
+    if(kind == "level")
+        return luabind::object(L, g_levelCustomParams);
+
+    if(kind == "section")
+    {
+        luabind::object t = luabind::newtable(L);
+        for(size_t i = 0; i < g_sectionCustomParams.size(); i++)
+        {
+            if(!g_sectionCustomParams[i].empty())
+                t[i] = g_sectionCustomParams[i];
+        }
+        return t;
+    }
+
+    if(kind == "npc")
+        return objectCustomParams(L, NPC, numNPCs);
+    if(kind == "bgo")
+        return objectCustomParams(L, Background, numBackground);
+    if(kind == "block")
+        return objectCustomParams(L, Block, numBlock);
+
+    return luabind::object(); // nil
+}
+
 // smbx2compat: monotonic seconds, for SMBX2's Misc.clock (QueryPerformanceCounter on Windows)
 static double misc_clock()
 {
@@ -2839,6 +2890,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_listDir", &LuaMisc::misc_listDir), // smbx2compat
         def("xtech_misc_setGameData", &LuaMisc::misc_setGameData), // smbx2compat
         def("xtech_misc_getGameData", &LuaMisc::misc_getGameData), // smbx2compat
+        def("xtech_misc_customParams", &LuaMisc::misc_customParams), // smbx2compat
         def("xtech_misc_imageSize", &LuaMisc::misc_imageSize), // smbx2compat
         def("xtech_misc_imagePixels", &LuaMisc::misc_imagePixels), // smbx2compat
         def("xtech_mem_get", &LuaMisc::mem_get), // smbx2compat

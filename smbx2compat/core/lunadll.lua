@@ -87,11 +87,31 @@ function dll.LunaLuaGetWeakLava()
     return false
 end
 
+-- Analog stick of the player's controller, -32768..32767 per axis.
+-- TODO: from the engine's controls; centered until then.
+function dll.LunaLuaGetSelectedControllerStickPosition(playerNum)
+    return ffi.new("StickPos")
+end
+
 
 ----------------------
 -- ffi_graphics.lua --
 ----------------------
 -- Drawing is Phase 4. Until then: answers to the queries, nothing drawn.
+
+-- Memory ffi_graphics fills with vertex data for the GL draw calls, which free
+-- it once drawn (malloc in LunaLua). Here it's LuaJIT memory, kept alive
+-- until the end of the next frame, since nothing draws it yet.
+local allocations, lastFrameAllocations = {}, {}
+function dll.LunaLuaAlloc(size)
+    local buf = ffi.new("uint8_t[?]", size)
+    allocations[#allocations + 1] = buf
+    return buf
+end
+core.onFrameEnd(function()
+    lastFrameAllocations = allocations
+    allocations = {}
+end)
 
 function dll.FFI_GraphicsIsSoftwareGL()
     return false
@@ -244,6 +264,72 @@ end
 
 function dll.FFI_GraphicsGetMainFramebufferSize()
     return ffi.new("FBSize", 800, 600)
+end
+
+
+--------------------------
+-- ffi_customparams.lua --
+--------------------------
+-- Per-object settings from the level file, merged over the config pack's
+-- defaults (extrasettings.lua). ffi_customparams only indexes these arrays and
+-- hands entries to ffi.string, so Lua tables of strings stand in for LunaLua's
+-- const char**, with index 0 the first object like theirs. nil = no settings.
+
+local extraSettings = core.extraSettings
+
+-- kind is "npc", "bgo" or "block"; the engine counts from 1
+local function objectParams(kind)
+    local t = xtech_misc_customParams(kind)
+    local ret = {}
+    for i, id in ipairs(t.ids) do
+        ret[i - 1] = extraSettings.object(kind, id, t.params[i])
+    end
+    return ret
+end
+
+function dll.LunaLuaGetLevelCustomParams()
+    return extraSettings.simple("level", xtech_misc_customParams("level"))
+end
+
+function dll.LunaLuaGetSectionCustomParams()
+    local t = xtech_misc_customParams("section")
+    local ret = {}
+    for i = 0, 20 do
+        ret[i] = extraSettings.simple("section", t[i])
+    end
+    return ret
+end
+
+function dll.LunaLuaGetNpcCustomParams()
+    return objectParams("npc")
+end
+
+function dll.LunaLuaGetBgoCustomParams()
+    return objectParams("bgo")
+end
+
+function dll.LunaLuaGetBlockCustomParams()
+    return objectParams("block")
+end
+
+function dll.LunaLuaGetDefaultLevelCustomParams()
+    return extraSettings.simple("level", "{}")
+end
+
+function dll.LunaLuaGetDefaultSectionCustomParams()
+    return extraSettings.simple("section", "{}")
+end
+
+function dll.LunaLuaGetDefaultNpcCustomParams(id)
+    return extraSettings.object("npc", id, "{}")
+end
+
+function dll.LunaLuaGetDefaultBgoCustomParams(id)
+    return extraSettings.object("bgo", id, "{}")
+end
+
+function dll.LunaLuaGetDefaultBlockCustomParams(id)
+    return extraSettings.object("block", id, "{}")
 end
 
 

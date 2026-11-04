@@ -25,6 +25,7 @@
 #include <json/json.hpp>
 #include <fmt_format_ne.h>
 #include <algorithm>
+#include <unordered_map>
 
 #ifdef __16M__
 // used to clear loaded textures on level/world load
@@ -287,6 +288,27 @@ bool OpenLevel_Unpack(LevelLoad& load, LevelData& lvl);
 
 void OpenLevel_FixLayersEvents(const LevelLoad& load);
 
+// smbx2compat: custom params kept for SMBX2 scripts (see level_file.h)
+std::string g_levelCustomParams;
+std::vector<std::string> g_sectionCustomParams;
+std::vector<std::string> g_objectCustomParams;
+static std::unordered_map<std::string, uint32_t> s_objectCustomParamsIndex;
+
+static uint32_t keepObjectCustomParams(const std::string& params)
+{
+    if(params.empty())
+        return 0;
+
+    auto it = s_objectCustomParamsIndex.find(params);
+    if(it != s_objectCustomParamsIndex.end())
+        return it->second;
+
+    uint32_t index = (uint32_t)g_objectCustomParams.size();
+    g_objectCustomParams.push_back(params);
+    s_objectCustomParamsIndex[params] = index;
+    return index;
+}
+
 bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string FilePath)
 {
     if(FilePath == ".lvl" || FilePath == ".lvlx")
@@ -307,6 +329,12 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
     numNPCs = 0;
     numWarps = 0;
     numSections = 0;
+
+    // smbx2compat
+    g_levelCustomParams.clear();
+    g_sectionCustomParams.assign(maxSections + 1, std::string());
+    g_objectCustomParams.assign(1, std::string());
+    s_objectCustomParamsIndex.clear();
 
     // initialize basic layers and events left by ClearLevel()
     // they'll get updated, but this is necessary to handle PGE-X files without them included
@@ -416,6 +444,8 @@ bool OpenLevel_Head(void* userdata, LevelData& head)
         // none supported yet
     }
 
+    g_levelCustomParams = head.custom_params; // smbx2compat
+
     load.si.check_head(head);
 
     return true;
@@ -453,6 +483,8 @@ bool OpenLevel_Section(void*, LevelSection& s)
             CustomMusic[B].clear();
         else
             CustomMusic[B] = g_dirEpisode.resolveFileCase(s.music_file);
+
+        g_sectionCustomParams[B] = s.custom_params; // smbx2compat
 
         // NOTE: maybe this will get stored and used as a Lua table (instead of as a string) on platforms supporting Lua
         if(LevelEditor && !s.custom_params.empty())
@@ -869,6 +901,8 @@ bool OpenLevel_Block(void* userdata, LevelBlock& b)
         // Copy object name from level file to runtime (P4)
         if(!b.name.empty())
             SetS(block.Name, b.name);
+
+        block.CustomParams = keepObjectCustomParams(b.meta.custom_params); // smbx2compat
     }
 
     return true;
@@ -909,6 +943,7 @@ bool OpenLevel_Background(void* userdata, LevelBGO& b)
         bgo.Location.Height = BackgroundHeight[bgo.Type];
 
         bgo.SetSortPriority(b.z_mode, std::round(b.z_offset));
+        bgo.CustomParams = keepObjectCustomParams(b.meta.custom_params); // smbx2compat
     }
 
     return true;
@@ -1043,6 +1078,8 @@ bool OpenLevel_NPC(void* userdata, LevelNPC& n)
         // Copy object name from level file to runtime (P4)
         if(!n.name.empty())
             SetS(npc.Name, n.name);
+
+        npc.CustomParams = keepObjectCustomParams(n.meta.custom_params); // smbx2compat
 
         npc.Inert = n.friendly;
         if(npc.Type == NPCID_SIGN)

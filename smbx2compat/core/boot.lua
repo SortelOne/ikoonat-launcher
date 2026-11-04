@@ -7,7 +7,7 @@
   __xtech_isOverworld, __xtech_episodePath and __xtech_levelFile (e.g.
   "1-1.lvlx"), then runs this file. We:
     1. define what LunaLua's C++ defines before main.lua runs (constants.lua,
-       host.lua, classes.lua),
+       host.lua, classes.lua; extrasettings.lua for custom params),
     2. send every file SMBX2 reads through one resolver (resolve below),
     3. answer ffi.load("LunaDll.dll") with lunadll.lua, a Lua table standing in
        for the DLL's exports,
@@ -250,6 +250,18 @@ function _G.loadfile(path, mode, env)
 end
 
 
+-- Functions to run once each frame has been drawn (core.onFrameEnd(f))
+local frameEndFuncs = {}
+function core.onFrameEnd(f)
+    frameEndFuncs[#frameEndFuncs + 1] = f
+end
+function core.endFrame()
+    for _, f in ipairs(frameEndFuncs) do
+        f()
+    end
+end
+
+
 ---------------------------
 -- Host globals and DLL --
 ---------------------------
@@ -263,6 +275,7 @@ end
 runCoreFile("constants.lua")
 runCoreFile("host.lua")
 runCoreFile("classes.lua")
+core.extraSettings = runCoreFile("extrasettings.lua")
 
 do
     local ffi = require("ffi")
@@ -379,6 +392,7 @@ function __xtech_onRenderEnd()
         drawEndReady = false
         sendEvent("onDrawEnd", false)
     end
+    core.endFrame()
 end
 
 function __xtech_onExit()

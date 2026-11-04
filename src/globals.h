@@ -382,6 +382,8 @@ struct NPC_t
     stringindex_t Text = STRINGINDEX_NONE;
 //    Name As String 'object name for scripting (P4)
     stringindex_t Name = STRINGINDEX_NONE;
+    //! smbx2compat: custom params (JSON) from the level file, index into g_objectCustomParams (0 = none)
+    uint32_t CustomParams = 0;
 
 //    Projectile As Boolean 'If the NPC is a projectile
     bool Projectile = false;
@@ -899,6 +901,9 @@ struct Background_t
     //! Frame Y offset in sprite sheet (in GFX-height units)
     vbint_t exty = 0;
 
+    //! smbx2compat: custom params (JSON) from the level file, index into g_objectCustomParams (0 = none)
+    uint32_t CustomParams = 0;
+
 //End Type
 };
 
@@ -955,6 +960,8 @@ struct Block_t
     layerindex_t Layer = LAYER_NONE;
 //    Name As String 'object name for scripting (P4)
     stringindex_t Name = STRINGINDEX_NONE;
+    //! smbx2compat: custom params (JSON) from the level file, index into g_objectCustomParams (0 = none)
+    uint32_t CustomParams = 0;
 //    NPC As Integer 'when a coin is turned into a block after the p switch is hit
     NPCID coinSwitchNpcType = NPCID(0);
 //    Type As Integer 'the block's type

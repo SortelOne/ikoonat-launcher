@@ -37,6 +37,16 @@ sleep "$SECS"
 if kill -0 $PID 2>/dev/null; then
     echo "ALIVE after ${SECS}s"
     kill $PID
+    # A crashed game can sit in its crash dialog and ignore SIGTERM
+    i=0
+    while [ $i -lt 50 ] && kill -0 $PID 2>/dev/null; do
+        sleep 0.1
+        i=$((i + 1))
+    done
+    if kill -0 $PID 2>/dev/null; then
+        echo "(didn't stop; killed. Check the log for a crash.)"
+        kill -9 $PID
+    fi
     wait $PID 2>/dev/null
 else
     wait $PID
