@@ -24,6 +24,8 @@ explicitly.
   - `smbx2compat-engine.patch` — the C++ changes above (already applied here).
   - `scripts/smbx2compat.lua` — the shim mapping SMBX2 APIs onto `xtech_*`.
   - `test/` — mock harness: `cd smbx2compat/test && luajit run.lua`.
+  - `ROADMAP.md` — **the plan**: phases from here to SMATRS on Android, measured
+    scale of SMATRS, and open questions for Jake. Start here.
 - `3rdparty/PGE_File_Formats` — level/world file library (see below).
 
 ## Engine changes already applied (from smbx2compat-engine.patch)
