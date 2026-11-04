@@ -134,6 +134,9 @@ Assets and episodes live outside the repo in `../TheXTech-data/`:
 - `smbx2/SMBX2 + SMATRS/data/scripts` and `.../data/graphics`: SMBX2's built-in
   Lua libraries and graphics, extracted from the SMATRS "Download All" bundle
   (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
+- `reference/LunaLua`: LunaLua's C++ source (WohlSoft/LunaLua, shallow clone), the
+  reference for what SMBX2's scripts expect from the host. Read only; never build
+  or run it. Pointers to the key files are in ROADMAP.md, Phase 1 plan item 5.
 
 ## SMBX2 compatibility status
 

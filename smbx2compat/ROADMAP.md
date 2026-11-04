@@ -147,9 +147,17 @@ works in our LuaJIT.
    `Graphics`, `Text`, ...) as Lua over `xtech_*` first.
 4. Iterate with `smbx2compat/run-level.sh` on `smoke/bonus1.lvlx`, then
    SMATRS 1-1: run, read the first error, fix, repeat.
-5. Reference: LunaLua's C++ source (WohlSoft/LunaLua on GitHub) defines the
-   exact host API (`LuaProxy`, the `LunaLuaGet*` exports). Ask Jake before
-   cloning it (reference only, nothing from it gets run).
+5. Reference: LunaLua's C++ source, cloned (read-only, nothing from it is run)
+   to `../TheXTech-data/reference/LunaLua` (WohlSoft/LunaLua `eef9a51`, 2025-06):
+   - `LunaDll/LuaMain/LunaLuaMain.cpp`: `CLunaLua::init` (line ~178) loads
+     `main.lua` and calls `__onInit`; `bindAll()` (~627) registers every C++
+     global (`mem`, `Native.getSMBXPath`, `Text`, `Graphics`, `Misc`, classes);
+     `isOverworld` (~585); `__doEventQueue` per frame (~1586).
+   - `LunaDll/LuaMain/LuaProxyFFI.cpp`, `LuaProxyFFIGraphics.cpp`: the 127
+     `LunaLuaGet*`/FFI exports the `ffi_*` files call. Our replacements mirror
+     these signatures in meaning, backed by `xtech_*` bindings.
+   - `LunaDll/LuaMain/LuaProxy.h/.cpp` + `LuaProxyComponent/`: the C++ side of
+     each API; `LunaLuaMain.cpp` event objects for `__callEvent`.
 
 ### Phase 2 — `mem()` and object classes
 - Lua `mem(addr, FIELD_*)` and `obj:mem(off, FIELD_*)` backed by `mememu`.
@@ -247,3 +255,5 @@ months. Phase 7 setup can start any time after Phase 0.
 6. **Separate fork:** don't merge from vkdfkc or TheXTech going forward; the
    `upstream` remote stays only for reference. Engine code can be changed freely.
 7. **Tools:** ask before each install (lldb/Xcode, Android SDK/NDK, Gradle).
+8. **LunaLua source:** approved cloning it as a read-only reference (done, see
+   Phase 1 plan item 5).
