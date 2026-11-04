@@ -271,6 +271,9 @@ globals). Errors, each logged once:
   `ambientSound.lua:91` (audio sources), `debugtools.lua:136`;
 - bonus1: `ffi_graphics.lua:1598` (`img` type), `npc-21.lua:42`.
 
+*Next session (Jake, 2026-11-04):* the **Performance track** (its own section
+below, before "Milestones"): Step 0, then candidates 1–2. After that, this list.
+
 *Next round, in order:*
 1. **`FileFormats`** (LunaLua's level/world file reader for Lua; TheXTech has
    PGE built in) and the collision matrix exports.
@@ -278,7 +281,7 @@ globals). Errors, each logged once:
    is never made (the darkness/section-settings `onStart` chain).
 3. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`) and
    **audio** (Phase 5); then Phase 3 IDs.
-Load time is ~2.5 s in the Debug build; check again in Release before optimizing.
+Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
 - Lua `mem(addr, FIELD_*)` and `obj:mem(off, FIELD_*)` backed by `mememu`.
@@ -333,6 +336,91 @@ Load time is ~2.5 s in the Debug build; check again in Release before optimizing
   support; map SMATRS's extra inputs (alt-jump/alt-run, menus). Touch is optional.
 - Performance pass on a real device (270k lines of Lua per frame budget).
 - Done when: SMATRS 1-1 runs on your phone.
+
+## Performance track (planned 2026-11-04)
+
+Jake's main worry is performance: SMATRS runs ~270k lines of SMBX2 Lua on an
+emulated core, and the target is an Android handheld (AYN Odin 3). This track
+runs alongside the phases. It's meant to start in a fresh session, so it
+repeats what that session needs.
+
+**Rules.** Measure before and after every change, on the same level and frame
+range. Record the numbers here. Results must stay identical to SMBX2's: check
+each replacement against SMBX2's own algorithm, as done for block queries.
+Prefer engine-side answers (TheXTech's quadtrees, its index maps) over
+re-creating SMBX 1.3's data structures.
+
+**Done so far.** `Block.iterateIntersecting`/`getIntersecting` use the block
+quadtree (`xtech_block_queryIntersecting`, patched in `core/patches.lua`). In
+SMATRS 1-1 (~14,000 blocks, ~5 queries a frame) that went from ~20 ms to
+~0.15 ms per frame in Debug. A camera-sized query is ~0.03 ms and matches a
+full scan exactly.
+
+**Step 0 — a baseline worth trusting.**
+- Measure a **Release** build (`-DCMAKE_BUILD_TYPE=Release`, separate build
+  dir). Every number so far is from Debug, which also loads slowly (~2.5 s).
+- Make a permanent, opt-in timing probe, for example `SMBX2COMPAT_PROFILE=1`
+  read in `boot.lua`. So far the probes were temporary edits to
+  `__xtech_onLoop` in `boot.lua`: wrap a function, sum `os.clock()`, log at
+  frames 100–400, revert. It should log Lua ms per frame for each event
+  (`onTick`, `onDraw`, `onCameraDraw`, ...), the `mem()` calls per frame, and
+  the slowest library listeners.
+- Profilers that are available without installing anything:
+  - SMBX2's own `base/engine/profiler.lua` (main.lua loads it via
+    `coreRequire("profiler")`).
+  - LuaJIT's sampling profiler `jit/p.lua` (`3rdparty/LuaJIT/src/jit/p.lua`;
+    copy it where `require("jit.p")` finds it).
+  - Instruments / `xcrun xctrace` for the C++ side, if Xcode is installed.
+    Ask before installing anything.
+- Baseline levels: SMATRS 1-1 (heavy), `smoke/bonus1`, `smoke/errtest`.
+
+**Candidates, roughly in order of expected payoff (measure first):**
+1. **The `mem()` call path.** Every SMBX2 field access (`npc.x`, `p.powerup`,
+   ...) is `mem()` -> luabind `xtech_mem_get/set`. Today each call:
+   - goes through luabind's overload/conversion machinery;
+   - scans `s_objMemArrays` and `s_memTypeArrays` linearly, then `memFieldAt`;
+   - lands in mememu's `std::function` and hash-map lookups.
+
+   Ideas:
+   - **Exported C functions called through LuaJIT's FFI** (`extern "C"` +
+     `ffi.cdef` + `ffi.C.xtech_mem_get`). LuaJIT can compile FFI calls into
+     traces; luabind/`lua_CFunction` calls can't be compiled, at best
+     stitched around. This is likely the biggest single win. The symbols must
+     be exported: check `dlsym` on macOS and in Android's `libmain.so`.
+   - Find the array from the address's top byte (all bases are
+     `0x1X000000`/`0x20XX0000`) instead of scanning.
+   - Fast paths in mememu for the hottest offsets (location, speed, ID).
+2. **The other full scans in SMBX2's `ffi_*.lua`.** Each is O(objects) `mem()`
+   calls per call:
+   - `NPC.iterateIntersecting`/`getIntersecting` (`ffi_npc.lua:577`) — the
+     NPC tree;
+   - `BGO.getIntersecting`/`iterateIntersecting` (`ffi_bgo.lua:217/345`; 1-1
+     has ~1,090 BGOs) — `treeBackgroundQuery`;
+   - `Block.get(id)`/`NPC.get(id)` reading the type of every object;
+   - `Events.get(name)` and `Layer.get(name)` reading every name as a string.
+     `ffi_events` runs `Events.get` on every triggered event
+     (`onPostEventDirect`). Use the engine's `FindEvent`/`FindLayer`.
+
+   Patch these the way `patches.lua` patches the block queries, keeping
+   SMBX2's ordering and loop keys. Check the NPC index mapping (SMBX2's
+   `NPC(idx)` is 0-based).
+3. **Allocation.** String reads build a new `std::string` and Lua string on
+   every call. `PlayerSettings`/`Animation` objects and the iterator closures
+   are new tables each call. The sizable list (`memSizableBlockCount`) is
+   rebuilt and sorted on every read of its length; cache it per frame
+   (`core.onFrameEnd`).
+4. **Logging in hot paths.** mememu's `MemEmu:` warnings aren't capped (a
+   per-frame one once logged 29,000 lines). Cap or rate-limit them like
+   `mem_unknown`.
+5. **Load time.**
+   - `npcconfig.loadAllTxt` probes `npc-1..1000.txt` (and blocks to 2000)
+     through `core.resolve`'s case-insensitive lookups. Cache directory
+     listings.
+   - `extrasettings.lua` parses layout JSON on first use per ID.
+6. **Android specifics** (with Phase 7). Confirm LuaJIT's JIT is actually on
+   for arm64 Android. LuaJIT can fail to allocate machine-code memory and
+   quietly fall back to the interpreter; check `jit.status()`. Then measure
+   on the Odin 3 itself.
 
 ## Milestones
 
