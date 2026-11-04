@@ -7,10 +7,10 @@ compatibility layer. Desktop (macOS) first, Android later.
 
 ## Upstream policy
 
-Upstream TheXTech's `AGENTS.md` (deleted in this checkout) forbids AI-generated code
-in contributions to their project. This repo is personal; do not prepare anything
-from it as an upstream PR to TheXTech/TheXTech without the user deciding that
-explicitly.
+This is a **separate fork** (decided 2026-11-04): we don't merge from vkdfkc or
+TheXTech; the `upstream` remote is kept only for reference. Upstream TheXTech's
+`AGENTS.md` (deleted here) forbids AI-generated code in contributions to their
+project, so never prepare anything from this repo as an upstream PR.
 
 ## Layout that matters here
 
@@ -109,6 +109,9 @@ game from Claude's shell needs the sandbox disabled.
 Assets and episodes live outside the repo in `../TheXTech-data/`:
 - TheXTech SMBX 1.3 asset pack (`thextech-smbx13-assets-full-v1.7.4.1.7z`).
 - SMATRS episode zip (Nintendo-derived fan content; never commit it).
+- `smbx2/SMBX2 + SMATRS/data/scripts` and `.../data/graphics`: SMBX2's built-in
+  Lua libraries and graphics, extracted from the SMATRS "Download All" bundle
+  (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
 
 ## SMBX2 compatibility status
 

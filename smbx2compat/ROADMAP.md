@@ -46,6 +46,17 @@ So `smbx2compat.lua` turns into the *LunaLua core layer*: thin Lua over new C++
 bindings. The current hand-written NPC/Player wrappers get replaced as the real
 classes land.
 
+**Where the boundary is (confirmed 2026-11-04).** SMBX2's built-in scripts are in
+`../TheXTech-data/smbx2/SMBX2 + SMATRS/data/scripts/` (858 files, ~175k lines;
+graphics in `data/graphics/`). SMBX2 boots from `scripts/base/engine/main.lua`.
+Only **17 files, `scripts/base/engine/ffi_*.lua`** (`ffi_npc`, `ffi_block`,
+`ffi_player`, `ffi_graphics`, `ffi_mem`, `ffi_events`, `ffi_misc`, ...), talk to the
+game: they `ffi.load("LunaDll.dll")`, call its `LunaLuaGet*` exports, and cast
+raw SMBX memory. Everything above them is plain Lua. So the core layer = our
+own replacements for those 17 files (same Lua-facing API, backed by TheXTech via
+luabind/`mememu`), loaded in their place by a `require` redirect, plus whatever
+`main.lua` expects from the host. Phases 1–2 below are mostly "port these files".
+
 ## Phases
 
 ### Phase 0 — Fix the `onLoop` error crash (blocker)
@@ -62,11 +73,11 @@ classes land.
   keeps running.
 
 ### Phase 1 — SMBX2 built-in libraries and the loader
-- Get SMBX2's `data/scripts` tree (the built-in libraries) from the SMATRS
-  "Download All" bundle (VERIFY exact layout). Keep it in `../TheXTech-data/`,
-  never in git.
+- SMBX2's built-in scripts are downloaded and extracted (see "Where the
+  boundary is"). Keep them in `../TheXTech-data/`, never in git.
 - `require` search order like SMBX2: level folder → episode folder → built-in
-  scripts (`scripts/`, `scripts/base/`, VERIFY).
+  scripts (`data/scripts/`, `data/scripts/base/`), with `base/engine/ffi_*`
+  redirected to our replacements. Read `base/engine/main.lua` for the boot order.
 - Mirror SMBX2's startup order: core globals, then built-in libraries, then
   episode `luna.lua`, then level `luna.lua`; and `onInitAPI` / `onStart` timing.
 - Core globals: `getSMBXVersionString`, `SMBX_VERSION`, `Defines`, `lunatime`,
@@ -118,12 +129,13 @@ classes land.
 - Turn on Lua in `android-project/thextech/build.gradle`
   (`-DTHEXTECH_ENABLE_LUA=ON`).
 - LuaJIT cross-compile: arm64-v8a and x86_64 work from a macOS host; 32-bit ABIs
-  (armeabi-v7a, x86) need a 32-bit host compiler, which macOS lacks. Plan:
-  **arm64-v8a (+ x86_64 for the emulator) only**.
+  (armeabi-v7a, x86) need a 32-bit host compiler, which macOS lacks. The target
+  (AYN Odin 3) is arm64, so: **arm64-v8a (+ x86_64 for the emulator) only**.
 - Build Release with optimisations (the Debug build loads slowly).
 - Assets: TheXTech asset pack + SMBX2 built-in scripts/graphics + SMATRS
   (~0.5–1 GB). Sideload to app storage, not bundled in the APK.
-- Touch controls for SMATRS's extra inputs.
+- Controls: the Odin 3's built-in gamepad goes through SDL's game-controller
+  support; map SMATRS's extra inputs (alt-jump/alt-run, menus). Touch is optional.
 - Performance pass on a real device (270k lines of Lua per frame budget).
 - Done when: SMATRS 1-1 runs on your phone.
 
@@ -149,24 +161,23 @@ months. Phase 7 setup can start any time after Phase 0.
 - **Shaders / `lib3d`:** the 3D world map may be the hardest single feature.
 - **Licensing:** SMBX2's built-in libraries and SMATRS assets are fine to use
   privately, but never commit or redistribute them.
-- **Upstream drift:** the fork (`upstream` remote) and TheXTech keep moving;
-  keep our engine edits marked `// smbx2compat:` to ease merges.
+- **Separate fork:** we no longer merge upstream, so fixes from vkdfkc or TheXTech
+  have to be cherry-picked by hand if ever wanted.
 
-## Open questions for Jake
+## Decisions (Jake, 2026-11-04)
 
-1. **SMBX2 built-in libraries:** OK to download the SMATRS "Download All" bundle
-   (458 MB, Google Drive, from the official SMATRS download page) just to extract
-   `data/scripts` and `data/graphics`? Nothing from it would be run. (On a work
-   machine, so your call.)
-2. **Android ABIs:** OK to support only arm64-v8a (plus x86_64 for the emulator)?
-   What phone will you test on?
-3. **World map:** OK to start with a simple level list and leave the 3D map for
-   later?
-4. **Android assets:** sideloading the ~1 GB of data to the phone is fine for
-   personal use?
-5. **Approach:** happy with "real SMBX2 libraries on an emulated core" over
-   growing the hand-written shim?
-6. **Upstream:** keep merging vkdfkc's fork changes, or treat this as a hard fork?
-7. **Tools:** debugging Phase 0 may want `lldb` (ships with Xcode — already
-   installed?) and the Android work needs the Android SDK/NDK + Gradle. OK to
-   install those when we get there (I'll ask first each time)?
+1. **SMBX2 built-in libraries:** approved downloading the SMATRS "Download All"
+   bundle to extract `data/scripts` and `data/graphics` (kept in
+   `../TheXTech-data/`, nothing from it is run, never committed).
+2. **Target device: AYN Odin 3** (Android handheld, arm64, built-in gamepad).
+   So: **arm64-v8a only** (+ x86_64 for the emulator); the built-in controls map
+   through SDL's game-controller support, so touch controls are low priority. VERIFY
+   the device's GLES version and screen resolution when Phase 7 starts; SMATRS
+   targets SMBX2's 800×600, so expect letterboxing or a widescreen pass.
+3. **World map:** start with a simple level list; the 3D map comes later.
+4. **Android data:** ~1 GB sideloaded to the device is fine.
+5. **Approach:** run SMBX2's real built-in libraries on an emulated LunaLua core
+   (explained in "Strategy decision" above).
+6. **Separate fork:** don't merge from vkdfkc or TheXTech going forward; the
+   `upstream` remote stays only for reference. Engine code can be changed freely.
+7. **Tools:** ask before each install (lldb/Xcode, Android SDK/NDK, Gradle).
