@@ -207,8 +207,14 @@ local function applyPatches(path, data)
     end
     for _, p in ipairs(list) do
         local s, e = string.find(data, p[1], 1, true)
+        local replacement = p[2]
+        if not s then
+            -- Many SMBX2 files have Windows line endings; patches are written with \n
+            s, e = string.find(data, (string.gsub(p[1], "\n", "\r\n")), 1, true)
+            replacement = string.gsub(p[2], "\n", "\r\n")
+        end
         if s then
-            data = string.sub(data, 1, s - 1) .. p[2] .. string.sub(data, e + 1)
+            data = string.sub(data, 1, s - 1) .. replacement .. string.sub(data, e + 1)
         else
             core.warn("patch did not apply to " .. path .. " (" .. p[3] .. ")")
         end

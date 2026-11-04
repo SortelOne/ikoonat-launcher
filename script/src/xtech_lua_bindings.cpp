@@ -66,6 +66,7 @@ extern "C"
 #include "main/level_medals.h"
 #include "main/level_save_info.h"
 #include "main/level_file.h"
+#include "main/trees.h" // smbx2compat: block quadtree queries
 
 #include "script/luna/lunaplayer.h"
 #include "script/luna/lunanpc.h"
@@ -2985,6 +2986,37 @@ static void mem_setString(unsigned int addr, const std::string &value)
     mem_unknown("string write", addr);
 }
 
+// smbx2compat: SMBX2's Block.iterateIntersecting/getIntersecting (patched in
+// core/patches.lua). SMBX2 scans the blocks its X-sorted column lookup points at;
+// we ask the engine's block quadtree instead, then apply SMBX2's own test (edges
+// that only touch don't count). Returns block indices, lowest first.
+static luabind::object block_queryIntersecting(double x1, double y1, double x2, double y2)
+{
+    lua_State* L = xtech_lua_getState();
+    luabind::object ret = luabind::newtable(L);
+
+    num_t left(std::min(x1, x2), nullptr);
+    num_t top(std::min(y1, y2), nullptr);
+    num_t right(std::max(x1, x2), nullptr);
+    num_t bottom(std::max(y1, y2), nullptr);
+
+    int n = 1;
+    for(BlockRef_t b : treeFLBlockQuery(left, top, right, bottom, SORTMODE_ID))
+    {
+        int i = b;
+        if(i < 1 || i > numBlock)
+            continue;
+
+        const Location_t &loc = Block[i].Location;
+        double bx = (double)loc.X;
+        double by = (double)loc.Y;
+        if(x2 > bx && y2 > by && bx + (double)loc.Width > x1 && by + (double)loc.Height > y1)
+            ret[n++] = i;
+    }
+
+    return ret;
+}
+
 // smbx2compat: LunaLua's PlayerSettings (CustomGraphics.h): hitbox, duck height
 // and grab spot per character and powerup, and sprite offsets per frame.
 // Character and powerup are checked in Lua (core/classes.lua).
@@ -3932,6 +3964,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_mem_set", &LuaMisc::mem_set), // smbx2compat
         def("xtech_mem_templateAddress", &LuaMisc::mem_templateAddress), // smbx2compat
         def("xtech_mem_propertyTableAddress", &LuaMisc::mem_propertyTableAddress), // smbx2compat
+        def("xtech_block_queryIntersecting", &LuaMisc::block_queryIntersecting), // smbx2compat
         def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat
         def("xtech_mem_setString", &LuaMisc::mem_setString), // smbx2compat
         def("xtech_playerSettings_get", &LuaMisc::playerSettings_get), // smbx2compat

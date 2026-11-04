@@ -249,10 +249,15 @@ on load (Phase 3).
   `ClearBuffer`, `selWorld`, `GoToLevel`, `iBlocks`, checkpoint and file-name
   strings; `0xB2D710` is now `newEventNum` (it was mapped to `numEvents`, which
   SMBX doesn't store); NPC `Special`..`Special5` take doubles without warnings.
-- Compromises: the block lookup (`FirstBlock`/`LastBlock`) spans all blocks, so
-  `Block.iterateIntersecting` scans everything; the sizable list is rebuilt from
-  the engine when its length is read; NPC traits TheXTech derives from the ID
-  (`isyoshi`, `isshoe`, ...) are read-only; water `Buoy` reads 0.
+- **Block queries through the quadtree.** SMBX's block lookup
+  (`FirstBlock`/`LastBlock`) has no TheXTech equivalent, so it spans all blocks;
+  `Block.iterateIntersecting`/`getIntersecting` would then scan all ~14,000 of
+  1-1's blocks per call (~5 calls a frame, ~20 ms/frame in Debug). `patches.lua`
+  points them at `xtech_block_queryIntersecting` (the engine's block quadtree +
+  SMBX2's own overlap test): ~0.03 ms per camera-sized query, identical results.
+- Compromises: the sizable list is rebuilt from the engine when its length is
+  read; NPC traits TheXTech derives from the ID (`isyoshi`, `isshoe`, ...) are
+  read-only; water `Buoy` reads 0.
 
 *Where bonus1 and SMATRS 1-1 stand now:* no unknown `mem()` addresses; ~15 MemEmu
 lines per run (episode list `0xB250FC` and one-time float writes to physics

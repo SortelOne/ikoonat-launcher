@@ -141,7 +141,10 @@ How it works (details in `core/boot.lua`'s header):
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
   `core/override/` replace the SMBX2 file at the same path under `scripts/`
   (only `lockdown.lua` and `ffi_mem.lua` so far), and `core/patches.lua` lists
-  in-memory source edits.
+  in-memory source edits (written with `\n`; they also match SMBX2's CRLF files).
+  `Block.iterateIntersecting`/`getIntersecting` are patched to use the engine's
+  block quadtree (`xtech_block_queryIntersecting`), since a full scan per call
+  was ~20 ms a frame in SMATRS 1-1.
 - `mem()` (`override/.../ffi_mem.lua`) sends every address to `xtech_mem_get/set`
   (strings: `xtech_mem_getString/setString`) in `xtech_lua_bindings.cpp`.
   Globals go to mememu. SMBX keeps arrays behind pointer globals; each gets a
