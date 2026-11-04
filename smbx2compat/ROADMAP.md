@@ -81,17 +81,75 @@ error itself came from the shim comparing two luabind userdata with `~=` (no
   keeps running.
 
 ### Phase 1 — SMBX2 built-in libraries and the loader
-- SMBX2's built-in scripts are downloaded and extracted (see "Where the
-  boundary is"). Keep them in `../TheXTech-data/`, never in git.
-- `require` search order like SMBX2: level folder → episode folder → built-in
-  scripts (`data/scripts/`, `data/scripts/base/`), with `base/engine/ffi_*`
-  redirected to our replacements. Read `base/engine/main.lua` for the boot order.
-- Mirror SMBX2's startup order: core globals, then built-in libraries, then
-  episode `luna.lua`, then level `luna.lua`; and `onInitAPI` / `onStart` timing.
-- Core globals: `getSMBXVersionString`, `SMBX_VERSION`, `Defines`, `lunatime`,
-  `Misc.*` basics, `Darkness` (stub first).
-- Done when: SMATRS 1-1 runs all its scripts with rendering-heavy calls stubbed,
-  and `smbx2compat.report()` lists what's missing.
+
+Goal: run SMBX2's real `scripts/base/engine/main.lua` unmodified, with our own
+versions of only the files that talk to `LunaDll.dll`.
+Done when: SMATRS 1-1 runs all its scripts with rendering-heavy calls stubbed, and
+the missing pieces are listed in the log.
+
+**Survey (2026-11-04).** `S` = `../TheXTech-data/smbx2/SMBX2 + SMATRS/data/scripts`.
+
+*Host contract.* What LunaLua's C++ side does, which our engine must now do:
+1. Create host globals, then run `S/base/engine/main.lua` in `_G` (once per Lua
+   state). Needed before/while it runs: `getSMBXPath()` (data root; main.lua
+   appends `/scripts/...`), `isOverworld` (bool), and the C++-made tables that Lua
+   files only *extend*: `Misc`, `Level`, `DBG`, `CaptureBufferFuncs`, plus
+   `Graphics`, `Text`, `Audio`, `SFX`, `console` (`console:println`), `Native*`,
+   `Shader`, `CaptureBuffer` (counts of use in `base/engine/`: Graphics 238,
+   Misc 187, NPC 140, Block 128, Player 89, getSMBXPath 45, Text 41, Level 31).
+2. At level load: `__onInit(episodePath, lvlName)`. episodePath ends with a
+   separator; lvlName like `"1-1.lvlx"`. It builds the level folder as
+   `episodePath .. lvlName_without_ext .. "\\"` (Windows separators!).
+3. Each engine event: `__callEvent(eventObj, args...)`. `eventObj` fields:
+   `eventName`, `directEventName` (`""` → `eventName.."Direct"`), `loopable`,
+   `cancellable` (+ `cancelled` read back). See `main_events.lua:260`.
+4. Each frame: `__doEventQueue()` (also runs classic SMBX events).
+
+*Boot order inside main.lua.* `lockdown.lua` via `dofile` → `require.lua` via
+`loadfile` (all later file reads go through `io.readFile`, which lockdown
+defines) → JIT options → `main_events` → `constants`, `type`, `ffi_mem`,
+`ffi_misc`, `ffi_graphics`, `ffi_player`, `ffi_camera`, `ffi_legacyrng`, then
+(levels only) `ffi_npc`, `ffi_bgo`, `ffi_warp`, `ffi_block`, `ffi_liquid`,
+`ffi_layer`, `ffi_section`, `ffi_level`, `ffi_events`, `ffi_customparams`.
+`__onInit` then loads `defines`, `uservar`, `lunatime`, `rng`, `debugtools`,
+`classExpander`, `pAnim`, `color`, `vectr`, `transform`, `sprite`, `colliders`,
+`particles`, `routine`, `explosion`, `timer`, `base/game/savedata`,
+`checkpoints`; core: `testmodemenu` (only if `mem(0x00B2C62A, FIELD_WORD) == 0`),
+`dbg`, `classicevents`, `profiler`; `npcconfig_core`, `blockconfig_core`; then
+code files: `base/game/lunabase.lua`, episode `luna.lua`, level `luna.lua`,
+`lunadll.lua`, `lunaworld.lua` (maps: `map.lua`, `lunaoverworld.lua`).
+So `getSMBXVersionString`, `Darkness`, etc. come for free once this runs.
+
+*Files that call `LunaDll.dll`* (must be replaced): `lockdown`, `ffi_mem`,
+`ffi_misc`, `ffi_graphics`, `ffi_player`, `ffi_npc`, `ffi_block`, `ffi_bgo`,
+`ffi_layer`, `ffi_legacyrng`, `ffi_customparams` (all in `base/engine/`), plus
+`testmodemenu` (skip: test mode only) and `legacy/fade`, `legacy/smb3goalcard`
+(legacy, check if SMATRS uses them). `ffi_camera`, `ffi_section`, `ffi_warp`,
+`ffi_liquid`, `ffi_level`, `ffi_events`, `ffi_utils` don't load LunaDll; try
+them unmodified once `mem()` works. Plain `ffi` (`ffi.new`, as in `ext/lpeglj`)
+works in our LuaJIT.
+
+**Plan.**
+1. Engine: an "SMBX2 core" mode in `xtech_lua_main.cpp`. When an SMBX2 scripts
+   folder is configured (decide: CLI flag / env var / folder in the asset pack),
+   define `getSMBXPath`/`isOverworld`, run `main.lua` instead of the v0.1 shim,
+   call `__onInit` at level load, `__doEventQueue` from `onLoop`, and turn the
+   fork's hooks into `__callEvent` event objects. Keep the shim as the fallback.
+2. Redirect: our `lockdown.lua` replacement (main.lua `dofile`s it by path, so
+   the host wraps `dofile`, or `getSMBXPath` points at an overlay) implements
+   `io.readFile`/`readFileLines`/`exists`/`writeFile` with plain `io`, and maps
+   `.../base/engine/<name>.lua` to `smbx2compat/core/<name>.lua` when we have one.
+   Normalize paths: backslashes → `/`, and **case-insensitive lookup** (SMBX2 requires
+   `classExpander`, `pAnim` but ships `classexpander.lua`, `panim.lua`; macOS
+   forgives this, Android's filesystem won't).
+3. Replacement files in `smbx2compat/core/`, starting as stubs that log what's
+   missing, filled in over `xtech_*` bindings. Host tables (`Misc`, `Level`,
+   `Graphics`, `Text`, ...) as Lua over `xtech_*` first.
+4. Iterate with `smbx2compat/run-level.sh` on `smoke/bonus1.lvlx`, then
+   SMATRS 1-1: run, read the first error, fix, repeat.
+5. Reference: LunaLua's C++ source (WohlSoft/LunaLua on GitHub) defines the
+   exact host API (`LuaProxy`, the `LunaLuaGet*` exports). Ask Jake before
+   cloning it (reference only, nothing from it gets run).
 
 ### Phase 2 — `mem()` and object classes
 - Lua `mem(addr, FIELD_*)` and `obj:mem(off, FIELD_*)` backed by `mememu`.

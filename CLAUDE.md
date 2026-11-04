@@ -91,6 +91,10 @@ game from Claude's shell needs the sandbox disabled. The test userdir's
 `settings/thextech.ini` has `background-work = true` under `[main]`; without it the
 game pauses as soon as its window loses focus, which looks like scripts stopping.
 
+Quick test run (sound off, window moved to AeroSpace workspace 1 so it stays out
+of Jake's way, stops after N seconds and prints the log path):
+`smbx2compat/run-level.sh <level.lvlx> [seconds]`. Prefer it over launching by hand.
+
 Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
 level script) and `errtest.lvlx` (raises Lua errors every frame, through the
 shim and directly from the engine; the game must keep running and log each once).
