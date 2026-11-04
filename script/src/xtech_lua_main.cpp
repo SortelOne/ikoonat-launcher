@@ -19,6 +19,7 @@
  */
 
 #include <string>
+#include <set>
 
 extern "C"
 {
@@ -98,6 +99,33 @@ static int sandbox_newindex(lua_State* L)
 // Helper: safely call a Lua function
 // ============================================================================
 
+// smbx2compat: luabind error handler, so engine-called Lua errors carry a stack traceback
+static int luaTracebackHandler(lua_State *L)
+{
+    const char *msg = lua_tostring(L, 1);
+    if(!msg)
+        return 1; // non-string error object: pass it through unchanged
+    luaL_traceback(L, L, msg, 1);
+    return 1;
+}
+
+static void pushTracebackHandler(lua_State *L)
+{
+    lua_pushcfunction(L, luaTracebackHandler);
+}
+
+// smbx2compat: per-frame callbacks repeat the same error every tick; log each one once
+static void logLuaError(const char *funcName, const char *msg)
+{
+    static std::set<std::string> s_logged;
+    std::string key = std::string(funcName) + ": " + (msg ? msg : "(no message)");
+    if(s_logged.count(key))
+        return;
+    if(s_logged.size() < 1000) // bound memory if a script produces endless unique messages
+        s_logged.insert(key);
+    pLogWarning("Lua error in %s", key.c_str());
+}
+
 static void safeCallLuaFunc(luabind::object &func, const char *funcName)
 {
     if(!g_luaWorking || !func.is_valid())
@@ -109,9 +137,8 @@ static void safeCallLuaFunc(luabind::object &func, const char *funcName)
     }
     catch(const luabind::error &e)
     {
-        pLogWarning("Lua error in %s: %s", funcName,
-            lua_tostring(g_L, -1));
-        lua_pop(g_L, 1);
+        // smbx2compat: luabind::error already popped the message; popping again corrupts the VM stack
+        logLuaError(funcName, e.what());
     }
     catch(const std::exception &e)
     {
@@ -135,9 +162,8 @@ static void safeCallLuaFuncWith(luabind::object &func, const char *funcName, Arg
     }
     catch(const luabind::error &e)
     {
-        pLogWarning("Lua error in %s: %s", funcName,
-            lua_tostring(g_L, -1));
-        lua_pop(g_L, 1);
+        // smbx2compat: luabind::error already popped the message; popping again corrupts the VM stack
+        logLuaError(funcName, e.what());
     }
     catch(const std::exception &e)
     {
@@ -273,6 +299,7 @@ bool xtech_lua_init()
 
     // Initialize luabind
     luabind::open(g_L);
+    luabind::set_pcall_callback(&pushTracebackHandler); // smbx2compat
 
     // Register game bindings
     xtech_lua_register_bindings(g_L);

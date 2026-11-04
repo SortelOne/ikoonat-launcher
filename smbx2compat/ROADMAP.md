@@ -10,8 +10,8 @@ an SMBX2 episode) on this engine, first on macOS, then on Android.
 - SMATRS level 1-1 loads, but its scripts stop immediately:
   - episode `luna.lua:2` — `getSMBXVersionString` is nil
   - `_scripts/smatrs/graphicalQuality.lua:22` — `Darkness` is nil
-- **Blocker:** a Lua error raised during the per-frame `onLoop` call kills the
-  process (LuaJIT `lj_err.c:200`, "No C frame" → `exit()`).
+- ~~Blocker: Lua errors during `onLoop` kill the process~~ — fixed 2026-11-04
+  (Phase 0 below).
 
 ## How big SMATRS is (measured)
 
@@ -59,7 +59,15 @@ luabind/`mememu`), loaded in their place by a `require` redirect, plus whatever
 
 ## Phases
 
-### Phase 0 — Fix the `onLoop` error crash (blocker)
+### Phase 0 — Fix the `onLoop` error crash (blocker) — DONE 2026-11-04
+
+Cause: our catch sites called `lua_pop` after `luabind::error`, whose constructor
+had already popped the message, so every caught error popped one extra stack slot
+and eventually wrecked LuaJIT's frame chain. Not an arm64 unwinding problem. The
+error itself came from the shim comparing two luabind userdata with `~=` (no
+`__eq`). Fixed both; engine errors now carry tracebacks and log once; checked with
+`smoke/errtest.lvlx`. Original plan, kept for reference:
+
 - Reproduce with the smoke level (`../TheXTech-data/smoke/bonus1.lvlx`, harness
   `luna.lua`). Run under `lldb`, break on `exit` / `lj_err_throw`.
 - Find which `lua_State` raises the error and what its `cframe` is.
@@ -141,7 +149,7 @@ luabind/`mememu`), loaded in their place by a `require` redirect, plus whatever
 
 ## Milestones
 
-1. M0 — `onLoop` errors no longer crash (Phase 0)
+1. M0 — `onLoop` errors no longer crash (Phase 0) — reached 2026-11-04
 2. M1 — all SMATRS scripts load, stubs logged (Phase 1)
 3. M2 — 1-1 playable on desktop, rough visuals (Phases 2–3)
 4. M3 — 1-1 looks right (Phase 4)

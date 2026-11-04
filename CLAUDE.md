@@ -87,18 +87,36 @@ build/bin/TheXTech.app/Contents/MacOS/TheXTech -c $D/assets-smbx13 -u $D/userdir
 `-c` asset pack, `-u` separate user dir (logs go to `$D/userdir/logs/`), `-l` level
 test. The Debug build takes ~10 s to load assets on first run. The shim must be at
 `$D/assets-smbx13/scripts/smbx2compat.lua` (copy it after editing). Running the
-game from Claude's shell needs the sandbox disabled.
+game from Claude's shell needs the sandbox disabled. The test userdir's
+`settings/thextech.ini` has `background-work = true` under `[main]`; without it the
+game pauses as soon as its window loses focus, which looks like scripts stopping.
+
+Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
+level script) and `errtest.lvlx` (raises Lua errors every frame, through the
+shim and directly from the engine; the game must keep running and log each once).
+
+Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
+`com.apple.security.get-task-allow` entitlement:
+`codesign -s - -f --entitlements debug.entitlements build/bin/TheXTech.app/Contents/MacOS/TheXTech`
+(a plist with that one key set to true). Rebuilding relinks and drops it.
+
+## Lua error handling
+
+- luabind's `luabind::error` constructor **pops the error message off the Lua stack**
+  and keeps it in `e.what()`. Catch sites must log `e.what()` and never `lua_pop`
+  again: an extra pop per error corrupted the VM's frames until LuaJIT found no
+  protected frame and called `exit()` (`lj_err.c:200`, "No C frame") — the old
+  "onLoop errors crash the game" bug.
+- `luabind::set_pcall_callback` installs a `luaL_traceback` handler, so every
+  engine-called Lua error is logged with a stack traceback; `logLuaError` in
+  `xtech_lua_main.cpp` logs each distinct error once instead of every frame.
+- The shim's `callSafe` uses `xpcall` + `debug.traceback`, also once per error.
+- luabind userdata (`xtech_player_get`, `xtech_npc_get`, ...) has no `__eq`:
+  `==`/`~=` between two of them raises "No such operator defined". Each fetch
+  returns a new userdata anyway, so compare indices instead.
 
 ## Known issues
 
-- **Lua errors raised during `onLoop` (per-frame) crash the game.** LuaJIT's
-  `err_unwind` (`3rdparty/LuaJIT/src/lj_err.c:200`, "No C frame") finds no
-  protected frame and calls `exit()`, although luabind's `lua_pcall` is on the
-  stack; errors while loading scripts are caught fine. Reproduced with the
-  smoke level (harness `luna.lua`, "No such operator defined" from luabind's
-  `dispatch_operator`). Root cause not yet found; suspect a luabind call or error
-  on a different `lua_State` (coroutines via `Routine`) or arm64 external
-  unwinding. Investigate under lldb with a Debug LuaJIT and `LUA_USE_APICHECK`.
 - SMATRS (`../TheXTech-data/smatrs/`) loads level 1-1 but its scripts stop at the
   first missing SMBX2 globals: `getSMBXVersionString` (episode `luna.lua:2`) and
   `Darkness` (`_scripts/smatrs/graphicalQuality.lua:22`). It also requires

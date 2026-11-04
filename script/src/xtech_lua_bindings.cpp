@@ -410,15 +410,11 @@ static void forEach(int id, int section, luabind::object callback)
         {
             callback(npc);
         }
-        catch(const luabind::error &)
+        catch(const luabind::error &e)
         {
-            // Restore stack to pre-call level to prevent stack corruption
+            // smbx2compat: luabind::error already popped the message
             lua_settop(L, top);
-            const char* err = lua_tostring(L, -1);
-            pLogWarning("Lua error in NPC forEach callback: %s",
-                err ? err : "unknown");
-            if(lua_gettop(L) > top)
-                lua_settop(L, top);
+            pLogWarning("Lua error in NPC forEach callback: %s", e.what());
         }
         catch(const std::exception &e)
         {
@@ -568,9 +564,8 @@ static void forEach(int type, luabind::object callback)
         }
         catch(const luabind::error &e)
         {
-            pLogWarning("Lua error in Block forEach callback: %s",
-                lua_tostring(xtech_lua_getState(), -1));
-            lua_pop(xtech_lua_getState(), 1);
+            // smbx2compat: luabind::error already popped the message
+            pLogWarning("Lua error in Block forEach callback: %s", e.what());
         }
         catch(const std::exception &e)
         {
@@ -992,9 +987,8 @@ static void forEach(int type, luabind::object callback)
         }
         catch(const luabind::error &e)
         {
-            pLogWarning("Lua error in BGO forEach callback: %s",
-                lua_tostring(xtech_lua_getState(), -1));
-            lua_pop(xtech_lua_getState(), 1);
+            // smbx2compat: luabind::error already popped the message
+            pLogWarning("Lua error in BGO forEach callback: %s", e.what());
         }
         catch(const std::exception &e)
         {
@@ -1897,9 +1891,8 @@ void xtech_lua_process_delayed_calls()
             }
             catch(const luabind::error &e)
             {
-                pLogWarning("Lua error in delayed call: %s",
-                    lua_tostring(xtech_lua_getState(), -1));
-                lua_pop(xtech_lua_getState(), 1);
+                // smbx2compat: luabind::error already popped the message
+                pLogWarning("Lua error in delayed call: %s", e.what());
             }
             catch(const std::exception &e)
             {

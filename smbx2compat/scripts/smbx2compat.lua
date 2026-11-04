@@ -201,12 +201,15 @@ local playerMT = makeClass("Player", playerFields, playerMethods)
 local function getPlayer(idx)
     local raw = xtech_player_get(idx)
     if not raw then return nil end
+    -- Cache by slot. Don't compare _raw: luabind userdata has no __eq, so `~=` raises
+    -- "No such operator defined" (and each fetch is a new userdata anyway).
     local pw = playerCache[idx]
-    if not pw or rawget(pw, "_raw") ~= raw then
-        pw = setmetatable({ _raw = raw, idx = idx }, playerMT)
+    if not pw then
+        pw = setmetatable({ idx = idx }, playerMT)
         rawset(pw, "_keys", makeKeys(pw))
         playerCache[idx] = pw
     end
+    rawset(pw, "_raw", raw)
     return pw
 end
 
@@ -268,11 +271,14 @@ local npcMT = makeClass("NPC", npcFields, npcMethods)
 local function wrapNPC(idx, raw)
     raw = raw or xtech_npc_get(idx)
     if not raw then return nil end
+    -- Cache by slot (see getPlayer). A reused slot keeps its wrapper; Phase 2's real
+    -- NPC class replaces this.
     local w = npcCache[idx]
-    if not w or rawget(w, "_raw") ~= raw then
-        w = setmetatable({ _raw = raw, idx = idx }, npcMT)
+    if not w then
+        w = setmetatable({ idx = idx }, npcMT)
         npcCache[idx] = w
     end
+    rawset(w, "_raw", raw)
     return w
 end
 
@@ -626,9 +632,16 @@ local SUPPORTED_EVENTS = {
     onInitAPI = 1, onLoad = 1,
 }
 
+local function traceback(err) return debug.traceback(tostring(err), 2) end
+
 local function callSafe(fn, name, ...)
-    local ok, err = pcall(fn, ...)
-    if not ok then warn("error in " .. name .. ": " .. tostring(err)) end
+    local n, args = select("#", ...), { ... }
+    local ok, err = xpcall(function() return fn(unpack(args, 1, n)) end, traceback)
+    -- Per-frame events would repeat the same error every tick; log each one once.
+    if not ok and not warned[err] then
+        warned[err] = true
+        warn("error in " .. name .. ": " .. err)
+    end
 end
 
 local function dispatch(eventName, ...)
