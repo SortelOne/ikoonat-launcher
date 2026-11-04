@@ -10,6 +10,18 @@ An SMBX2 (LunaLua) API compatibility layer for the
 | `smbx2compat-engine.patch` | C++ changes to the fork (apply with `git apply`) |
 | `scripts/smbx2compat.lua` | The Lua shim, copied to `<assets>/scripts/` or an episode folder |
 | `test/` | Mock harness; run `luajit run.lua` from inside `test/` |
+| `core/` | SMBX2 core mode: an emulated LunaLua host for SMBX2's own scripts |
+| `luajit.patch` | Adds a Lua 5.2 compat option to the LuaJIT submodule |
+| `run-level.sh` | Test run: sound off, window to AeroSpace workspace 1, report survival |
+
+## SMBX2 core mode (in progress)
+
+The long-term path, replacing the shim: SMBX2's real `scripts/base/engine/main.lua`
+and built-in libraries run unmodified, and `core/` plays the part of LunaLua's C++
+(host tables, a Lua stand-in for `LunaDll.dll`, file lookup that copes with
+Windows-style paths). It needs SMBX2's data folder at `<assets>/smbx2/` and `core/`
+at `<assets>/scripts/smbx2core/`; without them the v0.1 shim below is used. Status
+and the list of gaps are in `ROADMAP.md` (Phase 1).
 
 ## Engine patch
 

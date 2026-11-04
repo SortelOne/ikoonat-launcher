@@ -1,0 +1,299 @@
+--[[
+  smbx2compat core: the tables LunaLua's C++ registers before main.lua runs
+  (CLunaLua::bindAll in LunaLuaMain.cpp). SMBX2's Lua files add to these
+  rather than create them.
+
+  Anything not defined here is logged as missing the first time it's looked up
+  (core.missingAPI), and stub() marks a known function we haven't implemented:
+  it logs once when called and returns nothing.
+]]
+
+local core = __smbx2core
+
+local function hostTable(name, t)
+    return setmetatable(t or {}, {
+        __index = function(_, key)
+            core.missingAPI(name .. "." .. tostring(key))
+        end,
+    })
+end
+
+local function stub(name)
+    return function()
+        core.missingAPI(name .. "()")
+    end
+end
+
+-- Errors and debug output: LunaLua pops up a message box; we log
+local function windowDebug(msg)
+    core.warn(tostring(msg))
+end
+
+
+-------------
+-- console --
+-------------
+
+-- main.lua builds print() on console:println
+console = {
+    print = function(self, s) core.log(tostring(s)) end,
+    println = function(self, s) core.log(tostring(s)) end,
+    clear = function(self) end,
+}
+
+
+------------
+-- Native --
+------------
+
+Native = hostTable("Native", {
+    getSMBXPath = getSMBXPath,
+    getEpisodePath = function() return core.scriptPath(core.episodePath) end, -- ends with a separator, like LunaLua's
+    simulateError = stub("Native.simulateError"),
+})
+
+
+----------
+-- Text --
+----------
+
+Text = hostTable("Text", {
+    windowDebug = windowDebug,
+    windowDebugSimple = windowDebug,
+    print = stub("Text.print"),
+    printWP = stub("Text.printWP"),
+    showMessageBox = stub("Text.showMessageBox"),
+})
+
+
+----------
+-- Misc --
+----------
+
+-- LunaLua's search order: level folder, episode folder, then SMBX2's own folders
+-- (LuaProxyGlobalFuncMisc.cpp, luabindResolveFile / resolveGraphicsFile)
+local function search(dirs, name, wantDir)
+    name = core.normalize(name)
+    if string.sub(name, 1, 1) == "/" then
+        dirs = { "" }
+    end
+    for _, dir in ipairs(dirs) do
+        local path = dir .. name
+        if wantDir then
+            if core.isDir(path) then
+                return core.scriptPath(path)
+            end
+        else
+            local real = core.resolve(path)
+            if real then
+                return core.scriptPath(real)
+            end
+        end
+    end
+    return nil
+end
+
+local function searchDirs()
+    return { core.customPath, core.episodePath, core.smbxPath .. "/scripts/", core.smbxPath .. "/" }
+end
+
+Misc = hostTable("Misc", {
+    warning = function(msg) core.warn("Misc.warning: " .. tostring(msg)) end,
+    pause = stub("Misc.pause"),
+    unpause = stub("Misc.unpause"),
+    isPausedByLua = function() return false end,
+
+    resolveFile = function(name)
+        return search(searchDirs(), name, false)
+    end,
+    resolveDirectory = function(name)
+        return search(searchDirs(), name, true)
+    end,
+    resolveGraphicsFile = function(name)
+        local dirs = { core.customPath, core.episodePath, core.smbxPath .. "/graphics/" }
+        -- "npc-1.png" is also looked for in graphics/npc/
+        if not string.find(name, "[/\\]") then
+            local prefix = string.match(name, "^([^-]*)-")
+            if prefix then
+                dirs[#dirs + 1] = core.smbxPath .. "/graphics/" .. prefix .. "/"
+            end
+        end
+        return search(dirs, name, false)
+    end,
+
+    listFiles = function(path) return xtech_misc_listDir(core.normalize(path), false) end,
+    listDirectories = function(path) return xtech_misc_listDir(core.normalize(path), true) end,
+    listLocalFiles = function(path) return xtech_misc_listDir(core.customPath .. core.normalize(path), false) end,
+    listLocalDirectories = function(path) return xtech_misc_listDir(core.customPath .. core.normalize(path), true) end,
+    isSamePath = function(a, b)
+        local ra, rb = core.resolve(a), core.resolve(b)
+        return ra ~= nil and ra == rb
+    end,
+
+    -- LunaLua keeps this from the previous level (CLunaLua::init); TODO: from the engine
+    didGameOver = function() return false end,
+
+    -- LunaLua C++ functions not done yet (bindAll, namespace Misc); each logs when called
+    -- What the player has typed toward a cheat code. TODO: from the engine
+    cheatBuffer = function(value)
+        if value == nil then
+            return ""
+        end
+    end,
+    openPauseMenu = stub("Misc.openPauseMenu"),
+    saveGame = stub("Misc.saveGame"),
+    exitGame = stub("Misc.exitGame"),
+    exitEngine = stub("Misc.exitEngine"),
+    loadEpisode = stub("Misc.loadEpisode"),
+    registerCharacterId = stub("Misc.registerCharacterId"),
+    loadCharacterHitBoxes = stub("Misc.loadCharacterHitBoxes"),
+    showRichDialog = stub("Misc.showRichDialog"),
+    getEditorPlacedItem = stub("Misc.getEditorPlacedItem"),
+    __enablePerfTracker = stub("Misc.__enablePerfTracker"),
+    __disablePerfTracker = stub("Misc.__disablePerfTracker"),
+    __getPerfTrackerData = stub("Misc.__getPerfTrackerData"),
+    -- npcconfig_core/blockconfig_core read NPC/block properties at
+    -- address + stride * id. Address 0 until Phase 2 maps them onto the
+    -- engine's traits, so the reads land in ffi_mem's "outside globals" path (0).
+    __getNPCPropertyTableAddress = function(name)
+        core.missingAPI("NPC property tables (npc-n.txt config)")
+        return 0
+    end,
+    __getBlockPropertyTableAddress = function(name)
+        core.missingAPI("block property tables (block-n.txt config)")
+        return 0
+    end,
+    npcToCoins = stub("Misc.npcToCoins"),
+    doPOW = stub("Misc.doPOW"),
+    doPSwitchRaw = stub("Misc.doPSwitchRaw"),
+    doPSwitch = stub("Misc.doPSwitch"),
+    doBombExplosion = stub("Misc.doBombExplosion"),
+    _setSemisolidCollidingFlyType = stub("Misc._setSemisolidCollidingFlyType"),
+    _npcHarmCombo = stub("Misc._npcHarmCombo"),
+    _npcHarmComboWithDamage = stub("Misc._npcHarmComboWithDamage"),
+    _npcCollect = stub("Misc._npcCollect"),
+    _playerHarm = stub("Misc._playerHarm"),
+    _playerKill = stub("Misc._playerKill"),
+})
+
+
+-----------
+-- Audio --
+-----------
+
+-- Sound effects play through the engine's external-sound support; a Mix_Chunk
+-- is a table holding the file's path. Music, channels and the rest: Phase 5.
+local MixChunkMT = { __type = "Mix_Chunk" }
+
+local function openChunk(path)
+    local real = search(searchDirs(), path, false)
+    if not real then
+        return nil
+    end
+    real = core.normalize(real)
+    xtech_audio_preloadSFXExt(real)
+    return setmetatable({ path = real }, MixChunkMT)
+end
+
+local function playChunk(chunk, loops)
+    if type(chunk) == "table" and chunk.path then
+        xtech_audio_playSFXExt(chunk.path, loops or 0, 128)
+    end
+end
+
+Audio = hostTable("Audio", {
+    _GetMusicVolume = function() return xtech_audio_getMusicVolume() end,
+    -- xtech_audio_setMusicVolume changes the player's saved setting, not an in-game level
+    MusicVolume = stub("Audio.MusicVolume"),
+    __setOverrideForAlias = stub("Audio.__setOverrideForAlias"),
+    __getChunkForAlias = stub("Audio.__getChunkForAlias"),
+    __setMuteForAlias = stub("Audio.__setMuteForAlias"),
+    __getMuteForAlias = function() return false end,
+
+    SfxOpen = openChunk,
+    playSFX = function(sound)
+        if type(sound) == "number" then
+            xtech_audio_playSFX(sound, 0, 128)
+        else
+            playChunk(openChunk(sound))
+        end
+    end,
+    SfxPlayCh = function(channel, chunk, loops)
+        playChunk(chunk, loops)
+        return -1
+    end,
+    SfxPlayChVol = function(channel, chunk, loops, volume)
+        playChunk(chunk, loops)
+        return -1
+    end,
+    SfxPlayObj = function(chunk, loops)
+        playChunk(chunk, loops)
+        return -1
+    end,
+    SfxPlayObjVol = function(chunk, loops, volume)
+        playChunk(chunk, loops)
+        return -1
+    end,
+})
+
+-- The rest of LunaLua's Audio namespace (bindAll); each logs when called
+for _, name in ipairs({
+    "MusicOpen", "MusicPlay", "MusicPlayFadeIn", "MusicStop", "MusicStopFadeOut",
+    "MusicPause", "MusicResume", "MusicIsPlaying", "MusicIsPaused", "MusicIsFading",
+    "MusicTitle", "MusicTitleTag", "MusicArtistTag", "MusicAlbumTag", "MusicCopyrightTag",
+    "MusicSetPos", "MusicGetPos", "MusicGetLoopStart", "MusicGetLoopEnd", "MusicGetLoopLength",
+    "SeizeStream", "ReleaseStream", "resetMciSections", "MusicChange", "MusicFadeOut", "MusicRewind",
+    "MusicGetInstChannelCount", "MusicInstChannelMute", "MusicInstChannelUnmute",
+    "MusicSetTempo", "MusicSetPitch", "MusicSetSpeed", "MusicGetTempo", "MusicGetPitch", "MusicGetSpeed",
+    "newMix_Chunk", "clearSFXBuffer",
+    "SfxPlayChTimed", "SfxPlayChTimedVol", "SfxFadeInCh", "SfxFadeInChVol",
+    "SfxFadeInChTimed", "SfxFadeInChTimedVol", "SfxPause", "SfxResume", "SfxStop", "SfxExpire",
+    "SfxFadeOut", "SfxIsPlaying", "SfxIsPaused", "SfxIsFading", "SfxVolume", "SfxSetPanning",
+    "SfxSetDistance", "SfxReverseStereo", "MixedSfxVolume",
+    "SfxPlayObjTimed", "SfxPlayObjTimedVol", "SfxFadeInObj", "SfxFadeInObjVol",
+    "SfxFadeInObjTimed", "SfxFadeInObjTimedVol", "AudioClock", "MusicClock",
+}) do
+    rawset(Audio, name, stub("Audio." .. name))
+end
+
+
+--------------
+-- Graphics --
+--------------
+
+Graphics = hostTable("Graphics", {})
+
+
+-----------
+-- Level --
+-----------
+
+Level = hostTable("Level", {
+    filename = function() return __xtech_levelFile end,
+    name = function() return xtech_sysval_getLevelName() end,
+})
+
+
+--------------
+-- UserData --
+--------------
+
+-- LunaLua's SaveBankProxy: numbers by name. TheXTech's LunaDLL autocode keeps
+-- the same kind of variables (gAutoMan user vars); saving them with the game
+-- isn't wired up yet.
+UserData = hostTable("UserData", {
+    setValue = function(key, value)
+        xtech_var_operation(key, tonumber(value) or 0, 0) -- OP_Assign
+    end,
+    getValue = function(key)
+        if xtech_var_exists(key) then
+            return xtech_var_get(key)
+        end
+        return nil
+    end,
+    isValueSet = function(key)
+        return xtech_var_exists(key)
+    end,
+    values = stub("UserData.values"),
+    save = stub("UserData.save"),
+})

@@ -22,7 +22,11 @@ project, so never prepare anything from this repo as an upstream PR.
     "Trying to use unregistered class: num_t".
 - `smbx2compat/` — **ours**. See `smbx2compat/README.md`.
   - `smbx2compat-engine.patch` — the C++ changes above (already applied here).
-  - `scripts/smbx2compat.lua` — the shim mapping SMBX2 APIs onto `xtech_*`.
+  - `scripts/smbx2compat.lua` — the v0.1 shim mapping SMBX2 APIs onto `xtech_*`
+    (fallback when SMBX2's own scripts aren't installed).
+  - `core/` — **SMBX2 core mode**: an emulated LunaLua host that runs SMBX2's
+    real `main.lua` and libraries. See "SMBX2 core mode" below.
+  - `luajit.patch` — our edit inside the LuaJIT submodule (Lua 5.2 compat option).
   - `test/` — mock harness: `cd smbx2compat/test && luajit run.lua`.
   - `ROADMAP.md` — **the plan**: phases from here to SMATRS on Android, measured
     scale of SMATRS, and open questions for Jake. Start here.
@@ -53,6 +57,12 @@ frame offsets, no file key) to `LevelBlock`/`LevelBGO`/`LevelNPC`; and 26 extend
 `NPCConfigFile` traits read from `npc-N.txt` (`nolava`, `immortal`, `float`, ...).
 We can't push to WohlSoft's repo, so edits inside the submodule must be
 re-exported to that patch (`git -C 3rdparty/PGE_File_Formats diff > ...`).
+
+Same for LuaJIT: `git -C 3rdparty/LuaJIT apply ../../smbx2compat/luajit.patch`
+adds a `LUAJIT_ENABLE_LUA52COMPAT` CMake option, which `cmake/library_luajit.cmake`
+turns on (SMBX2's scripts need Lua 5.2 syntax, as LunaLua's LuaJIT allows). After
+changing LuaJIT's build flags, delete `build/external/luabind/src/LuaJIT_local-*`
+and the game binary, or the old library stays linked.
 
 ## Build (macOS, Homebrew cmake + ninja)
 
@@ -104,6 +114,41 @@ Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `codesign -s - -f --entitlements debug.entitlements build/bin/TheXTech.app/Contents/MacOS/TheXTech`
 (a plist with that one key set to true). Rebuilding relinks and drops it.
 
+## SMBX2 core mode
+
+Turns on when both exist (otherwise the v0.1 shim runs; `SMBX2COMPAT_MODE=shim`
+forces the shim):
+- `$D/assets-smbx13/smbx2` → symlink to `$D/smbx2/SMBX2 + SMATRS/data` (SMBX2's
+  `scripts/`, `graphics/`, `sound/`, `music/`, `costumes/`)
+- `$D/assets-smbx13/scripts/smbx2core` → symlink to this repo's `smbx2compat/core`
+  (so edits take effect without copying; Android will need a real copy)
+
+How it works (details in `core/boot.lua`'s header):
+- Each level gets a **fresh Lua state** (LunaLua does the same); the engine
+  sets `__xtech_smbx2Path`/`__xtech_coreDir`/`__xtech_episodePath`/
+  `__xtech_levelFile`, runs `boot.lua`, then calls `__onInit`. Frames call
+  `__xtech_onLoop`/`__xtech_onRenderStart`/`__xtech_onRenderEnd`, which send
+  SMBX2's events; level exit calls `__xtech_onExit`.
+- `ffi.load("LunaDll.dll")` returns `core/lunadll.lua`, a Lua table of the DLL's
+  exports; SMBX2's `ffi_*.lua` files run unmodified. Implement exports there,
+  using LunaLua's `LuaProxyFFI*.cpp` as the spec. C types used in it are declared
+  by the `ffi_*` files, so create cdata inside functions, not at file load.
+  Return a NULL cdata (`ffi.cast("T*", nil)`), not `nil`, where C returns NULL.
+- `core/host.lua` = LunaLua's C++ tables (`Misc`, `Text`, `Audio`, `Native`,
+  `Level`, `UserData`, `console`); `core/classes.lua` = its C++ classes
+  (`Animation`, ...); `core/constants.lua` = `setupDefaults()`.
+- Every file read goes through `core.resolve`: backslashes → `/`, case-insensitive
+  names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
+  `core/override/` replace the SMBX2 file at the same path under `scripts/`
+  (only `lockdown.lua` and `ffi_mem.lua` so far), and `core/patches.lua` lists
+  in-memory source edits.
+- Paths handed to scripts carry a virtual `C:` (`C:/Users/...`), because SMBX2
+  checks for a drive letter to decide a path is absolute; `core.normalize` strips it.
+- Gaps log `[smbx2core] missing: X` once each, plus a summary at level exit.
+  Script errors log once as `[smbx2core] ==> file:line: message` with a traceback.
+- `run-level.sh` passes an absolute level path; LunaLua's episode paths are always
+  absolute.
+
 ## Lua error handling
 
 - luabind's `luabind::error` constructor **pops the error message off the Lua stack**
@@ -121,19 +166,19 @@ Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 
 ## Known issues
 
-- SMATRS (`../TheXTech-data/smatrs/`) loads level 1-1 but its scripts stop at the
-  first missing SMBX2 globals: `getSMBXVersionString` (episode `luna.lua:2`) and
-  `Darkness` (`_scripts/smatrs/graphicalQuality.lua:22`). It also requires
-  `npcManager`, `blockManager`, `lib3d`, `handycam`, `ext/easing` heavily.
+- In core mode, SMBX2 boots fully on `smoke/bonus1` but object memory (`mem()` on
+  players/NPCs/blocks), custom params, drawing and most audio are still missing;
+  see ROADMAP.md Phase 1 "Progress". SMATRS 1-1 hasn't been tried in core mode yet
+  (with the shim it stops at `getSMBXVersionString`, which core mode provides).
 
 ## Game data (not in git)
 
 Assets and episodes live outside the repo in `../TheXTech-data/`:
 - TheXTech SMBX 1.3 asset pack (`thextech-smbx13-assets-full-v1.7.4.1.7z`).
 - SMATRS episode zip (Nintendo-derived fan content; never commit it).
-- `smbx2/SMBX2 + SMATRS/data/scripts` and `.../data/graphics`: SMBX2's built-in
-  Lua libraries and graphics, extracted from the SMATRS "Download All" bundle
-  (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
+- `smbx2/SMBX2 + SMATRS/data/{scripts,graphics,sound,music,costumes}`: SMBX2's
+  built-in Lua libraries and media, extracted from the SMATRS "Download All"
+  bundle (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
 - `reference/LunaLua`: LunaLua's C++ source (WohlSoft/LunaLua, shallow clone), the
   reference for what SMBX2's scripts expect from the host. Read only; never build
   or run it. Pointers to the key files are in ROADMAP.md, Phase 1 plan item 5.

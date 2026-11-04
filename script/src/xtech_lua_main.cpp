@@ -20,6 +20,8 @@
 
 #include <string>
 #include <set>
+#include <cstdlib>
+#include <cstring>
 
 extern "C"
 {
@@ -58,6 +60,7 @@ static bool g_gameLoaded = false;
 static int g_sandboxRef = LUA_NOREF;
 static int g_episodeSandboxRef = LUA_NOREF;  // smbx2compat: episode-wide luna.lua
 static bool g_compatLoaded = false;          // smbx2compat: shim loaded into _G
+static bool g_smbx2Core = false;             // smbx2compat: level runs on SMBX2's own main.lua
 static bool s_wasOnMap = false;
 
 // Lua function references (level)
@@ -272,20 +275,9 @@ bool xtech_lua_getFunc(const char* funcName)
     return lua_isfunction(g_L, -1);
 }
 
-bool xtech_lua_init()
+// smbx2compat: shared by xtech_lua_init and SMBX2 core mode, which restarts the state per level
+static bool createLuaState()
 {
-    if(g_luaInitialized)
-        return true;
-
-    // Check if Lua scripting is enabled in config
-    if(!g_config.lua_enable_engine)
-    {
-        pLogDebug("Lua: Lua engine disabled in config");
-        return true; // Not a fatal error
-    }
-
-    pLogInfo("Lua: Initializing LuaJIT scripting engine...");
-
     // Create Lua state
     g_L = luaL_newstate();
     if(!g_L)
@@ -303,6 +295,25 @@ bool xtech_lua_init()
 
     // Register game bindings
     xtech_lua_register_bindings(g_L);
+    return true;
+}
+
+bool xtech_lua_init()
+{
+    if(g_luaInitialized)
+        return true;
+
+    // Check if Lua scripting is enabled in config
+    if(!g_config.lua_enable_engine)
+    {
+        pLogDebug("Lua: Lua engine disabled in config");
+        return true; // Not a fatal error
+    }
+
+    pLogInfo("Lua: Initializing LuaJIT scripting engine...");
+
+    if(!createLuaState())
+        return false;
 
     // Global script (lunaglobal.lua) is deferred to xtech_lua_load()
     // because AppPathManager::assetsRoot() is not ready during init.
@@ -408,6 +419,75 @@ static int runSandboxed(const std::string &path)
 
 
 // ============================================================================
+// smbx2compat: SMBX2 core mode
+// ============================================================================
+
+// Core mode runs SMBX2's own scripts/base/engine/main.lua (what LunaLua boots)
+// instead of the v0.1 shim. It needs SMBX2's data folder at <assets>/smbx2/ and
+// our host layer at <assets>/scripts/smbx2core/boot.lua (smbx2compat/core in the
+// repo). SMBX2COMPAT_MODE=shim in the environment forces the shim.
+static bool findSmbx2Core(std::string &dataRoot, std::string &coreDir)
+{
+    const char *mode = std::getenv("SMBX2COMPAT_MODE");
+    if(mode && std::strcmp(mode, "shim") == 0)
+        return false;
+
+    dataRoot = AppPathManager::assetsRoot() + "smbx2";
+    coreDir = AppPathManager::assetsRoot() + "scripts/smbx2core";
+    return Files::fileExists(dataRoot + "/scripts/base/engine/main.lua")
+        && Files::fileExists(coreDir + "/boot.lua");
+}
+
+static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreDir)
+{
+    // LunaLua gives every level a new Lua state, and main.lua replaces io, os,
+    // dofile, ... in _G, so restart ours (bindings and all) the same way
+    xtech_lua_clear_delayed_calls();
+    lua_close(g_L);
+    g_L = nullptr;
+    g_gameLoaded = false;
+    g_compatLoaded = false;
+    if(!createLuaState())
+    {
+        g_luaInitialized = false;
+        return;
+    }
+
+    lua_pushstring(g_L, dataRoot.c_str());
+    lua_setglobal(g_L, "__xtech_smbx2Path");
+    lua_pushstring(g_L, coreDir.c_str());
+    lua_setglobal(g_L, "__xtech_coreDir");
+    lua_pushboolean(g_L, 0);
+    lua_setglobal(g_L, "__xtech_isOverworld");
+
+    // LunaLua knows the episode before main.lua runs (some files resolve paths while loading)
+    std::string episodePath = g_dirEpisode.getCurDir();
+    if(!episodePath.empty() && episodePath.back() != '/')
+        episodePath.push_back('/');
+    lua_pushstring(g_L, episodePath.c_str());
+    lua_setglobal(g_L, "__xtech_episodePath");
+    lua_pushstring(g_L, FileNameFull.c_str());
+    lua_setglobal(g_L, "__xtech_levelFile");
+
+    // boot.lua sets up the host side of LunaLua, then runs main.lua
+    if(!loadAndRunLuaFile(coreDir + "/boot.lua", "smbx2core/boot.lua"))
+        return;
+
+    g_smbx2Core = true;
+    g_luaWorking = true;
+
+    luabind::object onInit = getLuaFunc("__onInit");
+    safeCallLuaFuncWith(onInit, "__onInit", episodePath, FileNameFull);
+
+    // boot.lua turns these into SMBX2's per-frame events (onStart, onTick, onDraw, ...)
+    g_luaFunc_onLoop        = getLuaFunc("__xtech_onLoop");
+    g_luaFunc_onRenderStart = getLuaFunc("__xtech_onRenderStart");
+    g_luaFunc_onRenderEnd   = getLuaFunc("__xtech_onRenderEnd");
+    pLogInfo("Lua: SMBX2 core started for %s", FileNameFull.c_str());
+}
+
+
+// ============================================================================
 // Revised xtech_lua_loadLevel
 // ============================================================================
 
@@ -443,6 +523,14 @@ void xtech_lua_loadLevel()
     {
         luaL_unref(g_L, LUA_REGISTRYINDEX, g_episodeSandboxRef);
         g_episodeSandboxRef = LUA_NOREF;
+    }
+
+    // smbx2compat: SMBX2 core mode when SMBX2's scripts are installed, else the shim
+    std::string smbx2Data, smbx2Core;
+    if(findSmbx2Core(smbx2Data, smbx2Core))
+    {
+        loadSmbx2Level(smbx2Data, smbx2Core);
+        return;
     }
 
     // smbx2compat: load the SMBX2 compatibility shim into _G once
@@ -548,7 +636,9 @@ void xtech_lua_unloadLevel()
         return;
 
     // Fire onLevelExit before tearing down (death, completion, quit all go through here)
-    xtech_lua_getFunc("onLevelExit");
+    // smbx2compat: in core mode boot.lua sends SMBX2's onExitLevel/onExit instead
+    xtech_lua_getFunc(g_smbx2Core ? "__xtech_onExit" : "onLevelExit");
+    g_smbx2Core = false;
     if(lua_isfunction(g_L, -1))
     {
         if(lua_pcall(g_L, 0, 0, 0) != 0)
@@ -855,6 +945,7 @@ bool xtech_lua_quit()
 
     g_luaWorking = false;
     g_gameLoaded = false;
+    g_compatLoaded = false; // smbx2compat: the shim lives in the state being destroyed
 
     // Destroy Lua state
     if(g_L)

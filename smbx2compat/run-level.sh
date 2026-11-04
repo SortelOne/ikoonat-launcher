@@ -10,7 +10,7 @@
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 D=${XTECH_DATA:-$REPO/../TheXTech-data}
-LEVEL=$1
+LEVEL=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") # absolute, as LunaLua's paths are
 SECS=${2:-40}
 WS=${XTECH_WORKSPACE:-1}
 BIN=$REPO/build/bin/TheXTech.app/Contents/MacOS/TheXTech

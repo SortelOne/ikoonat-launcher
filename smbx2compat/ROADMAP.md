@@ -12,6 +12,12 @@ an SMBX2 episode) on this engine, first on macOS, then on Android.
   - `_scripts/smatrs/graphicalQuality.lua:22` — `Darkness` is nil
 - ~~Blocker: Lua errors during `onLoop` kill the process~~ — fixed 2026-11-04
   (Phase 0 below).
+- **SMBX2 core mode boots** (Phase 1, 2026-11-04): with SMBX2's data folder
+  installed, each level runs SMBX2's own `main.lua` and libraries unmodified
+  on our emulated LunaLua host (`smbx2compat/core/`). On `smoke/bonus1` all of
+  `main.lua` and `__onInit` complete (lunabase, characters, NPC AI, the level's
+  own `luna.lua`), and per-frame events fire. What's left is runtime gaps,
+  logged as `[smbx2core] missing: ...`.
 
 ## How big SMATRS is (measured)
 
@@ -159,6 +165,42 @@ works in our LuaJIT.
    - `LunaDll/LuaMain/LuaProxy.h/.cpp` + `LuaProxyComponent/`: the C++ side of
      each API; `LunaLuaMain.cpp` event objects for `__callEvent`.
 
+
+**Progress (2026-11-04).** Steps 1–3 done; step 4 started on `smoke/bonus1`.
+- Engine: `xtech_lua_main.cpp` core mode (`findSmbx2Core`, `loadSmbx2Level`).
+  It turns on when `<assets>/smbx2/scripts/base/engine/main.lua` and
+  `<assets>/scripts/smbx2core/boot.lua` both exist; `SMBX2COMPAT_MODE=shim`
+  forces the old shim. Like LunaLua, every level gets a **fresh Lua state**.
+  New bindings: `xtech_misc_resolveFileCI`, `xtech_mem_get/set` (mememu
+  globals), `xtech_misc_clock`, `xtech_misc_imageSize`, `xtech_misc_imagePixels`,
+  `xtech_misc_listDir`, `xtech_misc_set/getGameData`.
+- `core/boot.lua`: host globals, one file resolver (backslashes, case-insensitive
+  names via `DirListCI`, `override/` files, `patches.lua` source edits), runs
+  `main.lua`, maps engine frames to `onStart`/`onLoop`/`onInputUpdate`/`onTick`/
+  `onTickEnd`/`onDraw`/`onDrawEnd`/`onExitLevel`/`onExit`.
+- **Changed from the plan:** instead of rewriting the `ffi_*` files, `ffi.load(
+  "LunaDll.dll")` returns `core/lunadll.lua`, a Lua table of the DLL's exports, so
+  SMBX2's own `ffi_*` files run as-is. Only `lockdown.lua` and `ffi_mem.lua` are
+  replaced (`core/override/base/engine/`). C++-side host tables are `core/host.lua`,
+  C++ classes (`Animation`, ...) `core/classes.lua`, constants `core/constants.lua`.
+- **Virtual `C:` drive:** SMBX2 tests "absolute path?" with a drive-letter match
+  in many files, so script-visible paths are `C:/Users/...` and the resolver drops
+  the `C:`. No per-file patches needed for that.
+- **LuaJIT in Lua 5.2 mode:** SMBX2 code needs it (empty statements, e.g.
+  `lunatime.lua:57`), so LunaLua's LuaJIT must have `LUAJIT_ENABLE_LUA52COMPAT`.
+  Ours now does too (`cmake/library_luajit.cmake` + `smbx2compat/luajit.patch`).
+- Extracted `data/sound`, `data/music`, `data/costumes` from the bundle too
+  (scripts load sounds from there).
+
+*Still failing on bonus1 (each logged once):* `LunaLuaGetNpcCustomParams` and the
+other custom-params exports; `editorevents` (`beatTimer`); `audiomaster` (sound
+objects); `Player` fields (`_ptr` nil: object memory); drawing (`FFI_TextDraw`,
+`Graphics.drawImage`). Object memory reads/writes return 0 (Phase 2), and the NPC
+and block property tables (`npc-n.txt` config) point at address 0 until then.
+
+*Next:* custom params from the level file; then SMATRS 1-1 to see its own list.
+Load time is ~2.3 s in the Debug build (sprite lookups for every BGO/NPC ID);
+check again in Release before optimizing.
 ### Phase 2 — `mem()` and object classes
 - Lua `mem(addr, FIELD_*)` and `obj:mem(off, FIELD_*)` backed by `mememu`.
   Extend `mememu` to cover the offsets SMATRS and the libraries use (start with
@@ -216,7 +258,8 @@ works in our LuaJIT.
 ## Milestones
 
 1. M0 — `onLoop` errors no longer crash (Phase 0) — reached 2026-11-04
-2. M1 — all SMATRS scripts load, stubs logged (Phase 1)
+2. M1 — all SMATRS scripts load, stubs logged (Phase 1) — bonus1 boots SMBX2's
+   full library set as of 2026-11-04; SMATRS 1-1 not tried yet
 3. M2 — 1-1 playable on desktop, rough visuals (Phases 2–3)
 4. M3 — 1-1 looks right (Phase 4)
 5. M4 — Chapter 1 playable on desktop (Phases 5–6)

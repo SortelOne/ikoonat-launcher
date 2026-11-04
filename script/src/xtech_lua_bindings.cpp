@@ -23,6 +23,8 @@
 #include <list>
 #include <vector>
 #include <map>
+#include <memory>
+#include <chrono>
 
 extern "C"
 {
@@ -66,6 +68,11 @@ extern "C"
 #include "script/luna/lunalayer.h"
 #include "script/luna/lunablock.h"
 #include "script/luna/lunadefs.h"
+#include "script/luna/mememu.h" // smbx2compat: mem() for SMBX2 scripts
+#include <Utils/dir_list_ci.h> // smbx2compat: case-insensitive lookups
+#include <Graphics/graphics_funcs.h> // smbx2compat: image sizes and pixels
+#include <FreeImageLite.h> // smbx2compat
+#include <DirManager/dirman.h> // smbx2compat: Misc.listFiles
 #include "script/luna/autocode_manager.h"
 #include "script/luna/lunarender.h"
 #include "core/render.h"
@@ -615,6 +622,9 @@ namespace LuaAudio
 static std::string resolveAudioPath(const std::string &filename)
 {
     if(filename.empty()) return {};
+    // smbx2compat: SMBX2 passes absolute paths (its own sounds live outside the episode)
+    if(Files::isAbsolute(filename))
+        return Files::fileExists(filename) ? filename : std::string();
     std::string path = g_dirCustom.resolveFileCaseExistsAbs(filename);
     if(!path.empty()) return path;
     return g_dirEpisode.resolveFileCaseExistsAbs(filename);
@@ -1871,6 +1881,100 @@ static luabind::object worldmap_getLevelScreenPos(const std::string &levelName)
     return luabind::object(); // nil
 }
 
+// smbx2compat: SMBX2 scripts assume Windows' case-insensitive paths (they require
+// "classExpander" but ship "classexpander.lua"). Returns "" if nothing matches.
+static std::string misc_resolveFileCI(const std::string &baseDir, const std::string &relPath)
+{
+    static std::map<std::string, std::unique_ptr<DirListCI>> s_dirs;
+    std::unique_ptr<DirListCI> &dir = s_dirs[baseDir];
+    if(!dir)
+        dir.reset(new DirListCI(baseDir));
+    return dir->resolveFileCaseExistsAbs(relPath);
+}
+
+// smbx2compat: {w, h} of an image file, or nil. SMBX2's Graphics.loadImage
+// needs sizes when it loads; drawing the images comes later.
+static luabind::object misc_imageSize(const std::string &path)
+{
+    lua_State* L = xtech_lua_getState();
+    PGE_Size size;
+    if(!GraphicsHelps::getImageMetrics(path, &size))
+        return luabind::object(); // nil
+
+    luabind::object t = luabind::newtable(L);
+    t["w"] = size.w();
+    t["h"] = size.h();
+    return t;
+}
+
+// smbx2compat: an image's pixels for SMBX2's Graphics.getPixelData, as 32-bit
+// words (0xAARRGGBB), rows top to bottom like LunaLua's. "" if it can't load.
+static std::string misc_imagePixels(const std::string &path)
+{
+    FIBITMAP *img = GraphicsHelps::loadImage(path, true);
+    if(!img)
+        return std::string();
+
+    size_t w = FreeImage_GetWidth(img);
+    size_t h = FreeImage_GetHeight(img);
+    size_t pitch = FreeImage_GetPitch(img);
+    const uint8_t *bits = FreeImage_GetBits(img);
+
+    std::string out(w * h * 4, '\0');
+    for(size_t y = 0; y < h; y++) // FreeImage keeps rows bottom-up
+        std::memcpy(&out[y * w * 4], bits + (h - 1 - y) * pitch, w * 4);
+
+    GraphicsHelps::closeImage(img);
+    return out;
+}
+
+// smbx2compat: SMBX2's Misc.listFiles / listDirectories (names only, like LunaLua)
+static luabind::object misc_listDir(const std::string &path, bool wantDirs)
+{
+    lua_State* L = xtech_lua_getState();
+    std::vector<std::string> names;
+    DirMan dir(path);
+    bool ok = wantDirs ? dir.getListOfFolders(names) : dir.getListOfFiles(names);
+    luabind::object t = luabind::newtable(L);
+    if(!ok)
+        return t;
+    int i = 1;
+    for(const std::string &name : names)
+        t[i++] = name;
+    return t;
+}
+
+// smbx2compat: SMBX2's GameData (Misc.SetRawGameData) outlives each level's Lua state
+static std::string s_smbx2GameData;
+
+static void misc_setGameData(const std::string &data)
+{
+    s_smbx2GameData = data;
+}
+
+static std::string misc_getGameData()
+{
+    return s_smbx2GameData;
+}
+
+// smbx2compat: monotonic seconds, for SMBX2's Misc.clock (QueryPerformanceCounter on Windows)
+static double misc_clock()
+{
+    using namespace std::chrono;
+    return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+// smbx2compat: SMBX2's mem() on global addresses, through TheXTech's memory emulator
+static num_t mem_get(unsigned int addr, int ftype)
+{
+    return GetMem(addr, static_cast<FIELDTYPE>(ftype));
+}
+
+static void mem_set(unsigned int addr, int ftype, num_t value)
+{
+    MemAssign(addr, value, OP_Assign, static_cast<FIELDTYPE>(ftype));
+}
+
 } // namespace LuaMisc
 
 
@@ -2730,6 +2834,15 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_setConfigStr", &LuaMisc::misc_setConfigStr),
         def("xtech_misc_logWarn", &LuaMisc::logWarn),
         def("xtech_misc_logDebug", &LuaMisc::logDebug),
+        def("xtech_misc_resolveFileCI", &LuaMisc::misc_resolveFileCI), // smbx2compat
+        def("xtech_misc_clock", &LuaMisc::misc_clock), // smbx2compat
+        def("xtech_misc_listDir", &LuaMisc::misc_listDir), // smbx2compat
+        def("xtech_misc_setGameData", &LuaMisc::misc_setGameData), // smbx2compat
+        def("xtech_misc_getGameData", &LuaMisc::misc_getGameData), // smbx2compat
+        def("xtech_misc_imageSize", &LuaMisc::misc_imageSize), // smbx2compat
+        def("xtech_misc_imagePixels", &LuaMisc::misc_imagePixels), // smbx2compat
+        def("xtech_mem_get", &LuaMisc::mem_get), // smbx2compat
+        def("xtech_mem_set", &LuaMisc::mem_set), // smbx2compat
         // xtech_misc_wait: registered manually (luabind::object param)
         // P3: Sysval functions
         def("xtech_sysval_getLives", &LuaMisc::sysval_getLives),
