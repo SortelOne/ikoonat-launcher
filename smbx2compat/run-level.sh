@@ -5,7 +5,8 @@
 #   smbx2compat/run-level.sh <level.lvlx> [seconds=40]
 #
 # Data dir defaults to ../TheXTech-data (override with XTECH_DATA). The newest log
-# is printed at the end. Set XTECH_WORKSPACE to use another workspace.
+# is printed at the end. Set XTECH_WORKSPACE to use another workspace, and
+# XTECH_BUILD to run another build folder (e.g. build-release).
 
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -13,7 +14,7 @@ D=${XTECH_DATA:-$REPO/../TheXTech-data}
 LEVEL=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") # absolute, as LunaLua's paths are
 SECS=${2:-40}
 WS=${XTECH_WORKSPACE:-1}
-BIN=$REPO/build/bin/TheXTech.app/Contents/MacOS/TheXTech
+BIN=$REPO/${XTECH_BUILD:-build}/bin/TheXTech.app/Contents/MacOS/TheXTech
 
 rm -f "$D"/userdir/logs/*.txt
 "$BIN" -s -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" >/dev/null 2>&1 &

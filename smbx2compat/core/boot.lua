@@ -32,6 +32,25 @@ local traceback = debug.traceback
 local core = {}
 _G.__smbx2core = core
 
+-- One 8 MB machine-code area for the JIT, set before anything is compiled
+-- (main.lua's jit.opt.start sets the other limits, maxmcode=8192 among them).
+-- With LuaJIT's 64 KB areas, every new area has to land within branch range
+-- (+-64 MB on arm64) of the others; as the engine loads graphics that space
+-- fills up, a new area can't be placed, and LuaJIT throws all compiled code
+-- away (an MCODEAL flush). In SMATRS 1-1 that happened up to every 2-3 frames.
+-- SMBX2 runs as 32-bit Windows code, where this can't happen.
+jit.opt.start("sizemcode=8192", "maxmcode=8192")
+
+-- SMBX2COMPAT_PROFILE turns on the timing probe (profile.lua); ffi_mem.lua
+-- counts mem() calls into profileMemCalls when it's set
+core.profileSpec = os.getenv("SMBX2COMPAT_PROFILE")
+if core.profileSpec and core.profileSpec ~= "" and core.profileSpec ~= "0" then
+    core.profileMemCalls = {get = 0, set = 0, string = 0}
+    core.jitUtil = require("jit.util") -- main.lua takes jit out of package.loaded
+else
+    core.profileSpec = nil
+end
+
 
 -------------
 -- Logging --
@@ -408,4 +427,8 @@ function __xtech_onExit()
     if #missing > 0 then
         xtech_misc_logWarn("[smbx2core] " .. #missing .. " missing APIs this level: " .. table.concat(missing, ", "))
     end
+end
+
+if core.profileSpec then
+    runCoreFile("profile.lua")
 end

@@ -71,6 +71,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DTHEXTECH_ENABLE_LUA=ON
 cmake --build build
 ```
 
+For performance numbers use a Release build in its own folder
+(`-B build-release -DCMAKE_BUILD_TYPE=Release`; `run-level.sh` runs it with
+`XTECH_BUILD=build-release`). Debug is much slower (1-1: ~9.4 vs ~5.8 ms a frame).
+
 `THEXTECH_FIXED_POINT` stays ON (the default); `num_t` is then a fixed-point class,
 and `num_t(double)` is deliberately deleted, so convert with `num_t(x, nullptr)`.
 
@@ -156,6 +160,9 @@ How it works (details in `core/boot.lua`'s header):
     tables next to it (SMBX offset -> engine getter/setter).
   - `s_memTypeArrays`: arrays of one value per ID or section (NPC/block
     config, section bounds, ...). IDs past the engine's limits are storage.
+  Reads go through LuaJIT's FFI (a C function pointer, `__xtech_ffiMemGet`
+  -> `LuaMisc::ffi_mem_get`) so traces can include them; writes and strings
+  stay on luabind. Nothing an FFI-called function does may call back into Lua.
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
   memory`. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.
@@ -168,6 +175,13 @@ How it works (details in `core/boot.lua`'s header):
   Script errors log once as `[smbx2core] ==> file:line: message` with a traceback.
 - `run-level.sh` passes an absolute level path; LunaLua's episode paths are always
   absolute.
+- `boot.lua` sets `jit.opt.start("sizemcode=8192", ...)` before anything
+  compiles: with LuaJIT's 64 KB code areas, arm64's branch range made it throw
+  away all compiled code every few frames in SMATRS (ROADMAP.md, Performance
+  track). Don't remove it.
+- Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample]` turns on `core/profile.lua`
+  (frame/event/listener times, `mem()` counts, slowest frames, JIT traces and
+  flushes, LuaJIT's sampler); results log as `[smbx2core] profile ...`.
 - Reading a run: `grep -n "Lua: \|Lua error\|smbx2core" <log> | grep -v MemEmu`;
   a distinct-error tally: `grep "==>" <log> | sed 's/.*==> //' | sort | uniq -c`.
   The Lua files under `core/` can be syntax-checked with the system LuaJIT

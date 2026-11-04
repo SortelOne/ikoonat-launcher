@@ -2824,25 +2824,33 @@ static void mem_unknown(const char *what, unsigned addr)
         pLogWarning("smbx2compat: mem() %s outside emulated memory: 0x%08X", what, addr);
 }
 
+// Every made-up array range starts here; SMBX's own globals (the pointer
+// globals among them) are far below it
+static constexpr unsigned c_memArraysLowest = 0x10000000;
+
 static double mem_get(unsigned int addr, int ftype)
 {
     FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
 
-    for(const auto &a : s_objMemArrays)
+    // Almost every read is an object field; skip the ~130 pointer globals for those
+    if(addr < c_memArraysLowest)
     {
-        if(a.pointerGlobal != 0 && addr == a.pointerGlobal)
-            return (double)a.base;
-    }
+        for(const auto &a : s_objMemArrays)
+        {
+            if(a.pointerGlobal != 0 && addr == a.pointerGlobal)
+                return (double)a.base;
+        }
 
-    for(size_t t = 0; t < c_numMemTypeArrays; t++)
-    {
-        if(s_memTypeArrays[t].pointerGlobal != 0 && addr == s_memTypeArrays[t].pointerGlobal)
-            return (double)(c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t);
-    }
+        for(size_t t = 0; t < c_numMemTypeArrays; t++)
+        {
+            if(s_memTypeArrays[t].pointerGlobal != 0 && addr == s_memTypeArrays[t].pointerGlobal)
+                return (double)(c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t);
+        }
 
-    // sBlockNum: the sizable list (sBlockArray) is rebuilt when SMBX2 reads its length
-    if(addr == 0x00B2BEE4)
-        return memSizableBlockCount();
+        // sBlockNum: the sizable list (sBlockArray) is rebuilt when SMBX2 reads its length
+        if(addr == 0x00B2BEE4)
+            return memSizableBlockCount();
+    }
 
     int index;
     unsigned offset;
@@ -2946,6 +2954,16 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
     }
 
     mem_unknown("write", addr);
+}
+
+// smbx2compat: mem() reads for LuaJIT's FFI (ffi_mem.lua calls this through a
+// function pointer, __xtech_ffiMemGet). LuaJIT can compile FFI calls into its
+// traces, but not luabind calls, and SMBX2 reads ~17,000 fields a frame in
+// SMATRS 1-1. Reads only: they never call back into Lua, which an FFI-called
+// function must not do. Writes are rare and stay on luabind.
+static double ffi_mem_get(uint32_t addr, int32_t ftype)
+{
+    return mem_get(addr, ftype);
 }
 
 // SMBX2's mem(addr, FIELD_STRING): VB6 strings in objects and globals
@@ -4315,4 +4333,8 @@ void xtech_lua_register_bindings(lua_State *L)
 #undef R_NPC
 #undef R_SFX
 #undef R_EFF
+
+    // smbx2compat: mem() reads through the FFI (see LuaMisc::ffi_mem_get)
+    lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_mem_get));
+    lua_setglobal(L, "__xtech_ffiMemGet");
 }

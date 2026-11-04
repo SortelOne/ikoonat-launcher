@@ -6,15 +6,30 @@
   arrays (players, NPCs, blocks, BGOs, layers, events, ...) to the matching
   object's fields. Strings (VB6 string pointers in SMBX) are read and written
   by address too. The engine logs each address it doesn't know once.
+
+  Reads go through LuaJIT's FFI, as a call through a C function pointer the
+  engine provides (__xtech_ffiMemGet): LuaJIT compiles those into its traces,
+  but not luabind calls, and SMBX2 reads ~17,000 fields a frame in SMATRS 1-1.
 ]]
 
-local mem_get = xtech_mem_get
+local ffi = ffi -- main.lua gives its low-level libraries the FFI as a global
+local mem_get = ffi.cast("double (*)(uint32_t, int32_t)", __xtech_ffiMemGet)
 local mem_set = xtech_mem_set
 local mem_getString = xtech_mem_getString
 local mem_setString = xtech_mem_setString
 local FIELD_WORD = FIELD_WORD
 local FIELD_STRING = FIELD_STRING
 local FIELD_BOOL = FIELD_BOOL
+
+-- With SMBX2COMPAT_PROFILE set, count calls for core/profile.lua
+local counts = __smbx2core.profileMemCalls
+if counts then
+    local get, set, getString, setString = mem_get, mem_set, mem_getString, mem_setString
+    mem_get = function(a, t) counts.get = counts.get + 1 return get(a, t) end
+    mem_set = function(a, t, v) counts.set = counts.set + 1 return set(a, t, v) end
+    mem_getString = function(a) counts.string = counts.string + 1 return getString(a) end
+    mem_setString = function(a, v) counts.string = counts.string + 1 return setString(a, v) end
+end
 
 local function readmem(addr, dtype)
     if (dtype == FIELD_STRING) then

@@ -271,8 +271,9 @@ globals). Errors, each logged once:
   `ambientSound.lua:91` (audio sources), `debugtools.lua:136`;
 - bonus1: `ffi_graphics.lua:1598` (`img` type), `npc-21.lua:42`.
 
-*Next session (Jake, 2026-11-04):* the **Performance track** (its own section
-below, before "Milestones"): Step 0, then candidates 1–2. After that, this list.
+*Performance round 1 is done* (Performance track section below): SMATRS 1-1
+now takes ~3.8 ms a frame in Release on an M3 Pro, with no JIT flush storms.
+The remaining performance candidates are smaller, so next is this list again.
 
 *Next round, in order:*
 1. **`FileFormats`** (LunaLua's level/world file reader for Lua; TheXTech has
@@ -337,7 +338,7 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - Performance pass on a real device (270k lines of Lua per frame budget).
 - Done when: SMATRS 1-1 runs on your phone.
 
-## Performance track (planned 2026-11-04)
+## Performance track (started 2026-11-04)
 
 Jake's main worry is performance: SMATRS runs ~270k lines of SMBX2 Lua on an
 emulated core, and the target is an Android handheld (AYN Odin 3). This track
@@ -350,46 +351,70 @@ each replacement against SMBX2's own algorithm, as done for block queries.
 Prefer engine-side answers (TheXTech's quadtrees, its index maps) over
 re-creating SMBX 1.3's data structures.
 
-**Done so far.** `Block.iterateIntersecting`/`getIntersecting` use the block
-quadtree (`xtech_block_queryIntersecting`, patched in `core/patches.lua`). In
-SMATRS 1-1 (~14,000 blocks, ~5 queries a frame) that went from ~20 ms to
-~0.15 ms per frame in Debug. A camera-sized query is ~0.03 ms and matches a
-full scan exactly.
+**Measuring.** Build Release in its own folder and run it with the probe:
 
-**Step 0 — a baseline worth trusting.**
-- Measure a **Release** build (`-DCMAKE_BUILD_TYPE=Release`, separate build
-  dir). Every number so far is from Debug, which also loads slowly (~2.5 s).
-- Make a permanent, opt-in timing probe, for example `SMBX2COMPAT_PROFILE=1`
-  read in `boot.lua`. So far the probes were temporary edits to
-  `__xtech_onLoop` in `boot.lua`: wrap a function, sum `os.clock()`, log at
-  frames 100–400, revert. It should log Lua ms per frame for each event
-  (`onTick`, `onDraw`, `onCameraDraw`, ...), the `mem()` calls per frame, and
-  the slowest library listeners.
-- Profilers that are available without installing anything:
-  - SMBX2's own `base/engine/profiler.lua` (main.lua loads it via
-    `coreRequire("profiler")`).
-  - LuaJIT's sampling profiler `jit/p.lua` (`3rdparty/LuaJIT/src/jit/p.lua`;
-    copy it where `require("jit.p")` finds it).
-  - Instruments / `xcrun xctrace` for the C++ side, if Xcode is installed.
-    Ask before installing anything.
-- Baseline levels: SMATRS 1-1 (heavy), `smoke/bonus1`, `smoke/errtest`.
+```bash
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTHEXTECH_ENABLE_LUA=ON
+cmake --build build-release
+SMBX2COMPAT_PROFILE=100-400,nosample XTECH_BUILD=build-release smbx2compat/run-level.sh "<level>" 14
+```
+
+`core/profile.lua` (the probe; its header lists everything it logs) reports
+frame time (the engine's whole frame, with vsync off), Lua time per event and
+per library listener, `mem()` calls, the 5 slowest frames, JIT trace events
+and flushes, and, without `nosample`, LuaJIT's sampling profiler. Frames
+100-400 of 1-1 vary by about +-0.3 ms between runs; compare 3+ runs. The
+sampler's function/line attribution is rough (see the probe's header); its
+VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
+
+**Done so far** (Release, M3 Pro, SMATRS 1-1 frames 100-400, ms per frame):
+
+| Step | Frame avg | Lua avg | Notes |
+|---|---|---|---|
+| Debug, before this track | ~9.4 | ~7.6 | the first probe run |
+| Release baseline | 3.7-6.4 | 2.5-5.2 | 0 to 116 JIT flushes per run |
+| + one 8 MB JIT code area | 3.7-5.1 | 2.6-3.9 | no flushes after loading |
+| + `mem()` reads through the FFI | 3.8-3.9 | 2.7-2.8 | 17,400 reads a frame |
+
+bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
+
+1. **Block queries** through the block quadtree (`xtech_block_queryIntersecting`,
+   patched in `core/patches.lua`): ~20 ms to ~0.15 ms a frame in Debug. A
+   camera-sized query is ~0.03 ms and matches a full scan exactly.
+2. **JIT flush storms.** LuaJIT keeps compiled code in 64 KB areas, and on
+   arm64 every area must sit within branch range (+-64 MB) of the others. As
+   the engine loads graphics, that space fills; a new area can't be placed
+   (`MCODEAL`), and LuaJIT throws away *all* compiled code and recompiles. In
+   1-1 that ranged from never to every 2-3 frames, at random (it depends on
+   where memory lands), costing up to ~2.7 ms a frame in the compiler.
+   Found with the probe's trace events plus an lldb backtrace on
+   `lj_trace_flushall` (the call site follows `cmp w20, #0x1b`, 27 =
+   `MCODEAL`). Fix: `boot.lua` sets `sizemcode=8192` (one 8 MB area, equal
+   to SMBX2's `maxmcode=8192`) before anything compiles. SMBX2 never sees
+   this: it runs 32-bit. What's left is SMBX2's own `maxtrace=5000` limit: one
+   flush right after loading (`__onInit` compiles thousands of traces), and
+   another every few thousand frames, each costing a frame or two of ~10 ms.
+3. **`mem()` reads through the FFI.** `ffi_mem.lua` calls
+   `LuaMisc::ffi_mem_get` through a C function pointer (`__xtech_ffiMemGet`,
+   set in `xtech_lua_register_bindings`), which LuaJIT compiles into traces;
+   no symbol export needed, so it works the same on Android. `mem_get` also
+   skips its ~130 pointer-global compares for addresses in the made-up array
+   ranges. One read: 50 ns -> 6 ns; `player.x`: 137 -> 50 ns (the rest is
+   SMBX2's class lookup). Checked: 27,794 reads across all arrays and globals
+   gave identical results both ways. Writes (~90 a frame) stay on luabind:
+   some reach engine code, and an FFI-called function must never call back
+   into Lua.
+
+**Open:** a rare single frame of ~60 ms (seen in about 1 run in 5, before and
+after these changes; not caught yet). The probe's "slowest" line shows the
+events and heap change of such a frame; a large GC step is the main suspect
+(SMBX2 runs the GC by hand in `onDrawEnd`, `main_events.lua`).
 
 **Candidates, roughly in order of expected payoff (measure first):**
-1. **The `mem()` call path.** Every SMBX2 field access (`npc.x`, `p.powerup`,
-   ...) is `mem()` -> luabind `xtech_mem_get/set`. Today each call:
-   - goes through luabind's overload/conversion machinery;
-   - scans `s_objMemArrays` and `s_memTypeArrays` linearly, then `memFieldAt`;
-   - lands in mememu's `std::function` and hash-map lookups.
-
-   Ideas:
-   - **Exported C functions called through LuaJIT's FFI** (`extern "C"` +
-     `ffi.cdef` + `ffi.C.xtech_mem_get`). LuaJIT can compile FFI calls into
-     traces; luabind/`lua_CFunction` calls can't be compiled, at best
-     stitched around. This is likely the biggest single win. The symbols must
-     be exported: check `dlsym` on macOS and in Android's `libmain.so`.
-   - Find the array from the address's top byte (all bases are
-     `0x1X000000`/`0x20XX0000`) instead of scanning.
-   - Fast paths in mememu for the hottest offsets (location, speed, ID).
+1. **SMBX2's class lookup** around `mem()` (`player.x` is ~50 ns, of which
+   the read is 6). The sampler shows `ffi_player.lua` `__index`/`get` and
+   `classValidityChecker` near the top. Patch carefully: these are SMBX2's
+   semantics.
 2. **The other full scans in SMBX2's `ffi_*.lua`.** Each is O(objects) `mem()`
    calls per call:
    - `NPC.iterateIntersecting`/`getIntersecting` (`ffi_npc.lua:577`) — the
@@ -418,9 +443,10 @@ full scan exactly.
      listings.
    - `extrasettings.lua` parses layout JSON on first use per ID.
 6. **Android specifics** (with Phase 7). Confirm LuaJIT's JIT is actually on
-   for arm64 Android. LuaJIT can fail to allocate machine-code memory and
-   quietly fall back to the interpreter; check `jit.status()`. Then measure
-   on the Odin 3 itself.
+   for arm64 Android (the probe's first line says `jit on`/`OFF`). LuaJIT
+   disables itself if the very first code area can't be allocated. The
+   one-area fix above matters there too (same arm64 branch range). Then
+   measure on the Odin 3 itself.
 
 ## Milestones
 
