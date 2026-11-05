@@ -1190,6 +1190,13 @@ void PlayerDeathEffect(int A)
 
 void PlayerDead(int A)
 {
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onPlayerKill, which scripts may cancel; not once the level is won (LunaLua's runtimeHookPlayerKill
+    // patches SMBX's PlayerDead, the start of a death, not KillPlayer)
+    if(LevelMacro == LEVELMACRO_OFF && xtech_lua_event_smbx2PlayerKill(A))
+        return;
+#endif
+
     Controls::Rumble(A, 400, 0.8f);
 
     g_curLevelMedals.on_any_death();
@@ -1280,12 +1287,6 @@ void PlayerDead(int A)
 
 void KillPlayer(const int A)
 {
-#ifdef ENABLE_XTECH_LUA
-    // smbx2compat: onPlayerKill, which scripts may cancel; not once the level is won (LunaLua's runtimeHookPlayerKill)
-    if(LevelMacro == LEVELMACRO_OFF && xtech_lua_event_smbx2PlayerKill(A))
-        return;
-#endif
-
     auto &p = Player[A];
 
     p.Location.SpeedX = 0;

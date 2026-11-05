@@ -483,6 +483,13 @@ void RenderGL::repaint()
         int hardware_w, hardware_h;
         getRenderSize(&hardware_w, &hardware_h);
 
+        // smbx2compat: a resize or resolution change can go unhandled (UpdateInternalRes
+        // skips the viewport while the game isn't active, e.g. a window manager tiling
+        // it during startup)
+        if(hardware_w != m_phys_for_w || hardware_h != m_phys_for_h
+           || XRender::TargetW != m_phys_for_target_w || XRender::TargetH != m_phys_for_target_h)
+            updatePhysicalScreen(hardware_w, hardware_h);
+
         // draw screen at correct physical coordinates
         RectI draw_loc = RectI(m_phys_x, m_phys_y, m_phys_x + m_phys_w, m_phys_y + m_phys_h);
         RectF draw_source = RectF(0.0, 0.0, 1.0, 1.0);
@@ -610,12 +617,14 @@ void RenderGL::applyViewport()
     }
 }
 
-void RenderGL::updateViewport()
+// smbx2compat: where the game screen goes in the window, for a drawable of this size
+// (repaint() redoes it when the size changed without a resize being handled)
+void RenderGL::updatePhysicalScreen(int hardware_w, int hardware_h)
 {
-    flushDrawQueues();
-
-    int hardware_w, hardware_h;
-    getRenderSize(&hardware_w, &hardware_h);
+    m_phys_for_w = hardware_w;
+    m_phys_for_h = hardware_h;
+    m_phys_for_target_w = XRender::TargetW;
+    m_phys_for_target_h = XRender::TargetH;
 
     // quickly update the HiDPI scaling factor
     int window_w, window_h;
@@ -646,6 +655,17 @@ void RenderGL::updateViewport()
 
     m_phys_x = hardware_w / 2 - m_phys_w / 2;
     m_phys_y = hardware_h / 2 - m_phys_h / 2;
+}
+
+void RenderGL::updateViewport()
+{
+    flushDrawQueues();
+
+    int hardware_w, hardware_h;
+    getRenderSize(&hardware_w, &hardware_h);
+
+    updatePhysicalScreen(hardware_w, hardware_h);
+    float scale = (float)m_phys_w / XRender::TargetW;
 
     resetViewport();
 

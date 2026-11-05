@@ -250,6 +250,11 @@ private:
     int m_phys_y = 0;
     int m_phys_w = 0;
     int m_phys_h = 0;
+    // smbx2compat: the drawable and game screen sizes the m_phys_ values were worked out for
+    int m_phys_for_w = 0;
+    int m_phys_for_h = 0;
+    int m_phys_for_target_w = 0;
+    int m_phys_for_target_h = 0;
 
     //Need to calculate in-game vScreen position
     RectSizeI m_viewport = RectSizeI(0, 0, 0, 0);
@@ -658,6 +663,7 @@ public:
      * \brief Update viewport (mainly after screen resize)
      */
     void updateViewport() override;
+    void updatePhysicalScreen(int hardware_w, int hardware_h); // smbx2compat
 
     /*!
      * \brief Reset viewport into default state

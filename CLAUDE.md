@@ -133,7 +133,9 @@ slot 3 (`XTECH_SAVE_SLOT`; slots 1-2 are Jake's). `XTECH_ARGS=-x` turns off
 the frame limit, for long cutscenes. Test runs write SMBX2's
 `<episode>/save3-ext.dat` and TheXTech's `userdir/settings/gamesaves/`.
 `smbx2compat/play.sh` opens the game at its main menu with sound on, for
-playing. SMATRS lives in `userdir/worlds/smbx/` so the menu lists it
+playing. Both use the same user folder, so `run-level.sh` deletes only its
+own `smbx2shot-*.png` (logs and screenshots there may be Jake's). SMATRS
+lives in `userdir/worlds/smbx/` so the menu lists it
 (`$D/smatrs/SMATRS Chapter 1+2` is a symlink to it). The menu skips
 symlinked episode folders on macOS (DirManager falls back to `d_type`).
 
@@ -141,7 +143,7 @@ Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
 level script), `errtest.lvlx` (raises Lua errors every frame, through the
 shim and directly from the engine; the game must keep running and log each once)
 `spritetest.lvlx` (sets, clears and re-sets sprite overrides, then kills the
-player so the level reloads and the overrides are restored at unload) and
+player; the level ends after the death animation) and
 `collisiontest.lvlx` (goombas in collision groups against floor blocks; it
 logs `collisiontest: ... -> OK` or `WRONG` for each) and `actiontest.lvlx`
 (`npc:harm`, `npcToCoins`, P-switches and the Block object of a block they
@@ -154,7 +156,9 @@ cancelled once then let through, custom-NPC harm types, an instant warp;
 color switch, generator, explosion, NPC transform, `onJump`,
 `onCheckpoint`, a -1 flag through `mem()`; `pausetest: ... -> OK`/`WRONG`,
 then `pausetest: onExitLevel 7`). A level test that shows an engine message
-box or pause menu waits for a key until the run's time runs out.
+box or pause menu waits for a key until the run's time runs out; so does any
+`-l` level that ends (a death, `Level.load`), at TheXTech's "restart?" pause
+screen.
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -211,7 +215,9 @@ How it works (details in `core/boot.lua`'s header):
   reports compiled, with uniforms read from its source, and draws without.
   Draws with a shader, into/from a capture buffer, or of points/lines are
   immediate GL draws (`RenderGL::scriptDraw`): the engine's queue is flushed
-  first, blending is LunaLua's premultiplied one. SMBX2's images load
+  first, blending is LunaLua's premultiplied one. As in LunaLua, a draw's
+  `color` multiplies its `vertexColors` when it has both (textplus tints
+  whole texts that way). SMBX2's images load
   premultiplied (`StdPictureLoad::premultiply`), as in LunaLua; batched draws
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
   top-down rows like the game buffer. `glDraw{depthTest=true}` (lib3d's 3D
@@ -240,7 +246,8 @@ How it works (details in `core/boot.lua`'s header):
 - Engine events: the engine sends LunaLua's per-object events from where
   LunaLua hooks SMBX (`onNPCKill` in `KillNPC`, `onNPCHarm` in `NPCHit`,
   `onNPCCollect`, `onBlockHit`, `onBlockRemove`, `onPOW`, `onPlayerHarm`,
-  `onPlayerKill`, `onWarpEnter`/`onWarp`, `onEventDirect` in
+  `onPlayerKill` in `PlayerDead` (the start of a death; `player:kill()`
+  calls it too, as LunaLua's does), `onWarpEnter`/`onWarp`, `onEventDirect` in
   `ProcEvent_Safe`, `onMessageBox` at each engine message box, `onPause`
   in `GameLoop`, `onColorSwitch`, `onNPCGenerated`, `onExplosionInternal`
   in `Bomb`, `onNPCTransform` around `NPCHit` and in `Deactivate`) through

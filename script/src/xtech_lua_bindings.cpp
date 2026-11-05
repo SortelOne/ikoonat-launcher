@@ -266,8 +266,9 @@ static void harm(int index)
 
 static void kill(int index)
 {
+    // LunaLua's kill is SMBX's PlayerDead: the death animation, then the level ends
     if(index >= 1 && index <= numPlayers)
-        KillPlayer(index);
+        PlayerDead(index);
 }
 
 static void filterToBig(Player_t *p)

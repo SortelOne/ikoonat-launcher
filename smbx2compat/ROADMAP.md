@@ -618,7 +618,7 @@ frame instead of on every read.
   | `onBlockRemove` | `KillBlock`, top (also hidden blocks, as LunaLua) | skips it |
   | `onPOW` | `PowBlock`, top | skips it |
   | `onPlayerHarm` | `PlayerHurt`, after its "can't be hurt now" returns | skips it |
-  | `onPlayerKill` | `KillPlayer`, top | skips it |
+  | `onPlayerKill` | `PlayerDead`, top (fixed 2026-11-05; was `KillPlayer`) | skips it |
   | `onWarpEnter` | `checkWarp`, once the player can warp | no warp |
   | `onEventDirect` | `ProcEvent_Safe`, first entry | the event (and what it triggers) doesn't run |
   | `onWarp`, `onSectionChange` | warp exits (instant, pipe, door) | not cancellable |
@@ -840,8 +840,35 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     controls before `core.updateRawKeys` copies them (scratchpad `flow2.lua`:
     finishes the prologue with its own ending code, beats 1-1 with
     `levelEnd.doLevelBeatStuff` + `finishLevel`, presses jump on the map).
+- *Jake's first play, fixes (2026-11-05):* Jake played the prologue from
+  the menu (slot 1) and reported three things:
+  - Dying "went back to the 1/2 player screen" at once. LunaLua's
+    `player:kill()` and its `onPlayerKill` hook are SMBX's `PlayerDead`
+    (0x9B66D0: death sound, sprite, the 200-frame timer); ours called and
+    hooked `KillPlayer`, which removes the player at once, so the level
+    ended the frame SMATRS's health ran out, skipping SMATRS's own death
+    (`playerHarm.lua`: pauses, "Too bad!", lost coins, fade, then
+    `Level.load(Level.filename())`). Now both are `PlayerDead`. Reloading
+    the prologue still opens its "How many players?" menu: its `onStart`
+    always does (`startBookOpeningMenu`), on Windows too. In 1-1 the reload
+    resumes at the checkpoint.
+  - Dialogue answers were the bubble's colour: littleDialogue draws them
+    with textplus `color =` (SMATRS's style: 0x303030), which LunaLua's
+    `FFI_GLDraw` multiplies into the vertex colours; ours dropped it when a
+    draw had vertex colours. Any textplus text tinted that way was white.
+  - The screen looked shifted right in his window (TheXTech's backdrop on the
+    left, the right edge cut off). Not reproduced: the game buffer is right
+    and the test window stays 1280x720. Measuring his screenshot, the picture
+    was centred for a wider window than the one shown. `UpdateInternalRes`
+    skips the placement update while the game isn't active (a window
+    manager tiling the window at startup, say), so the renderer now redoes
+    the placement whenever the drawable or game size differs from the one it
+    was worked out for (`RenderGL::updatePhysicalScreen`). Needs Jake's
+    check.
+  - `run-level.sh` no longer deletes the user folder's logs and screenshots
+    (Jake's play logs live there too); only its own `smbx2shot-*.png`.
 - *Next:*
-  - Jake plays from the menu (`play.sh`): the prologue and 1-1 by hand.
+  - Jake keeps playing from the menu (`play.sh`); check the window placement.
   - NPC `mem()` 0xB8/0xC0 (removed DefaultLocation fields) the map reads,
     and the other MemEmu warnings (0xb25130, Float writes at 0xb2c6f0/
     0xb2c6ec, Player 0x124 as a Double, 0xb250e8/0xb250fc the episode list

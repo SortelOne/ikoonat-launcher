@@ -500,6 +500,22 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
     if(!cmd->mVert || cmd->mCount == 0)
         return;
 
+    // LunaLua multiplies vertex colours by the draw's colour (both premultiplied), which
+    // then plays no part: textplus tints whole texts this way (littleDialogue's answers).
+    // The arrays are ours (freed above), as LunaLua's are, so this is done in place.
+    const float *tint = cmd->mColor;
+    if(cmd->mVertColor && (tint[0] != 1.0f || tint[1] != 1.0f || tint[2] != 1.0f || tint[3] != 1.0f))
+    {
+        float *c = const_cast<float *>(cmd->mVertColor);
+        for(uint32_t i = 0; i < cmd->mCount; i++, c += 4)
+        {
+            c[0] *= tint[0];
+            c[1] *= tint[1];
+            c[2] *= tint[2];
+            c[3] *= tint[3];
+        }
+    }
+
     // a shader that didn't compile here (lunadll.lua logged why) draws as without one
     int shader = cmd->mShader ? shaderFor(cmd->mShader) : 0;
     if(cmd->mShader && !shader)
@@ -572,7 +588,7 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
 
     DrawOp &op = newOp(OP_TRIANGLES, cmd->mPriority, cmd->mSceneCoords);
     op.picture = picture;
-    // LunaLua: vertex colours replace the draw's colour
+    // vertex colours carry the draw's colour (multiplied in above)
     if(cmd->mVertColor)
         op.color = XTColor();
     else if(pm)

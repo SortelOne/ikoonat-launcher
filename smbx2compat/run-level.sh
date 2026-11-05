@@ -27,7 +27,9 @@ case "$LEVEL" in
     *.wld|*.wldx) SLOT="--save-slot ${XTECH_SAVE_SLOT:-3}" ;;
 esac
 
-rm -f "$D"/userdir/logs/*.txt "$D"/userdir/logs/smbx2shot-*.png "$D"/userdir/screenshots/*.png
+# Only our own frame captures: the user folder is also the one play.sh uses,
+# so its logs and screenshots are Jake's.
+rm -f "$D"/userdir/logs/smbx2shot-*.png
 if [ "${XTECH_AUDIO:-}" = "dummy" ]; then
     SDL_AUDIODRIVER=dummy "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
 elif [ "${XTECH_AUDIO:-}" = "on" ]; then
