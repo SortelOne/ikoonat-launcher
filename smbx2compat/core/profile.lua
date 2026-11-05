@@ -330,7 +330,7 @@ function __xtech_onLoop(...)
     frameLua = clock() - frameStart
 end
 
--- The render hooks between onLoop and onRenderEnd only add Lua time
+-- The hooks between onLoop and onRenderEnd only add Lua time
 local function timedHook(f)
     return function(...)
         if not active then
@@ -341,6 +341,7 @@ local function timedHook(f)
         frameLua = frameLua + clock() - t
     end
 end
+__xtech_onInputUpdate = timedHook(__xtech_onInputUpdate) -- onInputUpdate, onTick
 __xtech_onRenderStart = timedHook(onRenderStart)
 __xtech_onCameraUpdate = timedHook(__xtech_onCameraUpdate)
 __xtech_onDraw = timedHook(__xtech_onDraw)

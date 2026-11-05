@@ -420,6 +420,12 @@ resume_Activation_Generator:
 
                     if(NPC[numNPCs].Type == NPCID_RANDOM_POWER)
                         NPC[numNPCs].Type = RandomBonus();
+
+#ifdef ENABLE_XTECH_LUA
+                    // smbx2compat: SMBX2's onNPCGenerated (ffi_customparams.lua
+                    // copies the generator's extra settings to the new NPC)
+                    xtech_lua_event_smbx2NPCGenerated(A, numNPCs);
+#endif
                 }
             }
 

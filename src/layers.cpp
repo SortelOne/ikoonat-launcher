@@ -1421,11 +1421,19 @@ eventindex_t ProcEvent_Safe(bool is_resume, eventindex_t index, int whichPlayer,
         int base_player = (numPlayers > 1) ? -1 : 1;
         preProcessMessage(MessageText, player_valid ? whichPlayer : base_player);
 
-        bool use_player_pause = (player_valid && g_config.multiplayer_pause_controls);
-        PauseInit(PauseCode::Message, use_player_pause ? whichPlayer : 0);
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: a script that cancels SMBX2's onMessageBox shows its own
+        if(xtech_lua_event_smbx2MessageBox(MessageText.c_str(), player_valid ? whichPlayer : 1, 0))
+            MessageText.clear();
+        else
+#endif
+        {
+            bool use_player_pause = (player_valid && g_config.multiplayer_pause_controls);
+            PauseInit(PauseCode::Message, use_player_pause ? whichPlayer : 0);
 
-        // request resuming at the current index
-        return index;
+            // request resuming at the current index
+            return index;
+        }
     }
 
 event_resume:

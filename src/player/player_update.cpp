@@ -532,7 +532,6 @@ bool UpdatePlayer()
                 {
                     MessageText = GetS(NPC[MessageNPC].Text);
                     preProcessMessage(MessageText, A);
-                    PauseInit(PauseCode::Message, A);
 
                     // store entire routine state into g_gameLoopInterrupt
                     g_gameLoopInterrupt.site = GameLoopInterrupt::UpdatePlayer_MessageNPC;
@@ -541,7 +540,16 @@ bool UpdatePlayer()
                     g_gameLoopInterrupt.bool1 = DontResetGrabTime;
                     g_gameLoopInterrupt.bool2 = tempSpring;
                     g_gameLoopInterrupt.bool3 = tempShell;
-                    return true;
+
+                    // smbx2compat: a script that cancels SMBX2's onMessageBox shows its
+                    // own box; then carry on as if this one was closed (talk event and all)
+#ifdef ENABLE_XTECH_LUA
+                    if(!xtech_lua_event_smbx2MessageBox(MessageText.c_str(), A, MessageNPC))
+#endif
+                    {
+                        PauseInit(PauseCode::Message, A);
+                        return true;
+                    }
 
 resume_MessageNPC:
                     // restore only the essentials for now, we may need to pause/resume again

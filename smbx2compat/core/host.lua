@@ -62,7 +62,17 @@ Text = hostTable("Text", {
     windowDebugSimple = windowDebug,
     print = stub("Text.print"),
     printWP = stub("Text.printWP"),
-    showMessageBox = stub("Text.showMessageBox"),
+    -- LunaLua's showSMBXMessageBox: SMBX's message box, which sends
+    -- onMessageBox first (SMATRS's littleDialogue cancels it and draws its own)
+    showMessageBox = function(text)
+        if not core.isStarted() then
+            return
+        end
+        text = tostring(text)
+        if not core.sendEvent("onMessageBox", true, text, 1) then
+            xtech_misc_showMsg(text)
+        end
+    end,
 })
 
 
@@ -99,9 +109,18 @@ end
 
 Misc = hostTable("Misc", {
     warning = function(msg) core.warn("Misc.warning: " .. tostring(msg)) end,
-    pause = stub("Misc.pause"),
-    unpause = stub("Misc.unpause"),
-    isPausedByLua = function() return false end,
+    -- The game's logic waits from the next frame on; scripts still get
+    -- onInputUpdate and the drawing events (LunaLua's EventStateMachine).
+    -- Pausing at frame end and pausing now both start with the next frame here.
+    pause = function(atFrameEnd)
+        xtech_misc_luaPause()
+    end,
+    unpause = function()
+        xtech_misc_luaUnpause()
+    end,
+    isPausedByLua = function()
+        return xtech_misc_isPausedByLua()
+    end,
 
     resolveFile = function(name)
         return search(searchDirs(), name, false)

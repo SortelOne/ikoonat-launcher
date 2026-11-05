@@ -141,7 +141,12 @@ turn into a coin, `npc:collect`, then `Level.exit()`;
 `actiontest: ... -> OK`/`WRONG`, then `actiontest: onExit`) and
 `eventtest.lvlx` (the engine's events: start order, each cancellable one
 cancelled once then let through, custom-NPC harm types, an instant warp;
-`eventtest: ... -> OK`/`WRONG`, then `eventtest: onExit`).
+`eventtest: ... -> OK`/`WRONG`, then `eventtest: onExit`) and
+`pausetest.lvlx` (message boxes and the pause menu cancelled, `Misc.pause`,
+color switch, generator, explosion, NPC transform, `onJump`,
+`onCheckpoint`, a -1 flag through `mem()`; `pausetest: ... -> OK`/`WRONG`,
+then `pausetest: onExitLevel 7`). A level test that shows an engine message
+box or pause menu waits for a key until the run's time runs out.
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -223,7 +228,10 @@ How it works (details in `core/boot.lua`'s header):
   LunaLua hooks SMBX (`onNPCKill` in `KillNPC`, `onNPCHarm` in `NPCHit`,
   `onNPCCollect`, `onBlockHit`, `onBlockRemove`, `onPOW`, `onPlayerHarm`,
   `onPlayerKill`, `onWarpEnter`/`onWarp`, `onEventDirect` in
-  `ProcEvent_Safe`) through `xtech_lua_event_smbx2*`
+  `ProcEvent_Safe`, `onMessageBox` at each engine message box, `onPause`
+  in `GameLoop`, `onColorSwitch`, `onNPCGenerated`, `onExplosionInternal`
+  in `Bomb`, `onNPCTransform` around `NPCHit` and in `Deactivate`) through
+  `xtech_lua_event_smbx2*`
   (`script/include/xtech_lua_events.h`) -> boot.lua `__xtech_on*`, and
   stops when a script cancels; SMBX2's `main_events.lua` sends the
   `onPost*` ones. `onStart` comes just before "Level - Start", then
@@ -231,6 +239,14 @@ How it works (details in `core/boot.lua`'s header):
   scripts reach through the FFI may lead to them. SMBX2's NPCs take damage
   through LunaLua's `vulnerableharmtypes` (`NPCHit`); the extended
   properties reset at each level (`xtech_lua_memNewLevel`).
+- Frame order and pausing: `__xtech_onLoop` (onLoop, the event queue) runs
+  before the engine reads input, `__xtech_onInputUpdate` (onInputUpdate,
+  onTick) right after it, so scripts can override `player.keys`.
+  `Misc.pause()` holds the game from the next frame: `GameLoop` then only
+  reads input, sends onInputUpdate (`__xtech_onPausedFrame`) and draws
+  (`xtech_lua_smbx2LuaPauseFrame`). Key presses are queued from SDL's
+  events (`keyboard.cpp`, as Windows virtual-key codes) and sent at the
+  start of the next frame (`__xtech_onKey`), never from the event loop.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -296,6 +312,8 @@ How it works (details in `core/boot.lua`'s header):
   each tail call in a trace against its loop-unroll limit (15) and aborts the
   trace past it. SMBX's sizable list (`0xB2BEE4`/`0xB2BED8`) is rebuilt from
   the engine's blocks once a frame and after SMBX2 writes it.
+  Engine flags read as -1 (VB6's True) through `FIELD_WORD`, as SMBX
+  stores them (`valueToMem(bool)` in mememu.cpp; it gave 65535 before).
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
   memory`. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.

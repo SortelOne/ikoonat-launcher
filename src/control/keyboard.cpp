@@ -18,6 +18,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <cstring>
 #include <SDL2/SDL_scancode.h>
 #include <SDL2/SDL_power.h>
 #include <SDL2/SDL_keyboard.h>
@@ -41,6 +42,10 @@
 #include "control/controls_strings.h"
 
 #include <Logger/logger.h>
+
+#ifdef ENABLE_XTECH_LUA
+#   include "xtech_lua_events.h" // smbx2compat
+#endif
 
 namespace Controls
 {
@@ -1377,6 +1382,104 @@ bool InputMethodType_Keyboard::DefaultHotkey(const SDL_Event* ev)
     return true;
 }
 
+#ifdef ENABLE_XTECH_LUA
+// smbx2compat: the Windows virtual-key code for an SDL key, as LunaLua passes
+// keys to SMBX2's scripts (onKeyboardPress, ...); 0 for keys Windows lacks
+static int s_scancodeToVK(SDL_Scancode sc)
+{
+    if(sc >= SDL_SCANCODE_A && sc <= SDL_SCANCODE_Z)
+        return 0x41 + (sc - SDL_SCANCODE_A);
+    if(sc >= SDL_SCANCODE_1 && sc <= SDL_SCANCODE_9)
+        return 0x31 + (sc - SDL_SCANCODE_1);
+    if(sc >= SDL_SCANCODE_F1 && sc <= SDL_SCANCODE_F12)
+        return 0x70 + (sc - SDL_SCANCODE_F1);
+    if(sc >= SDL_SCANCODE_KP_1 && sc <= SDL_SCANCODE_KP_9)
+        return 0x61 + (sc - SDL_SCANCODE_KP_1);
+
+    switch(sc)
+    {
+    case SDL_SCANCODE_0: return 0x30;
+    case SDL_SCANCODE_KP_0: return 0x60;
+    case SDL_SCANCODE_RETURN: case SDL_SCANCODE_KP_ENTER: return 0x0D;
+    case SDL_SCANCODE_ESCAPE: return 0x1B;
+    case SDL_SCANCODE_BACKSPACE: return 0x08;
+    case SDL_SCANCODE_TAB: return 0x09;
+    case SDL_SCANCODE_SPACE: return 0x20;
+    case SDL_SCANCODE_LEFT: return 0x25;
+    case SDL_SCANCODE_UP: return 0x26;
+    case SDL_SCANCODE_RIGHT: return 0x27;
+    case SDL_SCANCODE_DOWN: return 0x28;
+    case SDL_SCANCODE_PAGEUP: return 0x21;
+    case SDL_SCANCODE_PAGEDOWN: return 0x22;
+    case SDL_SCANCODE_END: return 0x23;
+    case SDL_SCANCODE_HOME: return 0x24;
+    case SDL_SCANCODE_INSERT: return 0x2D;
+    case SDL_SCANCODE_DELETE: return 0x2E;
+    // raw input reports both sides as the plain modifier key
+    case SDL_SCANCODE_LSHIFT: case SDL_SCANCODE_RSHIFT: return 0x10;
+    case SDL_SCANCODE_LCTRL: case SDL_SCANCODE_RCTRL: return 0x11;
+    case SDL_SCANCODE_LALT: case SDL_SCANCODE_RALT: return 0x12;
+    case SDL_SCANCODE_PAUSE: return 0x13;
+    case SDL_SCANCODE_CAPSLOCK: return 0x14;
+    case SDL_SCANCODE_PRINTSCREEN: return 0x2C;
+    case SDL_SCANCODE_NUMLOCKCLEAR: return 0x90;
+    case SDL_SCANCODE_SCROLLLOCK: return 0x91;
+    case SDL_SCANCODE_KP_MULTIPLY: return 0x6A;
+    case SDL_SCANCODE_KP_PLUS: return 0x6B;
+    case SDL_SCANCODE_KP_MINUS: return 0x6D;
+    case SDL_SCANCODE_KP_PERIOD: return 0x6E;
+    case SDL_SCANCODE_KP_DIVIDE: return 0x6F;
+    case SDL_SCANCODE_SEMICOLON: return 0xBA;
+    case SDL_SCANCODE_EQUALS: return 0xBB;
+    case SDL_SCANCODE_COMMA: return 0xBC;
+    case SDL_SCANCODE_MINUS: return 0xBD;
+    case SDL_SCANCODE_PERIOD: return 0xBE;
+    case SDL_SCANCODE_SLASH: return 0xBF;
+    case SDL_SCANCODE_GRAVE: return 0xC0;
+    case SDL_SCANCODE_LEFTBRACKET: return 0xDB;
+    case SDL_SCANCODE_BACKSLASH: return 0xDC;
+    case SDL_SCANCODE_RIGHTBRACKET: return 0xDD;
+    case SDL_SCANCODE_APOSTROPHE: return 0xDE;
+    default: return 0;
+    }
+}
+
+// The character a key types on a US layout (LunaLua's ToUnicode); 0 for none
+static char s_keyChar(SDL_Keycode sym, bool shift)
+{
+    static const char *const unshifted = "`1234567890-=[]\\;',./";
+    static const char *const shifted   = "~!@#$%^&*()_+{}|:\"<>?";
+
+    if(sym >= 'a' && sym <= 'z')
+        return (char)(shift ? sym - 'a' + 'A' : sym);
+    if(sym == ' ')
+        return ' ';
+    if(sym > ' ' && sym < 127)
+    {
+        const char *p = strchr(unshifted, (int)sym);
+        if(!p)
+            return (char)sym;
+        return shift ? shifted[p - unshifted] : (char)sym;
+    }
+
+    return 0;
+}
+
+static void s_queueScriptKey(const SDL_KeyboardEvent &key, bool down)
+{
+    int vk = s_scancodeToVK(key.keysym.scancode);
+    if(vk == 0)
+        return;
+
+    Uint16 mod = key.keysym.mod;
+    char typed[2] = {0, 0};
+    if(down && !(mod & (KMOD_CTRL | KMOD_ALT)))
+        typed[0] = s_keyChar(key.keysym.sym, (mod & KMOD_SHIFT) != 0);
+
+    xtech_lua_smbx2QueueKey(vk, down, key.repeat != 0, typed);
+}
+#endif
+
 bool InputMethodType_Keyboard::ConsumeEvent(const SDL_Event* ev)
 {
     switch(ev->type)
@@ -1470,7 +1573,16 @@ bool InputMethodType_Keyboard::ConsumeEvent(const SDL_Event* ev)
             return true;
         }
 
+#ifdef ENABLE_XTECH_LUA
+        s_queueScriptKey(ev->key, true); // smbx2compat: SMBX2's keyboard events
+#endif
         return false;
+
+#ifdef ENABLE_XTECH_LUA
+    case SDL_KEYUP:
+        s_queueScriptKey(ev->key, false); // smbx2compat
+        return false;
+#endif
 
     default:
         return false;

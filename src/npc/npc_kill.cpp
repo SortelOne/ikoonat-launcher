@@ -172,6 +172,9 @@ bool KillNPC(int A, int B)
                     else if(Block[C].Type == 172)
                         Block[C].Type = 171;
                 }
+#ifdef ENABLE_XTECH_LUA
+                xtech_lua_event_smbx2ColorSwitch(1); // smbx2compat: SMBX2's onColorSwitch
+#endif
                 for(C = 1; C <= numNPCs; C++)
                 {
                     if(NPC[C].Type == NPCID_YEL_PLATFORM)
@@ -188,6 +191,9 @@ bool KillNPC(int A, int B)
                     else if(Block[C].Type == 175)
                         Block[C].Type = 174;
                 }
+#ifdef ENABLE_XTECH_LUA
+                xtech_lua_event_smbx2ColorSwitch(2); // smbx2compat: SMBX2's onColorSwitch
+#endif
                 for(C = 1; C <= numNPCs; C++)
                 {
                     if(NPC[C].Type == NPCID_BLU_PLATFORM)
@@ -204,6 +210,9 @@ bool KillNPC(int A, int B)
                     else if(Block[C].Type == 178)
                         Block[C].Type = 177;
                 }
+#ifdef ENABLE_XTECH_LUA
+                xtech_lua_event_smbx2ColorSwitch(3); // smbx2compat: SMBX2's onColorSwitch
+#endif
                 for(C = 1; C <= numNPCs; C++)
                 {
                     if(NPC[C].Type == NPCID_GRN_PLATFORM)
@@ -220,6 +229,9 @@ bool KillNPC(int A, int B)
                     else if(Block[C].Type == 181)
                         Block[C].Type = 180;
                 }
+#ifdef ENABLE_XTECH_LUA
+                xtech_lua_event_smbx2ColorSwitch(4); // smbx2compat: SMBX2's onColorSwitch
+#endif
                 for(C = 1; C <= numNPCs; C++)
                 {
                     if(NPC[C].Type == NPCID_RED_PLATFORM)

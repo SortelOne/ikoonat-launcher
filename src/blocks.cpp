@@ -300,6 +300,11 @@ void BlockHit(int A, bool HitDown, int whatPlayer)
                 Block[B].Type = b.Type + 1;
         }
 
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: SMBX2's onColorSwitch (1 yellow, 2 blue, 3 green, 4 red)
+        xtech_lua_event_smbx2ColorSwitch((b.Type - 170) / 3 + 1);
+#endif
+
         for(auto B = 1; B <= numNPCs; B++)
         {
             if(NPC[B].Type == switch_npc)

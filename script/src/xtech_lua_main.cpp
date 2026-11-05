@@ -51,6 +51,7 @@ extern "C"
 #include "sound_script.h" // smbx2compat
 #include "xtech_lua_draw.h" // smbx2compat
 #include "xtech_lua_data.h"
+#include "xtech_lua_events.h" // smbx2compat
 
 
 // ============================================================================
@@ -454,12 +455,22 @@ static bool findSmbx2Core(std::string &dataRoot, std::string &coreDir)
         && Files::fileExists(coreDir + "/boot.lua");
 }
 
+// smbx2compat: LunaLua's GM_LEVEL_EXIT_TYPE, passed to onExitLevel
+static int s_smbx2ExitType = 0;
+
+void xtech_lua_smbx2NoteLevelEnd()
+{
+    s_smbx2ExitType = (LevelBeatCode > 0) ? (int)LevelBeatCode : 0;
+}
+
 static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreDir)
 {
     // LunaLua gives every level a new Lua state, and main.lua replaces io, os,
     // dofile, ... in _G, so restart ours (bindings and all) the same way
     xtech_lua_clear_delayed_calls();
     xtech_lua_memNewLevel();
+    xtech_lua_smbx2ResetFrameState();
+    s_smbx2ExitType = 0;
     lua_close(g_L);
     g_L = nullptr;
     g_gameLoaded = false;
@@ -664,11 +675,16 @@ void xtech_lua_unloadLevel()
 
     // Fire onLevelExit before tearing down (death, completion, quit all go through here)
     // smbx2compat: in core mode boot.lua sends SMBX2's onExitLevel/onExit instead
+    // (with the level's win type for onExitLevel)
     xtech_lua_getFunc(g_smbx2Core ? "__xtech_onExit" : "onLevelExit");
+    int exitArgs = g_smbx2Core ? 1 : 0;
     g_smbx2Core = false;
     if(lua_isfunction(g_L, -1))
     {
-        if(lua_pcall(g_L, 0, 0, 0) != 0)
+        if(exitArgs)
+            lua_pushinteger(g_L, s_smbx2ExitType);
+
+        if(lua_pcall(g_L, exitArgs, 0, 0) != 0)
         {
             pLogWarning("Lua: Error in onLevelExit: %s", lua_tostring(g_L, -1));
             lua_pop(g_L, 1);
@@ -917,6 +933,8 @@ void xtech_lua_loop()
     // Process async delayed calls
     xtech_lua_process_delayed_calls();
     xtech_lua_memNewFrame(); // smbx2compat
+    if(g_smbx2Core)
+        xtech_lua_smbx2SendKeys(); // smbx2compat: keys pressed since last frame
 
     safeCallLuaFunc(g_luaFunc_onLoop, "onLoop");
 }

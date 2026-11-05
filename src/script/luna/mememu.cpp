@@ -480,8 +480,9 @@ SDL_FORCE_INLINE num_t valueToMem(const uint8_t &source, FIELDTYPE ftype)
 
 SDL_FORCE_INLINE num_t valueToMem(const bool &source, FIELDTYPE ftype)
 {
-    UNUSED(ftype);
-    return source ? 0xFFFF : 0;
+    // smbx2compat: SMBX keeps VB6's True, -1, so a flag read as a signed
+    // 16-bit field is -1 (scripts test "== -1"), not 65535
+    return valueToMem(source ? -1 : 0, ftype);
 }
 
 
@@ -2313,9 +2314,9 @@ public:
         else if(address >= 0xB8 && address < 0xD8) // invalid part of DefaultLocation
             pLogWarning("MemEmu: Attempt to read NPC address 0x%x (removed part of DefaultLocation)", static_cast<unsigned>(address));
         else if(address == 0x126)
-            return obj->Reset[1] ? 0xFFFF : 0;
+            return valueToMem((bool)obj->Reset[1], ftype); // smbx2compat: -1 as a word
         else if(address == 0x128)
-            return obj->Reset[2] ? 0xFFFF : 0;
+            return valueToMem((bool)obj->Reset[2], ftype);
         else if(address >= 0x0A && address < 0x14) // Pinched
         {
             switch(address)

@@ -726,6 +726,12 @@ function dll.LunaLuaGetBlockExtendedFieldsArray()
     return ffi.cast("ExtendedBlockFields*", extLayout.block.base)
 end
 
+-- NPC:transform sends onNPCTransform itself; this keeps the engine from
+-- sending it again when the hit or despawn it happened during ends
+function dll.LunaLuaMarkNPCTransformationAsHandledByLua(npcIdx, oldID, newID)
+    xtech_npc_transformHandled(tonumber(npcIdx), tonumber(oldID), tonumber(newID))
+end
+
 
 -----------------------------------------------------------
 -- Collision groups (ffi_misc.lua and the ffi_* objects) --

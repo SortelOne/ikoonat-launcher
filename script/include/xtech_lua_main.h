@@ -39,4 +39,8 @@ extern bool xtech_lua_isSmbx2Core();
 // kills it), which SMBX2's npcManager.registerHarmTypes sets
 extern unsigned xtech_lua_smbx2NpcVulnerableHarmTypes(int npcType);
 
+// smbx2compat: the level is ending; keeps its win type (LevelBeatCode) for
+// SMBX2's onExitLevel, before the engine resets it (hub levels do)
+extern void xtech_lua_smbx2NoteLevelEnd();
+
 #endif // LUA_MAIN_HHH

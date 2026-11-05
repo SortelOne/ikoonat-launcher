@@ -80,7 +80,28 @@ static bool s_engineHarms(int A)
 }
 #endif
 
+#ifdef ENABLE_XTECH_LUA
+static void s_NPCHit(int A, int B, int C);
+
+// smbx2compat: SMBX2's onNPCTransform when a hit changed the NPC's ID (shells,
+// bubbles, ...), as LunaLua's runtimeHookCollideNpc checks around NPCHit
 void NPCHit(int A, int B, int C)
+{
+    if(!xtech_lua_isSmbx2Core() || A <= 0)
+    {
+        s_NPCHit(A, B, C);
+        return;
+    }
+
+    xtech_lua_smbx2TransformWatchBegin(A);
+    s_NPCHit(A, B, C);
+    xtech_lua_smbx2TransformWatchEnd(1); // NPC_TFCAUSE_HIT
+}
+
+static void s_NPCHit(int A, int B, int C)
+#else
+void NPCHit(int A, int B, int C)
+#endif
 {
     // NPC_t tempNPC;
     // Location_t tempLocation;

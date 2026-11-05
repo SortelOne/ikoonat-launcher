@@ -1402,6 +1402,17 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
         else
             MessageText = GetS(warp.StarsMsg);
 
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: a script that cancels SMBX2's onMessageBox shows its own
+        if(xtech_lua_event_smbx2MessageBox(MessageText.c_str(), A, 0))
+        {
+            MessageText.clear();
+            if(do_swap_frame)
+                plr.Frame = old_plr_frame;
+            return false;
+        }
+#endif
+
         // store all warp-local vars
         PauseInit(PauseCode::Message, A);
         g_gameLoopInterrupt.site = GameLoopInterrupt::UpdatePlayer_SuperWarp;

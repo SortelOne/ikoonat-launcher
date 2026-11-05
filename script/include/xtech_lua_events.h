@@ -101,5 +101,47 @@ void xtech_lua_event_smbx2Warp(int warpIdx, int playerIdx);
 // onEventDirect (onEvent itself is queued for the next frame); "Level - Start"
 // sends onStart first, as LunaLua does
 bool xtech_lua_event_smbx2Event(const char *eventName);
+// A message box is about to open (npcIdx 0: not an NPC's); cancelled = no box
+bool xtech_lua_event_smbx2MessageBox(const char *text, int playerIdx, int npcIdx);
+// A player opened the pause menu; cancelled = no menu
+bool xtech_lua_event_smbx2Pause(int playerIdx);
+// A color switch toggled its blocks (1 yellow, 2 blue, 3 green, 4 red)
+void xtech_lua_event_smbx2ColorSwitch(int color);
+// A generator made an NPC
+void xtech_lua_event_smbx2NPCGenerated(int generatorIdx, int npcIdx);
+// onExplosionInternal: SMBX2's explosion.lua cancels it and makes its own
+struct Location_t;
+bool xtech_lua_event_smbx2Explosion(const Location_t &loc, int kind, int playerIdx);
+// onNPCTransform (LunaLua's NPCTransformationCause: 1 hit, 2 despawn, ...)
+void xtech_lua_event_smbx2NPCTransform(int npcIdx, int oldID, int cause);
+// Around an engine function that may change an NPC's ID: Begin notes the ID,
+// End sends onNPCTransform if it changed. Lua's own NPC:transform marks the
+// change handled (LunaLuaMarkNPCTransformationAsHandledByLua), so it isn't
+// sent twice.
+void xtech_lua_smbx2TransformWatchBegin(int npcIdx);
+void xtech_lua_smbx2TransformWatchEnd(int cause);
+void xtech_lua_smbx2TransformHandled(int npcIdx, int oldID, int newID);
+
+// --- smbx2compat: keyboard and Misc.pause for SMBX2 core mode ---
+
+// A key went down or up (Windows virtual-key code, as LunaLua passes; ch is
+// the character typed, or empty). Only queued: SDL's event loop runs outside
+// the frame, so xtech_lua_smbx2SendKeys sends them from the frame.
+void xtech_lua_smbx2QueueKey(int vk, bool down, bool repeated, const char *ch);
+void xtech_lua_smbx2SendKeys();
+
+// Misc.pause()/unpause(): requests take effect at the start of a frame.
+// Returns true while a script holds the game paused; the engine then runs
+// only input, onInputUpdate and drawing that frame (LunaLua's runPause).
+bool xtech_lua_smbx2LuaPauseFrame();
+// The script side of such a frame: queued keys, then onInputUpdate
+void xtech_lua_smbx2PausedFrame();
+// Right after the engine reads input each game frame: onInputUpdate, onTick
+void xtech_lua_smbx2AfterInput();
+void xtech_lua_smbx2RequestPause();
+void xtech_lua_smbx2RequestUnpause();
+bool xtech_lua_smbx2IsPausedByLua();
+// A new level: no pause, no queued keys
+void xtech_lua_smbx2ResetFrameState();
 
 #endif // XTECH_LUA_EVENTS_H

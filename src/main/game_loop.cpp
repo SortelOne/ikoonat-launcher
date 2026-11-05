@@ -232,6 +232,24 @@ resume_IntroEvents:
         g_gameLoopInterrupt.process_intro_events = false;
     }
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: a script holds the game paused (Misc.pause): like LunaLua's
+    // runPause, only read input, send onInputUpdate and draw
+    if(xtech_lua_smbx2LuaPauseFrame())
+    {
+        g_microStats.start_task(MicroStats::Controls);
+        Controls::Update();
+        g_microStats.start_task(MicroStats::Script);
+        xtech_lua_smbx2PausedFrame();
+        UpdateGraphics();
+        BlockFrames();
+        g_microStats.start_task(MicroStats::Sound);
+        UpdateSound();
+        g_microStats.end_frame();
+        return;
+    }
+#endif
+
     g_microStats.start_task(MicroStats::Script);
     lunaLoop();
 #ifdef ENABLE_XTECH_LUA
@@ -249,6 +267,12 @@ resume_IntroEvents:
 
     if(QuickReconnectScreen::g_active)
         QuickReconnectScreen::Logic();
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: SMBX2's onInputUpdate and onTick come right after input is
+    // read, as in LunaLua, so scripts can see and override this frame's keys
+    xtech_lua_smbx2AfterInput();
+#endif
 
     Integrator::sync();
 
@@ -298,6 +322,9 @@ resume_IntroEvents:
 
     if(EndLevel)
     {
+#ifdef ENABLE_XTECH_LUA
+        xtech_lua_smbx2NoteLevelEnd(); // smbx2compat: before hub levels reset it
+#endif
         if(LevelBeatCode > 0)
         {
             if(Checkpoint == FullFileName)
@@ -415,8 +442,14 @@ resume_UpdateEvents:
         if((LevelMacro == LEVELMACRO_OFF && CheckLiving() > 0) || SharedPauseForce)
         {
             // this is always able to pause the game even when CaptainN is enabled.
+            // smbx2compat: unless a script cancels SMBX2's onPause
             if(SharedPause)
-                PauseInit(PauseCode::PauseScreen, 0);
+            {
+#ifdef ENABLE_XTECH_LUA
+                if(!xtech_lua_event_smbx2Pause(1))
+#endif
+                    PauseInit(PauseCode::PauseScreen, 0);
+            }
             // don't let double-pause or double-toggle happen
             else
             {
@@ -459,6 +492,11 @@ resume_UpdateEvents:
                         PlaySound(SFX_Pause);
                     }
                     // normally pause the game
+                    // smbx2compat: unless a script cancels SMBX2's onPause
+#ifdef ENABLE_XTECH_LUA
+                    else if(xtech_lua_event_smbx2Pause(p))
+                        Player[p].UnStart = false;
+#endif
                     else
                         PauseInit(PauseCode::PauseScreen, 0);
 

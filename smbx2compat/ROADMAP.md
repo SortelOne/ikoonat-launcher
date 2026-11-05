@@ -665,18 +665,68 @@ frame instead of on every read.
   4.69 ms (Lua 2.91, 2.74, 2.57), within run-to-run noise of the 4.5 ms
   before.
 
+*Remaining events round (2026-11-05)*:
+- The rest of the events SMATRS and SMBX2's libraries listen to, from where
+  LunaLua sends them:
+
+  | Event | Where | A cancel... |
+  |---|---|---|
+  | `onMessageBox` | NPC talk (`UpdatePlayer`), an event's text (`ProcEvent_Safe`), a door's star message (`checkWarp`), `Text.showMessageBox` | no box; the game carries on as if it was closed (talk event and all) |
+  | `onPause` | the pause-menu checks in `GameLoop` | no menu (SMATRS cancels it and opens its own) |
+  | `onColorSwitch` | switch blocks (`BlockHit`) and switch NPCs (`KillNPC`), after the toggle | not cancellable |
+  | `onNPCGenerated` | generators (`UpdateNPCs`) | not cancellable |
+  | `onExplosionInternal` | `Bomb`, top | no engine explosion; SMBX2's `explosion.lua` cancels it and makes its own, which sends `onExplosion` |
+  | `onNPCTransform` | around `NPCHit` (cause 1) and in `Deactivate` (despawn, 2), when the ID changed | not cancellable |
+  | `onKeyboardPress`, `onKeyboardKeyPress`/`Release` | SDL key events (`keyboard.cpp`), queued and sent at the next frame | not cancellable |
+  | `onExitLevel` | level unload, now with the win type (`LevelBeatCode`, noted when the level ends) | |
+
+  `onJump` and `onCheckpoint` needed nothing new: SMBX2 sends them in Lua
+  (`classicevents.lua`, `checkpoints.lua`). `onJump` was broken by the
+  `mem()` flag bug below.
+- `Misc.pause()`/`unpause()`/`isPausedByLua()` work (they were stubs, and
+  SMATRS's dialogue boxes, pause menu and respawn rooms use them). As in
+  LunaLua's `EventStateMachine`, a paused frame only reads input, sends
+  `onInputUpdate` and draws (`onDraw`, `onCameraDraw`, `onDrawEnd`, block
+  animation); `onTick` and the game logic wait. A request takes effect at
+  the next frame (`xtech_lua_smbx2LuaPauseFrame` in `GameLoop`), so
+  `Misc.pause(true)` (at frame end) and `Misc.pause()` behave the same here.
+- `Text.showMessageBox` sends `onMessageBox`, then shows the engine's box
+  (`xtech_misc_showMsg`) unless a script cancelled it.
+- `onInputUpdate` and `onTick` now come right after the engine reads input
+  (`xtech_lua_smbx2AfterInput`), as LunaLua's `hookInputUpdate`. Before,
+  they came before it, so scripts saw last frame's keys, and a script that
+  set `player.keys.*` there (to block or press a key) was overwritten.
+- `mem()` bug fixed: an engine flag read as `FIELD_WORD` gave 65535 instead
+  of -1 (VB6's True, which SMBX keeps). 43 places in SMBX2 and SMATRS test
+  `mem(..., FIELD_WORD) == -1`; all of them read "false" before
+  (`valueToMem(bool)` in `mememu.cpp`; NPC `0x126`/`0x128` too).
+- `NPC:transform` marks its change handled
+  (`LunaLuaMarkNPCTransformationAsHandledByLua` -> `xtech_npc_transformHandled`),
+  so a transform inside a hit isn't sent twice.
+- The fork's own events (`onPause`, `onBlockHit`, ... called by name in
+  `_G`) aren't sent in core mode any more; SMBX2 uses those names with
+  other arguments.
+- Not done: LunaLua's other transform causes (bubbles, eggs, sprouts,
+  Yoshi eating, Link's rupees, P-switch coins, about 20 SMBX code sites)
+  aren't sent; the `onKeyboardPress` character assumes a US layout and is
+  sent with Ctrl/Alt held (LunaLua skips those); `Misc.openPauseMenu` is
+  still a stub (SMATRS doesn't call it).
+- New test level `smoke/pausetest` (data dir): every event above except
+  the keyboard and despawn ones, `Misc.pause`, the -1 flag; 13 of 13 OK.
+  eventtest 24/24, actiontest 12/12, collisiontest 3/3, bonus1/errtest/
+  spritetest unchanged. 1-1 and 2-1: no errors, no unknown `mem()`. 1-1
+  frames 300-900 (Release): 4.52, 4.71, 4.58 ms (Lua 2.56, 2.64, 2.53).
+  The keyboard events are untested: nothing here can press a key.
+
 *Next round, in order:*
-1. The rest of LunaLua's events that SMATRS listens to (files in the
-   episode): `onMessageBox` (4), `onKeyboardPress` (4), `onExitLevel`'s
-   real exit type (4, sent with 0 now), `onCheckpoint` (2), `onPause`,
-   `onColorSwitch`, `onJump` (1 each). SMBX2's own libraries also use
-   `onNPCTransform` (6) and `onNPCGenerated`/`onExplosion` (2 each).
-   `onFramebufferResize` (36) already works: SMBX2 sends it in Lua.
-2. Play Chapter 1 (Phase 5's "done when"): SMBX2's custom NPCs can be
-   hurt now, so levels may behave differently. If a script relies on
-   `onNPCHarm` only arriving for real harms, move the send into the
-   type branches (see above).
-3. More speed, if needed: the Performance track's candidates (struct views
+1. Play Chapter 1 (Phase 5's "done when"). This round changed a lot that
+   scripts see (pausing, message boxes, the pause menu, input order, -1
+   flags), so check SMATRS's dialogue boxes, pause menu and respawn rooms
+   by hand, with the keyboard and a controller. SMBX2's custom NPCs can
+   also be hurt now; if a script relies on `onNPCHarm` only arriving for
+   real harms, move the send into the type branches (see the engine
+   events round).
+2. More speed, if needed: the Performance track's candidates (struct views
    for SMBX2's field reads, luabind writes).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
@@ -716,7 +766,9 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - Cancellable events (`eventObj.cancelled`): fire `onNPCHarm` / `onPlayerHarm` /
   `onBlockHit` *before* the engine acts, and respect cancel. Done 2026-11-05
   for LunaLua's object, warp and level-event hooks (Phase 1 "Engine events
-  round"); the rarer events are listed there.
+  round") and for message boxes, the pause menu, color switches,
+  generators, explosions, NPC transforms and the keyboard ("Remaining
+  events round"). `Misc.pause` done the same round.
 - `onEvent`, `onInputUpdate`, alt-jump/alt-run, `player:harm()` / `kill()`
   (harm/kill done 2026-11-04).
 - `SaveData` / `GameData` persisted per episode. `Audio.*` is done (Phase 1,

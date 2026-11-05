@@ -253,6 +253,9 @@ void Deactivate(int A)
             }
 
             // reset variables
+#ifdef ENABLE_XTECH_LUA
+            xtech_lua_smbx2TransformWatchBegin(A); // smbx2compat: onNPCTransform on despawn
+#endif
             NPC[A].Type = NPC[A].DefaultType;
             NPC[A].ResetLocation();
             NPC[A].Direction = NPC[A].DefaultDirection;
@@ -340,6 +343,10 @@ void Deactivate(int A)
             bool changed = treeNPCUpdate(A);
             if(changed && NPC[A].tempBlock > 0)
                 treeNPCSplitTempBlock(A);
+
+#ifdef ENABLE_XTECH_LUA
+            xtech_lua_smbx2TransformWatchEnd(2); // NPC_TFCAUSE_DESPAWN
+#endif
         }
     }
     else if(NPCIsAnExit(NPC[A]))
@@ -353,6 +360,13 @@ void Deactivate(int A)
 
 void Bomb(Location_t Location, int Game, int ImmunePlayer)
 {
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: SMBX2's explosion.lua cancels onExplosionInternal and makes
+    // its own explosion (LunaLua's runtimeHookDoExplosionInternal)
+    if(xtech_lua_event_smbx2Explosion(Location, Game, ImmunePlayer))
+        return;
+#endif
+
     num_t Radius = 0;
     // int i = 0;
     num_t X = 0;

@@ -467,6 +467,10 @@ function callEventObj(e, ...)
     return e.cancelled
 end
 
+function core.isStarted()
+    return started
+end
+
 local function sendEvent(name, cancellable, ...)
     return callEventObj({
         eventName = name,
@@ -495,11 +499,15 @@ function __xtech_onLoop()
     start()
     sendEvent("onLoop", false)
     __doEventQueue()
-    -- LunaLua sends these right after SMBX reads input; TheXTech calls us just
-    -- before, so scripts see last frame's input. TODO: an engine hook after input.
+end
+
+-- Right after the engine reads input (LunaLua's hookInputUpdate), so scripts
+-- see this frame's keys and can change them before the players move
+function __xtech_onInputUpdate()
     sendEvent("onInputUpdate", false)
     sendEvent("onTick", false)
     tickEndReady = true
+    return false
 end
 
 -- The level renderer's events, in LunaLua's order: onTickEnd, onCameraUpdate for
@@ -607,9 +615,76 @@ function __xtech_onEvent(name)
         loopable = true, cancellable = true, cancelled = false}, name)
 end
 
-function __xtech_onExit()
-    -- TODO: the real exit type (LunaLua passes GM_LEVEL_EXIT_TYPE)
-    sendEvent("onExitLevel", false, 0)
+-- A message box is about to open; npcIdx only for an NPC's (LunaLua's
+-- runtimeHookMsgbox / runtimeHookNpcMsgbox)
+function __xtech_onMessageBox(text, playerIdx, npcIdx)
+    return sendEvent("onMessageBox", true, text, playerIdx, npcIdx)
+end
+
+-- A player opened the pause menu (LunaLua sends it from the same hook)
+function __xtech_onPause(playerIdx)
+    return sendEvent("onPause", true, playerIdx)
+end
+
+function __xtech_onColorSwitch(color)
+    sendEvent("onColorSwitch", false, color)
+    return false
+end
+
+function __xtech_onNPCGenerated(generatorIdx, npcIdx)
+    sendEvent("onNPCGenerated", false, generatorIdx, npcIdx)
+    return false
+end
+
+-- loc: the explosion's position and size ({x, y, speedX, speedY, width, height})
+function __xtech_onExplosion(loc, kind, playerIdx)
+    return sendEvent("onExplosionInternal", true, loc, kind, playerIdx)
+end
+
+function __xtech_onNPCTransform(npcIdx, oldID, cause)
+    sendEvent("onNPCTransform", false, npcIdx, oldID, cause)
+    return false
+end
+
+-- A key went down or up (Windows virtual-key code). LunaLua sends these
+-- loopable, so the *Direct names run now and the plain ones next frame.
+-- onKeyboardKeyPress/Release carry the key's character (MapVirtualKey: capital
+-- letters and digits); onKeyboardPress the typed one, when there is one.
+local function keyEvent(name, ...)
+    callEventObj({eventName = name, directEventName = "", loopable = true,
+        cancellable = false, cancelled = false}, ...)
+end
+
+function __xtech_onKey(vk, down, repeated, ch)
+    if not repeated then
+        local mapped = ((vk >= 0x30 and vk <= 0x39) or (vk >= 0x41 and vk <= 0x5A) or vk == 0x20)
+            and string.char(vk) or nil
+        if mapped then
+            keyEvent(down and "onKeyboardKeyPress" or "onKeyboardKeyRelease", vk, mapped)
+        else
+            keyEvent(down and "onKeyboardKeyPress" or "onKeyboardKeyRelease", vk)
+        end
+    end
+    if down then
+        if ch ~= "" then
+            keyEvent("onKeyboardPress", vk, repeated, ch)
+        else
+            keyEvent("onKeyboardPress", vk, repeated)
+        end
+    end
+    return false
+end
+
+-- A frame while a script holds the game paused (Misc.pause): LunaLua's
+-- runPause reads input, which sends onInputUpdate, then draws
+function __xtech_onPausedFrame()
+    sendEvent("onInputUpdate", false)
+    return false
+end
+
+-- exitType: the level's win type (LunaLua's GM_LEVEL_EXIT_TYPE), 0 if not won
+function __xtech_onExit(exitType)
+    sendEvent("onExitLevel", false, exitType or 0)
     sendEvent("onExit", false)
     if #missing > 0 then
         xtech_misc_logWarn("[smbx2core] " .. #missing .. " missing APIs this level: " .. table.concat(missing, ", "))

@@ -4479,6 +4479,12 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_block_hit", &LuaMisc::block_hit), // smbx2compat
         def("xtech_block_remove", &LuaMisc::block_remove), // smbx2compat
         def("xtech_block_testCollision", &LuaMisc::block_testCollision), // smbx2compat
+        // smbx2compat: LunaLua's Misc.pause/unpause/isPausedByLua
+        def("xtech_misc_luaPause", &xtech_lua_smbx2RequestPause),
+        def("xtech_misc_luaUnpause", &xtech_lua_smbx2RequestUnpause),
+        def("xtech_misc_isPausedByLua", &xtech_lua_smbx2IsPausedByLua),
+        // smbx2compat: SMBX2's NPC:transform sent onNPCTransform itself
+        def("xtech_npc_transformHandled", &xtech_lua_smbx2TransformHandled),
         def("xtech_block_queryIntersecting", &LuaMisc::block_queryIntersecting), // smbx2compat
         def("xtech_bgo_queryIntersecting", &LuaMisc::bgo_queryIntersecting), // smbx2compat
         def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat

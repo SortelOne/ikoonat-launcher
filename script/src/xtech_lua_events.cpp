@@ -21,6 +21,7 @@
 #include <cstring>
 #include <set>
 #include <string>
+#include <vector>
 
 extern "C"
 {
@@ -34,10 +35,12 @@ extern "C"
 #include <luabind/object.hpp>
 
 #include "xtech_lua_main.h"
+#include "xtech_lua_bindings.h" // smbx2compat: xtech_lua_memNewFrame
 
 #include <Logger/logger.h>
 
 #include "globals.h" // smbx2compat: Player, LevelEditor
+#include "location.h" // smbx2compat
 
 #include "xtech_lua_events.h"
 
@@ -74,6 +77,11 @@ static void s_safeCall(const char *funcName, Args... args)
 {
     lua_State *L = xtech_lua_getState();
     if(!L) return;
+
+    // smbx2compat: in core mode these names belong to SMBX2's events (onPause,
+    // onBlockHit, ...), which boot.lua sends with LunaLua's arguments
+    if(xtech_lua_isSmbx2Core() && strncmp(funcName, "__xtech_", 8) != 0)
+        return;
 
     // Skip if Lua function not defined
     xtech_lua_getFunc(funcName);
@@ -408,4 +416,189 @@ void xtech_lua_event_smbx2Warp(int warpIdx, int playerIdx)
 bool xtech_lua_event_smbx2Event(const char *eventName)
 {
     return s_coreEvent("__xtech_onEvent", eventName);
+}
+
+bool xtech_lua_event_smbx2MessageBox(const char *text, int playerIdx, int npcIdx)
+{
+    if(npcIdx > 0)
+        return s_coreEvent("__xtech_onMessageBox", text, playerIdx, npcIdx);
+
+    return s_coreEvent("__xtech_onMessageBox", text, playerIdx);
+}
+
+bool xtech_lua_event_smbx2Pause(int playerIdx)
+{
+    return s_coreEvent("__xtech_onPause", playerIdx);
+}
+
+void xtech_lua_event_smbx2ColorSwitch(int color)
+{
+    s_coreEvent("__xtech_onColorSwitch", color);
+}
+
+void xtech_lua_event_smbx2NPCGenerated(int generatorIdx, int npcIdx)
+{
+    s_coreEvent("__xtech_onNPCGenerated", generatorIdx, npcIdx);
+}
+
+// LunaLua passes a copy of the explosion's Momentum as a table
+static void s_pushArg(lua_State *L, const Location_t *loc)
+{
+    lua_createtable(L, 0, 6);
+    lua_pushnumber(L, (double)loc->X);
+    lua_setfield(L, -2, "x");
+    lua_pushnumber(L, (double)loc->Y);
+    lua_setfield(L, -2, "y");
+    lua_pushnumber(L, (double)loc->SpeedX);
+    lua_setfield(L, -2, "speedX");
+    lua_pushnumber(L, (double)loc->SpeedY);
+    lua_setfield(L, -2, "speedY");
+    lua_pushnumber(L, (double)loc->Width);
+    lua_setfield(L, -2, "width");
+    lua_pushnumber(L, (double)loc->Height);
+    lua_setfield(L, -2, "height");
+}
+
+bool xtech_lua_event_smbx2Explosion(const Location_t &loc, int kind, int playerIdx)
+{
+    return s_coreEvent("__xtech_onExplosion", &loc, kind, playerIdx);
+}
+
+void xtech_lua_event_smbx2NPCTransform(int npcIdx, int oldID, int cause)
+{
+    s_coreEvent("__xtech_onNPCTransform", npcIdx, oldID, cause);
+}
+
+// (NPC index, its ID before) for each engine function being watched; nested
+// calls (a hit inside a hit) stack, as in LunaLua's RuntimeHookNpcHarm.cpp
+static std::vector<std::pair<int, int>> s_transformWatch;
+
+void xtech_lua_smbx2TransformWatchBegin(int npcIdx)
+{
+    s_transformWatch.push_back({npcIdx, (int)NPC[npcIdx].Type});
+}
+
+void xtech_lua_smbx2TransformWatchEnd(int cause)
+{
+    if(s_transformWatch.empty())
+        return;
+
+    auto w = s_transformWatch.back();
+    s_transformWatch.pop_back();
+
+    if((int)NPC[w.first].Type != w.second)
+        xtech_lua_event_smbx2NPCTransform(w.first, w.second, cause);
+}
+
+void xtech_lua_smbx2TransformHandled(int npcIdx, int oldID, int newID)
+{
+    for(auto &w : s_transformWatch)
+    {
+        if(w.first == npcIdx && w.second == oldID)
+            w.second = newID;
+    }
+}
+
+
+// ============================================================================
+// smbx2compat: keyboard events and Misc.pause for SMBX2 core mode
+// ============================================================================
+
+struct QueuedKey
+{
+    int vk;
+    bool down;
+    bool repeated;
+    std::string ch;
+};
+
+static std::vector<QueuedKey> s_keyQueue;
+
+void xtech_lua_smbx2QueueKey(int vk, bool down, bool repeated, const char *ch)
+{
+    // nothing reads them outside core mode, and a long stall shouldn't pile them up
+    if(!xtech_lua_isSmbx2Core() || s_keyQueue.size() >= 64)
+        return;
+
+    s_keyQueue.push_back({vk, down, repeated, ch ? ch : ""});
+}
+
+void xtech_lua_smbx2SendKeys()
+{
+    if(s_keyQueue.empty())
+        return;
+
+    // a handler may queue more (it can't, but keep the loop safe)
+    std::vector<QueuedKey> keys;
+    keys.swap(s_keyQueue);
+
+    for(const auto &k : keys)
+        s_coreEvent("__xtech_onKey", k.vk, k.down, k.repeated, k.ch.c_str());
+}
+
+// LunaLua's EventStateMachine: a pause request starts the pause at the next
+// frame; while paused, an unpause request ends it at the next frame
+static bool s_luaPauseRequest = false;
+static bool s_luaUnpauseRequest = false;
+static bool s_luaPaused = false;
+
+bool xtech_lua_smbx2LuaPauseFrame()
+{
+    if(!s_luaPaused && s_luaPauseRequest)
+    {
+        s_luaPauseRequest = false;
+        s_luaPaused = true;
+    }
+    else if(s_luaPaused && s_luaUnpauseRequest)
+    {
+        s_luaUnpauseRequest = false;
+        s_luaPaused = false;
+    }
+
+    return s_luaPaused;
+}
+
+void xtech_lua_smbx2PausedFrame()
+{
+    if(!xtech_lua_isSmbx2Core())
+        return;
+
+    xtech_lua_memNewFrame();
+    xtech_lua_smbx2SendKeys();
+    s_coreEvent("__xtech_onPausedFrame");
+}
+
+void xtech_lua_smbx2AfterInput()
+{
+    s_coreEvent("__xtech_onInputUpdate");
+}
+
+void xtech_lua_smbx2RequestPause()
+{
+    if(!s_luaPaused)
+        s_luaPauseRequest = true;
+
+    s_luaUnpauseRequest = false;
+}
+
+void xtech_lua_smbx2RequestUnpause()
+{
+    if(s_luaPaused)
+        s_luaUnpauseRequest = true;
+
+    s_luaPauseRequest = false;
+}
+
+bool xtech_lua_smbx2IsPausedByLua()
+{
+    return s_luaPaused;
+}
+
+void xtech_lua_smbx2ResetFrameState()
+{
+    s_luaPauseRequest = false;
+    s_luaUnpauseRequest = false;
+    s_luaPaused = false;
+    s_keyQueue.clear();
+    s_transformWatch.clear();
 }
