@@ -325,6 +325,14 @@ public:
                                       double camX,
                                       double camY);
 
+    // smbx2compat: textured triangles for SMBX2's Graphics.glDraw. xy: 2 floats per
+    // vertex (viewport coordinates); uv: 2 floats per vertex in 0..1 of the picture,
+    // or nullptr; rgba: 4 floats per vertex (straight alpha), or nullptr; count: a
+    // multiple of 3. tx nullptr draws flat colour. No-op where unsupported.
+    virtual void renderTriangles(StdPicture *tx,
+                                 const float *xy, const float *uv, const float *rgba,
+                                 int count, XTColor color = XTColor());
+
 
 
     // Retrieve raw pixel data

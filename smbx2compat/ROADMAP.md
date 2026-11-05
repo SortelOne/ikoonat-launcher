@@ -329,18 +329,69 @@ mixer library LunaLua uses, so LunaLua's `Audio` namespace
   advancing in real time and its volume changing; a sound object reported
   playing, then finished.
 
+*Drawing round (2026-11-04).* SMBX2's draws now reach the screen, between the
+engine's objects where SMBX2 puts them:
+- **Draw queue** (`script/src/xtech_lua_draw.cpp`, header
+  `script/include/xtech_lua_draw.h`): `FFI_GLDraw`, `FFI_ImageDraw`,
+  `FFI_TextDraw` and `LunaLuaAlloc` are C functions that `core/lunadll.lua`
+  calls through the FFI (`__xtech_ffi*` pointers). Each draw is queued with
+  its priority and the camera being drawn (LunaLua's `Renderer`), and cleared
+  after each rendered frame. `glDraw` vertex arrays are malloc'd and freed by
+  the queue, as in LunaLua; strips and fans become triangle lists; SMBX2's
+  premultiplied vertex colours become straight alpha (the engine's blending).
+- **Priorities**: LunaLua draws everything below priority p where SMBX's
+  renderer reaches p (`RuntimeHookGeneral.cpp`: -95 back BGOs, -90 sizables,
+  ... -25 players, ..., 5 HUD). `gfx_update.cpp` calls `SMBX2_DRAW_BELOW` right
+  after switching to the matching draw plane, so it works with any draw order.
+- **Events**: `onCameraUpdate` (every camera), `onDraw`, then per camera
+  `onCameraDraw` and `onHUDUpdate`/`onHUDDraw`, in LunaLua's order. These were
+  never sent before, which is why backgrounds, BGOs and sizables (drawn from
+  `onCameraDraw`) were missing.
+- **Take-overs**: SMBX2's `paralx2`, `betterbgo` and `sizable` switch the
+  engine's backgrounds, BGOs and sizable blocks off and draw them in Lua; the
+  render flags now do that (`xtech_gfx_setVanilla`), as does
+  `FFI_GraphicsActivateHud` (TheXTech's `gSMBXHUDSettings.skip`).
+- **Images** are engine pictures (`xtech_gfx_imageLoad`), shared per file and
+  freed with the level's Lua state.
+- **Renderer**: `XRender::renderTriangles` (textured triangles with per-vertex
+  colour); only the OpenGL renderer implements it (no-op elsewhere).
+- **Screen size**: SMATRS asks for a 960x540 framebuffer
+  (`FFI_GraphicsSetMainFramebufferSize`); it now sets the engine's internal
+  resolution at the script config level, which the next level's config
+  rebuild clears. Before, 1-1 played in the corner of a 1280x720 screen.
+- **Testing**: `SMBX2COMPAT_SHOTS=300,900` saves those frames as
+  `smbx2shot-N.png` in the log folder (macOS keeps the engine's own
+  screenshot folder out of reach of a shell).
+Not drawn yet (each logged once): shaders (draws are made without them, so
+SMATRS's palette-swapped Mario has the wrong colours), capture buffers
+(draws into or from one are skipped: SMATRS renders its music-name text and
+some screen effects through them), clip planes, points and lines, and sprite
+overrides (`Graphics.sprites.block[id].img = ...`; SMATRS's camera zoom and
+block 760 use them).
+
 *Where bonus1 and SMATRS 1-1 stand now:* no script errors in SMATRS 1-1 (sound
-on, dummy or off); bonus1 is down to its two old ones, `ffi_graphics.lua:1598`
-(`img` type) and `npc-21.lua:42`. No unknown `mem()` addresses. Logged gaps
-are drawing (`FFI_ImageDraw`, `FFI_GLDraw`, render flags, ...), window
-(`LunaLuaSetWindowTitle`/`Icon`, `IsFullscreen`), `LunaLuaBlocksTestCollision`,
-`Misc.loadCharacterHitBoxes`/`registerCharacterId` and rumble.
+on, dummy or off); bonus1 has its two old ones, `ffi_graphics.lua:1598`
+(`img` type) and `npc-21.lua:42`, plus `HUDOverride.lua:733`, which follows
+from the first (bonus1's own `onDraw` error skips HUDOverride's `onDraw`, as
+it would in LunaLua). No unknown `mem()` addresses. 1-1 shows SMATRS's HUD,
+parallax backgrounds, BGOs, sloped ground and player effects at 960x540.
+Other logged gaps: window (`LunaLuaSetWindowTitle`/`Icon`, `IsFullscreen`),
+`LunaLuaBlocksTestCollision`, `Misc.loadCharacterHitBoxes`/
+`registerCharacterId`, rumble, controller power level.
 Untested by ear: run a level with sound to confirm it sounds right.
 
 *Next round, in order:*
-1. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`, real
-   shaders through TheXTech's GL renderer and ANGLE translator).
-2. Phase 3 IDs (block 756 and friends now become 1); engine collisions
+1. **Shaders and capture buffers** (rest of Phase 4). SMBX2's shaders are
+   GLSL 1.20 (`gl_TexCoord`, `gl_Color`, `gl_FragColor`, `texture2D`,
+   sampler `iChannel0`); 133 in SMATRS alone. Translate them to the GLSL ES
+   the GL renderer compiles (its translator then targets desktop GL), give
+   `renderTriangles` a program plus uniforms (and extra samplers, e.g.
+   `silhouetteImage`), and add capture buffers as framebuffers
+   (`CaptureAt`, `Clear`, draws into/from them, `RedirectCameraFB`).
+   Watch premultiplied alpha: SMBX2's shaders assume it, the engine blends
+   straight.
+2. **Sprite overrides** onto the engine's textures (`GFXBlockBMP` etc.).
+3. Phase 3 IDs (block 756 and friends now become 1); engine collisions
    honouring collision groups.
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
@@ -366,9 +417,11 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 ### Phase 4 — Rendering
 - `Graphics.drawImage*` with priority, opacity, source rects, `Graphics.glDraw`
   (vertex arrays), capture buffers, `Graphics.drawBox` / `drawScreen`.
+  Done 2026-11-04 except capture buffers (see Phase 1 "Drawing round").
 - `Shader` — TheXTech's GL renderer already compiles GLSL and has the ANGLE
   translator; map SMBX2's shader API onto it. Until then `core/lunadll.lua`
-  reports every shader compiled, with uniforms read from its source.
+  reports every shader compiled, with uniforms read from its source, and
+  draws that use one are made without it.
 - `Darkness`, `particles`, `textplus` fonts, `paralx2` backgrounds.
 - Done when: 1-1 looks right.
 
@@ -439,6 +492,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | + `mem()` reads through the FFI | 3.8-3.9 | 2.7-2.8 | 17,400 reads a frame |
 | FileFormats round (more SMATRS runs) | 5.2-5.5 | 3.4-3.6 | 33,700 reads a frame |
 | Audio round (all `onDraw` handlers run) | 6.7-6.8 | 5.0-5.1 | dummy audio; 7.1 / 5.3 with sound off |
+| Drawing round (Lua draws backgrounds, BGOs, sizables, HUD) | 7.8-7.9 | 6.2 | sound off, frames 200-900; engine ~1.6 |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
@@ -452,6 +506,14 @@ handler after it was skipped. Now `sizable.lua` (~1.35 ms, it draws sizable
 blocks in Lua and rebuilds the `sBlockArray` list per read) and the rest run.
 With sound off SMATRS reopens its music every frame (it never reports
 playing); caching resolved paths took that from ~1.9 ms to nothing.
+
+The drawing round sends `onCameraDraw` and `onHUDDraw` for the first time, so
+SMBX2 draws backgrounds, BGOs and sizables itself (~1.3 ms of `onCameraDraw`:
+`extraBGOProperties` 0.57, `darkness` 0.29, `editorevents` 0.10, `paralx2`
+0.10); the engine stops drawing those, so its part stays ~1.6 ms. Top
+listener is still `sizable.lua:onDraw` (1.32 ms). One frame per run spiked to
+17-20 ms with ~11.5 ms in `onCameraDraw` (frame 831 both times; probably first
+use of some picture or code path; not looked at yet).
 
 bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
 
@@ -492,9 +554,9 @@ events and heap change of such a frame; a large GC step is the main suspect
 (SMBX2 runs the GC by hand in `onDrawEnd`, `main_events.lua`).
 
 **Candidates, roughly in order of expected payoff (measure first):**
-0. **Draw work that isn't drawn yet.** `cutscenePal`/`darkness`/`hudCreator`
-   build draw data every frame for calls we drop; measure again once Phase 4
-   draws for real, as that cost becomes real work too.
+0. **Lua drawing.** `sizable.lua:onDraw` (1.32 ms) and `extraBGOProperties`
+   `onCameraDraw` (0.57 ms) are now the biggest listeners; both rebuild draw
+   data every frame.
 1. **SMBX2's class lookup** around `mem()` (`player.x` is ~50 ns, of which
    the read is 6). The sampler shows `ffi_player.lua` `__index`/`get` and
    `classValidityChecker` near the top. Patch carefully: these are SMBX2's

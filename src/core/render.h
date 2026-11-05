@@ -747,6 +747,25 @@ E_INLINE void renderParticleSystem(StdPicture &tx,
 }
 #endif
 
+/*!
+ * \brief smbx2compat: draws textured triangles (SMBX2's Graphics.glDraw)
+ * \param tx picture, or nullptr for flat colour
+ * \param xy 2 floats per vertex, in viewport coordinates
+ * \param uv 2 floats per vertex, 0..1 across the picture (or nullptr)
+ * \param rgba 4 floats per vertex, straight alpha (or nullptr)
+ * \param count number of vertices, a multiple of 3
+ *
+ * No-op if the renderer doesn't support it (only the OpenGL renderer does).
+ */
+E_INLINE void renderTriangles(StdPicture *tx,
+                              const float *xy, const float *uv, const float *rgba,
+                              int count, XTColor color = XTColor()) TAIL
+#ifndef RENDER_CUSTOM
+{
+    g_render->renderTriangles(tx, xy, uv, rgba, count, color);
+}
+#endif
+
 
 #ifdef USE_RENDER_BLOCKING
 E_INLINE bool renderBlocked() TAIL

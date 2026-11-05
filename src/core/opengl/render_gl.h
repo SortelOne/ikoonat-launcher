@@ -777,6 +777,11 @@ public:
                               double camX,
                               double camY) override;
 
+    // smbx2compat
+    void renderTriangles(StdPicture *tx,
+                         const float *xy, const float *uv, const float *rgba,
+                         int count, XTColor color = XTColor()) override;
+
 
 
     // Retrieve raw pixel data

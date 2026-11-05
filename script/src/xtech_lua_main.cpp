@@ -49,6 +49,7 @@ extern "C"
 #include "xtech_lua_fileformats.h" // smbx2compat
 #include "xtech_lua_audio.h" // smbx2compat
 #include "sound_script.h" // smbx2compat
+#include "xtech_lua_draw.h" // smbx2compat
 #include "xtech_lua_data.h"
 
 
@@ -74,6 +75,10 @@ static luabind::object g_luaFunc_onRenderStart;
 static luabind::object g_luaFunc_onRenderEnd;
 static luabind::object g_luaFunc_onRender;
 static luabind::object g_luaFunc_onRenderHud;
+// smbx2compat: SMBX2 core mode's per-camera draw events (boot.lua)
+static luabind::object g_luaFunc_onCameraUpdate;
+static luabind::object g_luaFunc_onDraw;
+static luabind::object g_luaFunc_onCameraDraw;
 
 // ============================================================================
 // Sandbox: __newindex proxy — whitelist CustomData to _G
@@ -300,6 +305,7 @@ static bool createLuaState()
     xtech_lua_register_bindings(g_L);
     xtech_lua_register_fileformats(g_L); // smbx2compat
     xtech_lua_register_audio(g_L); // smbx2compat
+    xtech_lua_register_draw(g_L); // smbx2compat
     return true;
 }
 
@@ -491,6 +497,10 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     g_luaFunc_onLoop        = getLuaFunc("__xtech_onLoop");
     g_luaFunc_onRenderStart = getLuaFunc("__xtech_onRenderStart");
     g_luaFunc_onRenderEnd   = getLuaFunc("__xtech_onRenderEnd");
+    g_luaFunc_onRenderHud   = getLuaFunc("__xtech_onHUDDraw");
+    g_luaFunc_onCameraUpdate = getLuaFunc("__xtech_onCameraUpdate");
+    g_luaFunc_onDraw         = getLuaFunc("__xtech_onDraw");
+    g_luaFunc_onCameraDraw   = getLuaFunc("__xtech_onCameraDraw");
     pLogInfo("Lua: SMBX2 core started for %s", FileNameFull.c_str());
 }
 
@@ -519,6 +529,9 @@ void xtech_lua_loadLevel()
     g_luaFunc_onRenderEnd = luabind::object();
     g_luaFunc_onRender = luabind::object();
     g_luaFunc_onRenderHud = luabind::object();
+    g_luaFunc_onCameraUpdate = luabind::object(); // smbx2compat
+    g_luaFunc_onDraw = luabind::object();
+    g_luaFunc_onCameraDraw = luabind::object();
     g_luaWorking = false;
 
     // Release old sandbox
@@ -663,6 +676,8 @@ void xtech_lua_unloadLevel()
 
     // smbx2compat: seized music, sound overrides and mutes end with the level
     SoundScript_Reset();
+    // smbx2compat: so do queued draws, scripts' pictures and drawing take-overs
+    xtech_lua_drawReset();
 
     // Clear function references
     g_luaFunc_onLoad = luabind::object();
@@ -671,6 +686,9 @@ void xtech_lua_unloadLevel()
     g_luaFunc_onRenderStart = luabind::object();
     g_luaFunc_onRenderEnd = luabind::object();
     g_luaFunc_onRenderHud = luabind::object();
+    g_luaFunc_onCameraUpdate = luabind::object(); // smbx2compat
+    g_luaFunc_onDraw = luabind::object();
+    g_luaFunc_onCameraDraw = luabind::object();
     g_luaWorking = false;
 
     // Release sandbox
@@ -909,6 +927,7 @@ void xtech_lua_renderStart()
 void xtech_lua_renderEnd()
 {
     safeCallLuaFunc(g_luaFunc_onRenderEnd, "onRenderEnd");
+    xtech_lua_drawFrameEnd(); // smbx2compat: SMBX2's draws last one frame
     // End the render frame and clean up render ops if LunaLua is not managing it
     if(!g_config.luna_enable_engine)
     {
@@ -927,6 +946,26 @@ void xtech_lua_render(int screenZ)
 void xtech_lua_renderHud(int screenZ, int numScreens)
 {
     safeCallLuaFuncWith(g_luaFunc_onRenderHud, "onRenderHud", screenZ, numScreens);
+    // smbx2compat: SMBX2 draws below priority 5 before the HUD
+    xtech_lua_drawBelow(XTECH_LUA_PRI_HUD);
+}
+
+
+// smbx2compat: LunaLua's level render events (core mode)
+void xtech_lua_cameraUpdate(int screenZ)
+{
+    safeCallLuaFuncWith(g_luaFunc_onCameraUpdate, "onCameraUpdate", screenZ);
+}
+
+void xtech_lua_drawStart()
+{
+    safeCallLuaFunc(g_luaFunc_onDraw, "onDraw");
+}
+
+void xtech_lua_cameraDraw(int screenZ, int numScreens)
+{
+    xtech_lua_drawCameraStart(screenZ);
+    safeCallLuaFuncWith(g_luaFunc_onCameraDraw, "onCameraDraw", screenZ, numScreens);
 }
 
 

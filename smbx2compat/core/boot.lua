@@ -50,6 +50,8 @@ if core.profileSpec and core.profileSpec ~= "" and core.profileSpec ~= "0" then
 else
     core.profileSpec = nil
 end
+-- Testing: SMBX2COMPAT_SHOTS=300,900 saves screenshots of those frames (see the end)
+core.shotsSpec = os.getenv("SMBX2COMPAT_SHOTS")
 
 
 -------------
@@ -403,13 +405,32 @@ function __xtech_onLoop()
     tickEndReady = true
 end
 
+-- The level renderer's events, in LunaLua's order: onTickEnd, onCameraUpdate for
+-- each camera, onDraw, then per camera onCameraDraw, (drawing), onHUDUpdate and
+-- onHUDDraw before the HUD; onDrawEnd once all are drawn
 function __xtech_onRenderStart()
     if tickEndReady then
         tickEndReady = false
         sendEvent("onTickEnd", false)
     end
+end
+
+function __xtech_onCameraUpdate(camIdx)
+    sendEvent("onCameraUpdate", false, camIdx)
+end
+
+function __xtech_onDraw()
     sendEvent("onDraw", false)
     drawEndReady = true
+end
+
+function __xtech_onCameraDraw(camIdx, maxCamIdx)
+    sendEvent("onCameraDraw", false, camIdx, maxCamIdx)
+end
+
+function __xtech_onHUDDraw(camIdx)
+    sendEvent("onHUDUpdate", false, camIdx)
+    sendEvent("onHUDDraw", false, camIdx)
 end
 
 function __xtech_onRenderEnd()
@@ -431,4 +452,22 @@ end
 
 if core.profileSpec then
     runCoreFile("profile.lua")
+end
+
+-- SMBX2COMPAT_SHOTS: frames counted from level start; the screenshots go into
+-- the user folder's screenshots/
+do
+    local shots = {}
+    for n in string.gmatch(core.shotsSpec or "", "%d+") do
+        shots[tonumber(n)] = true
+    end
+    if next(shots) then
+        local frame = 0
+        core.onFrameEnd(function()
+            frame = frame + 1
+            if shots[frame] then
+                xtech_gfx_screenshot()
+            end
+        end)
+    end
 end

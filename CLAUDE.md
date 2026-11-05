@@ -22,6 +22,10 @@ project, so never prepare anything from this repo as an upstream PR.
   - `xtech_lua_audio.cpp` — **ours**. LunaLua's `Audio` namespace on the
     engine's mixer (MixerX, as LunaLua uses), as the table `xtech_lunaAudio`.
     What it needs from `src/sound.cpp` is declared in `src/sound_script.h`.
+  - `xtech_lua_draw.cpp` — **ours**. SMBX2's draw queue (`Graphics.glDraw`,
+    `drawImage`, `Text.print`), drawn by priority between the engine's objects.
+    The engine side (`gfx_update.cpp` calls, priorities, take-over switches) is
+    declared in `script/include/xtech_lua_draw.h`.
   - `luabind_num_t.h` — **ours**. luabind converter for `num_t` (fixed-point
     type). Without it any Lua read/write of `Location.X`, `SpeedX`, etc. fails with
     "Trying to use unregistered class: num_t".
@@ -159,8 +163,25 @@ How it works (details in `core/boot.lua`'s header):
   Scripts share the engine's music stream; `Audio.SeizeStream` makes the
   engine's `StartMusic`/`StopMusic` leave a section's music alone until the
   level unloads (`SoundScript_Reset`).
+- Drawing: `FFI_GLDraw`/`FFI_ImageDraw`/`FFI_TextDraw`/`LunaLuaAlloc` are C
+  functions in `xtech_lua_draw.cpp`, called through the FFI (`__xtech_ffi*`),
+  so they must never call into Lua. Draws queue with a priority; `gfx_update.cpp`
+  draws everything below LunaLua's priority p (`SMBX2_DRAW_BELOW`) right after
+  switching to the draw plane of the objects SMBX2 gives priority p. Triangles
+  go through `XRender::renderTriangles` (OpenGL renderer only). The engine
+  sends `onCameraUpdate`, `onDraw`, `onCameraDraw`, `onHUDUpdate`/`onHUDDraw`
+  from its render loop (LunaLua's order). SMBX2's `paralx2`/`betterbgo`/
+  `sizable` turn the engine's backgrounds/BGOs/sizables off and draw them.
 - Shaders: `core/lunadll.lua` reports them compiled and reads uniforms from
-  the GLSL source (scripts like `darkness.lua` need the list); nothing is drawn.
+  the GLSL source (scripts like `darkness.lua` need the list); draws that use
+  one are made without it. Capture buffers are handles only (draws into or
+  from them are skipped).
+- Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
+  saves those frames as `smbx2shot-N.png` in the log folder (read them with
+  the Read tool). macOS doesn't let the shell's game write its own screenshot
+  folder, and `screencapture` can't capture the window.
+- SMATRS plays at 960x540 (`FFI_GraphicsSetMainFramebufferSize` sets the
+  engine's internal resolution for the level).
 - Every file read goes through `core.resolve`: backslashes → `/`, case-insensitive
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
   `core/override/` replace the SMBX2 file at the same path under `scripts/`
@@ -226,9 +247,10 @@ How it works (details in `core/boot.lua`'s header):
 ## Known issues
 
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
-  addresses (bonus1 has two old ones). Audio works (not yet checked by ear);
-  drawing is still missing, and SMBX2-only IDs load, spawn and get set
-  (via `mem()`) as ID 1. See ROADMAP.md Phase 1 "Next round".
+  addresses (bonus1 has its old ones). Audio works (not yet checked by ear).
+  Drawing works except shaders, capture buffers and sprite overrides, and
+  SMBX2-only IDs load, spawn and get set (via `mem()`) as ID 1. See
+  ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

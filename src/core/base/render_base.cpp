@@ -870,6 +870,19 @@ void AbstractRender_t::renderParticleSystem(StdPicture &tx, double camX, double 
     UNUSED(camY);
 }
 
+// smbx2compat
+void AbstractRender_t::renderTriangles(StdPicture *tx, const float *xy, const float *uv, const float *rgba, int count, XTColor color)
+{
+    // no-op
+
+    UNUSED(tx);
+    UNUSED(xy);
+    UNUSED(uv);
+    UNUSED(rgba);
+    UNUSED(count);
+    UNUSED(color);
+}
+
 
 #ifdef USE_RENDER_BLOCKING
 bool AbstractRender_t::renderBlocked()

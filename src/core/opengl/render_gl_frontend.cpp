@@ -24,6 +24,8 @@
 #include <SDL2/SDL_events.h>
 #endif
 
+#include <cmath> // smbx2compat: renderTriangles
+
 #include "core/opengl/gl_inc.h"
 
 #include "core/opengl/render_gl.h"
@@ -1784,6 +1786,66 @@ void RenderGL::renderParticleSystem(StdPicture &tx,
     auto& vertex_attribs = getOrderedDrawVertexList(context, cur_depth).vertices;
 
     vertex_attribs.emplace_back();
+
+    m_drawQueued = true;
+}
+
+// smbx2compat: SMBX2's Graphics.glDraw (script/src/xtech_lua_draw.cpp)
+void RenderGL::renderTriangles(StdPicture *tx,
+                               const float *xy, const float *uv, const float *rgba,
+                               int count, XTColor color)
+{
+#ifdef USE_RENDER_BLOCKING
+    SDL_assert(!m_blockRender);
+#endif
+
+    if(tx)
+    {
+        if(!tx->inited)
+            return;
+
+        if(!tx->d.texture_id && tx->l.lazyLoaded)
+            lazyLoad(*tx);
+
+        if(!tx->d.texture_id)
+            return;
+    }
+
+    int16_t cur_depth = m_render_planes.next();
+
+    // always ordered: scripts' draws are often translucent, and their order matters
+    DrawContext_t context = tx ? DrawContext_t(m_standard_program, tx) : DrawContext_t(m_program_rect_filled);
+    auto& vertex_list = getOrderedDrawVertexList(context, cur_depth);
+
+    // 0..1 across the picture -> GL texture coordinates (pictures may be padded)
+    GLfloat u_scale = tx ? tx->w * tx->d.w_scale : 0.0f;
+    GLfloat v_scale = tx ? tx->h * tx->d.h_scale : 0.0f;
+
+    Vertex_t::Tint tint = F_TO_B(color);
+
+    for(int i = 0; i < count; i++)
+    {
+        Vertex_t v;
+        v.position = {(GLshort)std::floor(xy[2 * i] + 0.5f), (GLshort)std::floor(xy[2 * i + 1] + 0.5f), cur_depth};
+
+        if(uv)
+            v.texcoord = {uv[2 * i] * u_scale, uv[2 * i + 1] * v_scale};
+        else
+            v.texcoord = {0.0f, 0.0f};
+
+        if(rgba)
+        {
+            for(int c = 0; c < 4; c++)
+            {
+                float f = rgba[4 * i + c] * tint[c];
+                v.tint[c] = (GLubyte)(f <= 0.0f ? 0 : f >= 255.0f ? 255 : f + 0.5f);
+            }
+        }
+        else
+            v.tint = tint;
+
+        vertex_list.vertices.push_back(v);
+    }
 
     m_drawQueued = true;
 }

@@ -102,21 +102,51 @@ end
 ----------------------
 -- ffi_graphics.lua --
 ----------------------
--- Drawing is Phase 4. Until then: answers to the queries, nothing drawn.
+-- Drawing goes to the engine's draw queue (script/src/xtech_lua_draw.cpp), which
+-- draws each script draw where its render priority falls among the engine's
+-- objects. Shaders, capture buffers and clip planes aren't drawn yet.
 
--- Memory ffi_graphics fills with vertex data for the GL draw calls, which free
--- it once drawn (malloc in LunaLua). Here it's LuaJIT memory, kept alive
--- until the end of the next frame, since nothing draws it yet.
-local allocations, lastFrameAllocations = {}, {}
-function dll.LunaLuaAlloc(size)
-    local buf = ffi.new("uint8_t[?]", size)
-    allocations[#allocations + 1] = buf
-    return buf
+-- The engine's C functions, called through the FFI so LuaJIT can compile the
+-- calls. Cast on first call: ffi_graphics.lua declares their argument types
+-- after this file loads.
+local function engineFunction(name, ctype, address)
+    dll[name] = function(...)
+        local f = ffi.cast(ctype, address)
+        dll[name] = f
+        return f(...)
+    end
 end
-core.onFrameEnd(function()
-    lastFrameAllocations = allocations
-    allocations = {}
-end)
+
+-- Arrays ffi_graphics fills for FFI_GLDraw, which frees them (malloc, as in LunaLua)
+dll.LunaLuaAlloc = ffi.cast("void *(*)(size_t)", __xtech_ffiAlloc)
+engineFunction("FFI_GLDraw", "void (*)(const FFI_GL_Draw_Cmd*)", __xtech_ffiGLDraw)
+engineFunction("FFI_ImageDraw",
+    "void (*)(LunaImageRef*, double, double, double, double, double, double, double, float, bool)",
+    __xtech_ffiImageDraw)
+engineFunction("FFI_TextDraw", "void (*)(const char*, int, int, int, double, bool)", __xtech_ffiTextDraw)
+
+-- SMBX2 libraries that draw backgrounds (paralx2), BGOs (betterbgo), sizable
+-- blocks (sizable) or the HUD themselves switch the engine's drawing off.
+-- Numbers: XTechLuaVanillaDraw in script/include/xtech_lua_draw.h.
+function dll.LunaLuaSetBackgroundRenderFlag(val)
+    xtech_gfx_setVanilla(0, val)
+end
+
+function dll.LunaLuaSetBGORenderFlag(val)
+    xtech_gfx_setVanilla(1, val)
+end
+
+function dll.LunaLuaSetSizableRenderFlag(val)
+    xtech_gfx_setVanilla(2, val)
+end
+
+function dll.FFI_GraphicsActivateHud(activate)
+    xtech_gfx_setVanilla(3, activate)
+end
+
+function dll.FFI_GraphicsIsHudActivated()
+    return xtech_gfx_getVanilla(3)
+end
 
 function dll.FFI_GraphicsIsSoftwareGL()
     return false
@@ -137,31 +167,21 @@ function dll.FFI_GraphicsGetConstants()
     return glConstants
 end
 
--- Images: a LunaImageRef* is a numbered handle into this table (0 would read
--- as NULL, so numbering starts at 1). Phase 4 gives them textures.
+-- Images: a LunaImageRef* is the engine's number for a loaded picture (from 1,
+-- so never NULL). The engine shares one picture among loads of the same file,
+-- like LunaLua's image cache (SMATRS loads its dialogue fonts every frame).
+-- This table keeps each one's path, and its pixels once a script reads them.
 local images = {}
-local nextImage = 1
-core.images = images
-
--- Image sizes by path. Like LunaLua's image cache, so a script that loads the
--- same file every frame (SMATRS's dialogue fonts do) doesn't reread it each time.
-local imageSizes = {}
 
 local function newImage(path, sizeOut)
-    local size = imageSizes[path]
-    if size == nil then
-        size = xtech_misc_imageSize(path)
-        if not size then
-            return nil
-        end
-        imageSizes[path] = size
+    local id, w, h = xtech_gfx_imageLoad(path)
+    if not id then
+        return nil
     end
-    local id = nextImage
-    nextImage = nextImage + 1
-    images[id] = { path = path, w = size.w, h = size.h }
+    images[id] = { path = path, w = w, h = h }
     if sizeOut ~= nil then
-        sizeOut[0] = size.w
-        sizeOut[1] = size.h
+        sizeOut[0] = w
+        sizeOut[1] = h
     end
     return ffi.cast("LunaImageRef*", id)
 end
@@ -182,7 +202,9 @@ local function imageAt(ref)
 end
 
 function dll.FFI_ImageFree(img)
-    images[tonumber(ffi.cast("uintptr_t", img))] = nil
+    local id = tonumber(ffi.cast("uintptr_t", img))
+    images[id] = nil
+    xtech_gfx_imageFree(id)
 end
 
 -- LunaLua returns the pixel buffer's address as a uint32 and ffi_graphics casts
@@ -399,7 +421,8 @@ function dll.FFI_GetAttributeInfo(obj, idx)
     return s and s.attributes[tonumber(idx) + 1]
 end
 
--- Capture buffers (render targets): handles; capturing and drawing is Phase 4
+-- Capture buffers (render targets): handles only; draws into or from them are
+-- skipped, and nothing is captured yet
 function dll.FFI_CaptureBuffer(w, h, nonskippable)
     return newHandle("CaptureBufferRef*")
 end
@@ -407,8 +430,13 @@ end
 function dll.FFI_CaptureBufferFree(buf)
 end
 
+-- The engine's screen size (SMATRS asks for 960x540)
+function dll.FFI_GraphicsSetMainFramebufferSize(w, h)
+    xtech_gfx_setFramebufferSize(w, h)
+end
+
 function dll.FFI_GraphicsGetMainFramebufferSize()
-    return ffi.new("FBSize", 800, 600)
+    return ffi.new("FBSize", xtech_gfx_getFramebufferSize())
 end
 
 

@@ -17,7 +17,7 @@ SECS=${2:-40}
 WS=${XTECH_WORKSPACE:-1}
 BIN=$REPO/${XTECH_BUILD:-build}/bin/TheXTech.app/Contents/MacOS/TheXTech
 
-rm -f "$D"/userdir/logs/*.txt
+rm -f "$D"/userdir/logs/*.txt "$D"/userdir/screenshots/*.png
 if [ "${XTECH_AUDIO:-}" = "dummy" ]; then
     SDL_AUDIODRIVER=dummy "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" >/dev/null 2>&1 &
 else

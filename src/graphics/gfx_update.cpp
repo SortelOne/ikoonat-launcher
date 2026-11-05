@@ -54,6 +54,14 @@
 
 #ifdef ENABLE_XTECH_LUA
 #   include "xtech_lua_main.h"
+#   include "xtech_lua_draw.h" // smbx2compat
+// smbx2compat: draws SMBX2 scripts queued below LunaLua's priority p (xtech_lua_draw.h)
+#   define SMBX2_DRAW_BELOW(p) xtech_lua_drawBelow(XTECH_LUA_PRI_##p)
+// smbx2compat: false when an SMBX2 library draws this itself
+#   define SMBX2_VANILLA(what) (LevelEditor || xtech_lua_drawVanilla(XTECH_LUA_DRAW_##what))
+#else
+#   define SMBX2_DRAW_BELOW(p)
+#   define SMBX2_VANILLA(what) true
 #endif
 
 #include "npc/npc_activation.h"
@@ -2133,6 +2141,16 @@ void UpdateGraphicsScreen(Screen_t& screen)
     XRender::renderRect(0, 0, XRender::TargetW, XRender::TargetH, {0, 0, 0});
     DrawBackdrop(screen);
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: as LunaLua, SMBX2's onCameraUpdate for every camera, then onDraw
+    if(!LevelEditor)
+    {
+        for(int vscreen_i = screen.active_begin(); vscreen_i < screen.active_end(); vscreen_i++)
+            xtech_lua_cameraUpdate(screen.vScreen_refs[vscreen_i]);
+        xtech_lua_drawStart();
+    }
+#endif
+
     // No logic
     // Draw the screens!
     for(int vscreen_i = screen.active_begin(); vscreen_i < screen.active_end(); vscreen_i++)
@@ -2147,6 +2165,12 @@ void UpdateGraphicsScreen(Screen_t& screen)
             S = Player[plr_Z].Section;
 
         // (Code to get vScreen moved into logic section above.)
+
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: SMBX2's onCameraDraw; its draws for this camera start here
+        if(!LevelEditor)
+            xtech_lua_cameraDraw(Z, numScreens);
+#endif
 
 #ifdef __3DS__
         if(Z != 1)
@@ -2179,7 +2203,8 @@ void UpdateGraphicsScreen(Screen_t& screen)
         int camX_i = num_t::floor(camX);
         int camY_i = num_t::floor(camY);
 
-        DrawBackground(S, Z);
+        if(SMBX2_VANILLA(BACKGROUND)) // smbx2compat: SMBX2's paralx2.lua draws them itself
+            DrawBackground(S, Z);
 
 #ifdef THEXTECH_BUILD_GL_MODERN
         if(SectionParticlesBG[S])
@@ -2225,12 +2250,16 @@ void UpdateGraphicsScreen(Screen_t& screen)
         s_UpdateDrawItems(screen, vscreen_i);
         const std::vector<BlockRef_t>& screenMainBlocks = s_drawMainBlocks[vscreen_i];
         const std::vector<BlockRef_t>& screenLavaBlocks = s_drawLavaBlocks[vscreen_i];
-        const std::vector<BlockRef_t>& screenSBlocks = s_drawSBlocks[vscreen_i];
-        const std::vector<BaseRef_t>& screenBackgrounds = s_drawBGOs[vscreen_i];
+        // smbx2compat: SMBX2's sizable.lua and betterbgo.lua can draw these themselves
+        static const std::vector<BlockRef_t> s_noBlocks;
+        static const std::vector<BaseRef_t> s_noBGOs;
+        const std::vector<BlockRef_t>& screenSBlocks = SMBX2_VANILLA(SIZABLES) ? s_drawSBlocks[vscreen_i] : s_noBlocks;
+        const std::vector<BaseRef_t>& screenBackgrounds = SMBX2_VANILLA(BGOS) ? s_drawBGOs[vscreen_i] : s_noBGOs;
 
         int nextBackground = 0;
 
         XRender::setDrawPlane(PLANE_LVL_BGO_LOW);
+        SMBX2_DRAW_BELOW(BGO_BACK); // smbx2compat
 
         if(LevelEditor)
         {
@@ -2303,6 +2332,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_SBLOCK);
+        SMBX2_DRAW_BELOW(SIZABLES); // smbx2compat
 
         for(Block_t& b : screenSBlocks) // Display sizable blocks
         {
@@ -2324,6 +2354,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_BGO_NORM);
+        SMBX2_DRAW_BELOW(BGO); // smbx2compat
 
         if(LevelEditor)
         {
@@ -2434,6 +2465,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 #endif
 
         XRender::setDrawPlane(PLANE_LVL_NPC_BG);
+        SMBX2_DRAW_BELOW(NPC_BACK); // smbx2compat
 
         // 'Display NPCs that should be behind blocks
         for(size_t i = 0; i < NPC_Draw_Queue_p.BG_n; i++)
@@ -2444,6 +2476,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_PLR_WARP);
+        SMBX2_DRAW_BELOW(HELD); // smbx2compat
 
         // Player warp effects 'Players behind blocks
         for(int A = 1; A <= numPlayers; A++)
@@ -2458,6 +2491,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_BLK_NORM);
+        SMBX2_DRAW_BELOW(BLOCKS); // smbx2compat
 
         // 'Non-Sizable Blocks
         for(Block_t& block : screenMainBlocks)
@@ -2508,6 +2542,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_EFF_LOW);
+        SMBX2_DRAW_BELOW(EFF_BACK); // smbx2compat
 
         //'effects in back
         for(int A = 1; A <= numEffects; A++)
@@ -2542,6 +2577,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_NPC_LOW);
+        SMBX2_DRAW_BELOW(NPC_LOW); // smbx2compat
 
         // draw NPCs that should be behind other NPCs
         for(size_t i = 0; i < NPC_Draw_Queue_p.Low_n; i++)
@@ -2552,6 +2588,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_NPC_LOW + 1);
+        SMBX2_DRAW_BELOW(NPC_FROZEN); // smbx2compat
 
         // ice
         for(size_t i = 0; i < NPC_Draw_Queue_p.Iced_n; i++)
@@ -2562,6 +2599,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_NPC_NORM);
+        SMBX2_DRAW_BELOW(NPC); // smbx2compat
 
         // 'Display NPCs that should be in front of blocks
         for(size_t i = 0; i < NPC_Draw_Queue_p.Normal_n; i++)
@@ -2586,6 +2624,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 
         XRender::setDrawPlane(PLANE_LVL_PLR_NORM);
+        SMBX2_DRAW_BELOW(PLAYERS); // smbx2compat
 
         For(A, 1, numPlayers) // The clown car
         {
@@ -2689,6 +2728,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
         // foreground backgrounds
         XRender::setDrawPlane(PLANE_LVL_BGO_FG);
+        SMBX2_DRAW_BELOW(BGO_FRONT); // smbx2compat
 
         if(LevelEditor)
         {
@@ -2753,6 +2793,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_NPC_FG);
+        SMBX2_DRAW_BELOW(NPC_FRONT); // smbx2compat
 
         // foreground NPCs
         for(size_t i = 0; i < NPC_Draw_Queue_p.FG_n; i++)
@@ -2762,6 +2803,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_BLK_HURTS);
+        SMBX2_DRAW_BELOW(BLK_FRONT); // smbx2compat
 
         // Blocks in Front
         for(Block_t& block : screenLavaBlocks)
@@ -2799,6 +2841,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_EFF_NORM);
+        SMBX2_DRAW_BELOW(EFF); // smbx2compat
 
         // effects on top
         For(A, 1, numEffects)
@@ -3013,6 +3056,9 @@ void UpdateGraphicsScreen(Screen_t& screen)
                    DrawInterface(Z, numScreens);
             }
 
+            // smbx2compat: SMBX2 draws everything else right after the HUD
+            SMBX2_DRAW_BELOW(ALL);
+
             XRender::setDrawPlane(PLANE_LVL_HUD + 1);
 
             // Display NPCs that got dropped from the container
@@ -3024,6 +3070,12 @@ void UpdateGraphicsScreen(Screen_t& screen)
         }
 
         XRender::setDrawPlane(PLANE_LVL_META);
+
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: whatever SMBX2 queued that the HUD didn't draw, then this camera is done
+        SMBX2_DRAW_BELOW(ALL);
+        xtech_lua_cameraEnd();
+#endif
 
         if((LevelEditor || MagicHand))
         {

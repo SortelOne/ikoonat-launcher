@@ -288,7 +288,7 @@ do
 end
 
 -- Frames: onLoop starts one, the end of onRenderEnd closes it. Lua time is
--- the time spent inside the three hooks.
+-- the time spent inside the engine's hooks.
 local onLoop, onRenderStart, onRenderEnd, onExit =
     __xtech_onLoop, __xtech_onRenderStart, __xtech_onRenderEnd, __xtech_onExit
 
@@ -315,14 +315,22 @@ function __xtech_onLoop(...)
     frameLua = clock() - frameStart
 end
 
-function __xtech_onRenderStart(...)
-    if not active then
-        return onRenderStart(...)
+-- The render hooks between onLoop and onRenderEnd only add Lua time
+local function timedHook(f)
+    return function(...)
+        if not active then
+            return f(...)
+        end
+        local t = clock()
+        f(...)
+        frameLua = frameLua + clock() - t
     end
-    local t = clock()
-    onRenderStart(...)
-    frameLua = frameLua + clock() - t
 end
+__xtech_onRenderStart = timedHook(onRenderStart)
+__xtech_onCameraUpdate = timedHook(__xtech_onCameraUpdate)
+__xtech_onDraw = timedHook(__xtech_onDraw)
+__xtech_onCameraDraw = timedHook(__xtech_onCameraDraw)
+__xtech_onHUDDraw = timedHook(__xtech_onHUDDraw)
 
 function __xtech_onRenderEnd(...)
     local t = clock()
