@@ -1659,6 +1659,11 @@ resume_TriggerLast:
             else if(LevelMacroWhich == numNPCs + 1)
                 LevelMacroWhich = A;
         }
+
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: NPC numNPCs + 1 now lives at A (LunaLua's NPCKillHook)
+        xtech_lua_event_npcRearrange(A - 1, numNPCs);
+#endif
     }
     else
     {

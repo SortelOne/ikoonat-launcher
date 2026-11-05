@@ -151,6 +151,12 @@ void xtech_lua_event_npcHurt(int permId, int npcId, int hitterId, int hitType)
     s_safeCall("onNPCHurt", permId, npcId, hitterId, hitType);
 }
 
+// smbx2compat: SMBX2 core mode (boot.lua) moves its NPC objects to the new index
+void xtech_lua_event_npcRearrange(int newIdx, int oldIdx)
+{
+    s_safeCall("__xtech_onNPCRearrange", newIdx, oldIdx);
+}
+
 void xtech_lua_event_npcActivate(int permId, int npcId)
 {
     s_safeCall("onNPCActivate", permId, npcId);

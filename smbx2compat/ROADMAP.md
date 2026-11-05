@@ -557,15 +557,39 @@ image` now changes what the engine draws, as LunaLua's
 change in what scripts see, apart from the sizable list being rebuilt once a
 frame instead of on every read.
 
+*NPC objects round (2026-11-05)*:
+- When the engine removes an NPC (`KillNPC`, `npc_kill.cpp`) it moves the
+  last NPC into the freed slot. LunaLua then sends
+  `onPostNPCRearrangeInternal(newIdx, oldIdx)` (0-based; its `NPCKillHook`),
+  and `ffi_npc.lua` moves its NPC object, with `data` and `_settings`, to
+  the new index and invalidates the removed one's. Core mode sent nothing,
+  so after any removal the moved NPC's Lua object, data and settings were
+  the removed NPC's. That was 2-1's box light error (NPC 217, a light, moved
+  into slot 207). The engine now calls `xtech_lua_event_npcRearrange` ->
+  boot.lua `__xtech_onNPCRearrange`. Not hooked: `npc.cpp:4927` and
+  `npc_special_maybe_held.cpp:754` move or drop NPCs created that same
+  moment, before a script could hold them (LunaLua doesn't either).
+- `smoke/actiontest`'s flaky mushroom check was the test: two goombas
+  spawned at tick 60 sometimes landed on the small player and killed them
+  (tick ~78). They now spawn well to the left; 8 of 8 runs pass.
+- Found, not fixed: P-switches. TheXTech compacts the block array when a
+  P-switch turns blocks into coins (`blocks.cpp:1876`: `Block[A] =
+  Block[numBlock]; numBlock--`). LunaLua patched SMBX to keep those slots
+  instead (`runtimeHookPSwitchStartRemoveBlock` marks them destroyed;
+  `runtimeHookPSwitchGetNewBlockAtEnd` reuses them and sends
+  `onBlockInvalidateForReuseInternal(idx)`, which `ffi_block.lua` uses to
+  drop its Block object and free-list entry). Here, after a P-switch,
+  SMBX2's Block objects (and block `data`/`_settings`) can belong to other
+  blocks. Fix: keep the slots in core mode, as LunaLua does, or send
+  something that moves the objects like the NPC event.
+
 *Next round, in order:*
-1. Box light NPC 675 in 2-1: `data._settings` without `sourceSize`, though
-   the level's settings for it are complete (settings reaching the wrong NPC?).
-2. `smoke/actiontest`: the mushroom check (powerup at tick 180) is flaky, not
-   broken: the same build passes and fails on back-to-back runs, the player
-   still mid grow-animation (`forcedState=1`) both times. Make the check wait
-   for the animation, or find what makes its timing vary.
-3. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
-4. More speed, if needed: the Performance track's candidates (struct views
+1. P-switch block slots (above).
+2. Cancellable engine events (`onNPCHarm`, `onNPCKill`, `onNPCCollect`,
+   ...; Phase 5). Core mode sends SMBX2 no per-object engine events yet;
+   LunaLua's senders are in `RuntimeHookHooks.cpp` (`NPCKillHook` sends
+   `onNPCKill` before the kill, cancellable via `killFlag = 0`).
+3. More speed, if needed: the Performance track's candidates (struct views
    for SMBX2's field reads, luabind writes).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
@@ -829,10 +853,43 @@ events and heap change of such a frame; a large GC step is the main suspect
 0. **Struct views.** The 11,700 `mem()` reads left in 1-1 are ordinary field
    reads (`v.x`, `v.id`, `v.width` in `blockeventmanager`, `blockutils`,
    `extraBGOProperties`, `sizable`). Each costs an FFI call plus `mem_get`'s
-   range lookup and mememu's field tables (~10-20 ns). Making SMBX2's
-   getters read engine memory directly would need the engine's structs laid
-   out as SMBX's, or per-field getters; a project of its own.
+   range lookup and mememu's field tables (~10-20 ns).
    `extraBGOProperties` `onCameraDraw` (~0.25 ms) is the top listener.
+   Scoped 2026-11-05 and parked until the Odin 3 needs the speed; expected
+   gain ~0.1-0.25 ms a frame in 1-1 (more if the JIT optimises better
+   without the opaque C call). Plan:
+   - Not an option: laying `NPC_t` etc. out as SMBX's structs (doubles,
+     16-bit VB bools, SMBX padding) would rewrite the engine and its
+     fixed-point maths.
+   - How reads go now: SMBX2's `ffi_utils.lua` `getFactory2` generates one
+     getter per field (chunk `"=!Class:field"`): `classValidityChecker(obj)`
+     unless `alwaysValid`, then `metadata.get(obj)` or
+     `readmem(obj._ptr + metadata[1], metadata[2])`, then `metadata.decoder`.
+     Offset-based fields: NPC 51, Block 13, BGO 11, Player 148.
+   - Engine side: export per class (Player/NPC/Block/BGO) the array's base
+     pointer, `sizeof` the object, and the plain fields as
+     {SMBX offset, engine offset, engine type}. Generate it from mememu's
+     tables (`buildTable()` in each `*Memory` class, ~336 `insert(0x...)`
+     calls): the `insert(off, &NPC_t::Field)` overloads give the engine
+     offset; the lambda ones (bitfields such as `Bouce`, and fields whose
+     setters have side effects, e.g. `RealSpeedX` pushing
+     `NPCQueues::Unchecked`) stay on `mem()`. The engine arrays are static,
+     so a base pointer stays valid for the level; offsets are measured in
+     the built engine, so Android needs nothing extra.
+   - Lua side: patch `getFactory2` (`patches.lua`) so exported fields read
+     with one FFI load: engine index from `_ptr` (our made-up range:
+     `(_ptr - rangeBase) / smbxStride`), then convert exactly as mememu's
+     `valueToMem` does per `FIELDTYPE` (num_t fixed-point -> double, bool
+     -> SMBX's -1/0 or `~= 0` for `FIELD_BOOL`, integer widths). Keep the
+     validity check and decoder.
+   - Stay on `mem()`: all writes (quadtrees, NPC queues, layer sync), string
+     fields, lambda fields.
+   - Must have: a check mode that, for a few hundred frames, reads every
+     patched field both ways on every object and logs mismatches.
+   - Prototype on BGOs first (11 fields; `extraBGOProperties` is the top
+     listener), measure, then do the rest.
+   - The class layer around the read costs more than the read (candidate 1);
+     struct views don't touch it.
 1. **SMBX2's class lookup** around `mem()` (`player.x` is ~50 ns, of which
    the read is 6). The sampler shows `ffi_player.lua` `__index`/`get` and
    `classValidityChecker` near the top. Patch carefully: these are SMBX2's

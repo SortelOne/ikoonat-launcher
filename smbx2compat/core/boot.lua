@@ -492,6 +492,12 @@ function __xtech_onRenderEnd()
     core.endFrame()
 end
 
+-- The engine removed an NPC and moved its last one into the slot (0-based
+-- indices); ffi_npc.lua moves its NPC objects, with their data, to match
+function __xtech_onNPCRearrange(newIdx, oldIdx)
+    sendEvent("onPostNPCRearrangeInternal", false, newIdx, oldIdx)
+end
+
 function __xtech_onExit()
     -- TODO: the real exit type (LunaLua passes GM_LEVEL_EXIT_TYPE)
     sendEvent("onExitLevel", false, 0)

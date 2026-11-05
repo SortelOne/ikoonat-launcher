@@ -41,6 +41,10 @@ void xtech_lua_event_npcTalk(int permId, int npcId, int playerId);
 void xtech_lua_event_npcTouch(int permId, int npcId, int playerId, int side);
 void xtech_lua_event_npcGrab(int permId, int npcId, int playerId, bool fromTop);
 
+// smbx2compat: an NPC was removed and the last one moved into its slot
+// (0-based indices, like LunaLua's onPostNPCRearrangeInternal)
+void xtech_lua_event_npcRearrange(int newIdx, int oldIdx);
+
 // --- Player Events ---
 
 void xtech_lua_event_playerHurt(int playerId, int causeNpcId);

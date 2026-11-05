@@ -205,6 +205,11 @@ How it works (details in `core/boot.lua`'s header):
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
+- SMBX2 keeps one Lua object per NPC/block index (with its `data` and
+  `_settings`) and relies on LunaLua's internal events to follow the
+  engine's moves: `KillNPC` calls `xtech_lua_event_npcRearrange` ->
+  `__xtech_onNPCRearrange` -> `onPostNPCRearrangeInternal`. Any new engine
+  code that moves or drops objects in the arrays needs the same.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -320,9 +325,10 @@ How it works (details in `core/boot.lua`'s header):
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
-  overrides too) except clip planes. 2-1 runs too, with one error from the
-  box light NPC 675 (`sourceSize` nil). `smoke/actiontest`'s mushroom check
-  passes or fails from run to run. See ROADMAP.md Phase 1 "Next round".
+  overrides too) except clip planes. 2-1 runs with no errors too. After a
+  P-switch, SMBX2's Block objects can belong to other blocks (TheXTech
+  compacts the block array; LunaLua keeps the slots). See ROADMAP.md
+  Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.
