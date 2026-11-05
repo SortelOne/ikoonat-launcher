@@ -2535,11 +2535,19 @@ static const MemField *memFieldAt(const ObjMemArray &a, unsigned offset, int &k)
 // onto its traits (all of SMBX2's since the engine took SMBX2's limits), and
 // the extended properties, which TheXTech doesn't use, are kept as plain
 // storage, so values set from npc-N.txt or Lua read back.
-// SMBX's list of sizable blocks, top to bottom; TheXTech draws them without one
+// SMBX's list of sizable blocks, top to bottom; TheXTech draws them without one.
+// It's rebuilt from the engine's blocks once a frame, and after SMBX2 edits it
+// (when it spawns, deletes or changes a sizable): SMBX2's iterateSizable reads
+// the count at every step, and rebuilding each time took ~1 ms a frame in 1-1.
 static std::vector<int> s_sizableBlocks;
+static bool s_sizableBlocksStale = true;
 
 static int memSizableBlockCount()
 {
+    if(!s_sizableBlocksStale)
+        return (int)s_sizableBlocks.size();
+
+    s_sizableBlocksStale = false;
     s_sizableBlocks.clear();
     for(int i = 1; i <= numBlock; i++)
     {
@@ -2554,6 +2562,7 @@ static int memSizableBlockCount()
 
 static double memSizableBlock(int i)
 {
+    memSizableBlockCount();
     return (i >= 1 && i <= (int)s_sizableBlocks.size()) ? s_sizableBlocks[i - 1] : 0;
 }
 
@@ -2664,9 +2673,10 @@ static const MemTypeArray s_memTypeArrays[] =
     {0x00B25774, nullptr, nullptr, FT_WORD, -8000, 8000, 8000,
         [](int) -> double { return numBlock; }, nullptr},
 
-    // Sizable blocks (sBlockArray(1 To 1000)), rebuilt when SMBX2 reads the count
+    // Sizable blocks (sBlockArray(1 To 1000)); see memSizableBlockCount
     {0x00B2BED8, nullptr, nullptr, FT_WORD, 1, 1000, 1000,
-        [](int i) -> double { return memSizableBlock(i); }, nullptr},
+        [](int i) -> double { return memSizableBlock(i); },
+        [](int, double) { s_sizableBlocksStale = true; }},
 
     // Climbable BGOs (bgoconfig.lua's "climbable")
     {0x00B25B54, nullptr, nullptr, FT_WORD, 0, maxBackgroundType, c_smbx2BgoMaxId, MEM_FLAGS(BackgroundFence)},
@@ -2907,28 +2917,59 @@ static void mem_unknown(const char *what, unsigned addr)
 // globals among them) are far below it
 static constexpr unsigned c_memArraysLowest = 0x10000000;
 
+// The made-up address SMBX2 reads at each pointer global (sorted by global), so
+// a global read finds it with a binary search: SMBX2 reads object counts
+// (bgoGetCount, ...) on most object field reads to check the object is valid
+struct MemPointerGlobal
+{
+    unsigned addr;
+    unsigned value;
+    bool operator<(unsigned a) const { return addr < a; }
+};
+
+static const std::vector<MemPointerGlobal> &memPointerGlobals()
+{
+    static const std::vector<MemPointerGlobal> s_globals = []
+    {
+        std::vector<MemPointerGlobal> g;
+        for(const auto &a : s_objMemArrays)
+        {
+            if(a.pointerGlobal != 0)
+                g.push_back({a.pointerGlobal, a.base});
+        }
+        for(size_t t = 0; t < c_numMemTypeArrays; t++)
+        {
+            if(s_memTypeArrays[t].pointerGlobal != 0)
+                g.push_back({s_memTypeArrays[t].pointerGlobal, c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t});
+        }
+        // the first of two tables at one global wins, as the old linear search did
+        std::stable_sort(g.begin(), g.end(), [](const MemPointerGlobal &x, const MemPointerGlobal &y) { return x.addr < y.addr; });
+        return g;
+    }();
+    return s_globals;
+}
+
 static double mem_get(unsigned int addr, int ftype)
 {
     FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
 
-    // Almost every read is an object field; skip the ~130 pointer globals for those
+    // SMBX's globals: none of the made-up arrays start this low
     if(addr < c_memArraysLowest)
     {
-        for(const auto &a : s_objMemArrays)
-        {
-            if(a.pointerGlobal != 0 && addr == a.pointerGlobal)
-                return (double)a.base;
-        }
-
-        for(size_t t = 0; t < c_numMemTypeArrays; t++)
-        {
-            if(s_memTypeArrays[t].pointerGlobal != 0 && addr == s_memTypeArrays[t].pointerGlobal)
-                return (double)(c_memTypeArraysBase + c_memTypeArraySpan * (unsigned)t);
-        }
-
         // sBlockNum: the sizable list (sBlockArray) is rebuilt when SMBX2 reads its length
         if(addr == 0x00B2BEE4)
             return memSizableBlockCount();
+
+        const auto &globals = memPointerGlobals();
+        auto g = std::lower_bound(globals.begin(), globals.end(), addr);
+        if(g != globals.end() && g->addr == addr)
+            return (double)g->value;
+
+        if(addr >= GM_BASE && addr < GM_END)
+            return (double)GetMem(addr, ft);
+
+        mem_unknown("read", addr);
+        return 0;
     }
 
     int index;
@@ -2996,7 +3037,10 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
     FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
 
     if(addr == 0x00B2BEE4)
-        return; // sBlockNum follows the engine's blocks
+    {
+        s_sizableBlocksStale = true; // sBlockNum follows the engine's blocks
+        return;
+    }
 
     int index;
     unsigned offset;
@@ -3134,6 +3178,73 @@ static luabind::object block_queryIntersecting(double x1, double y1, double x2, 
     }
 
     return ret;
+}
+
+// smbx2compat: SMBX2's BGO.getIntersecting (patched in core/patches.lua), through
+// the engine's BGO quadtree like block_queryIntersecting. SMBX2's BGO indices
+// start at 0 (Background[1]), locked BGOs after the level's own included.
+static luabind::object bgo_queryIntersecting(double x1, double y1, double x2, double y2)
+{
+    lua_State* L = xtech_lua_getState();
+    luabind::object ret = luabind::newtable(L);
+
+    num_t left(std::min(x1, x2), nullptr);
+    num_t top(std::min(y1, y2), nullptr);
+    num_t right(std::max(x1, x2), nullptr);
+    num_t bottom(std::max(y1, y2), nullptr);
+
+    int n = 1;
+    for(BackgroundRef_t b : treeBackgroundQuery(left, top, right, bottom, SORTMODE_ID))
+    {
+        int i = b;
+        if(i < 1 || i > numBackground + numLocked)
+            continue;
+
+        const auto &loc = Background[i].Location;
+        double bx = (double)loc.X;
+        double by = (double)loc.Y;
+        if(x2 > bx && y2 > by && bx + (double)loc.Width > x1 && by + (double)loc.Height > y1)
+            ret[n++] = i - 1;
+    }
+
+    return ret;
+}
+
+// smbx2compat: SMBX2's Block/BGO.iterate(id or IDs) and iterateByFilterMap
+// (patched in core/patches.lua) read every object's ID through mem(), ~14,000
+// blocks per loop in SMATRS 1-1. These find the next match in the engine's
+// arrays instead: the first engine index after `after` whose type t has
+// filter[t] != 0 (t < count), or, without a filter, whose type is count.
+// 0 when there's none. Called through the FFI, so they never call into Lua.
+static int32_t ffi_block_next(int32_t after, const uint8_t *filter, int32_t count)
+{
+    for(int i = std::max(after, 0) + 1; i <= numBlock; i++)
+    {
+        int t = Block[i].Type;
+        if(filter ? (t >= 0 && t < count && filter[t]) : (t == count))
+            return i;
+    }
+    return 0;
+}
+
+static int32_t ffi_bgo_next(int32_t after, const uint8_t *filter, int32_t count)
+{
+    int last = numBackground + numLocked;
+    for(int i = std::max(after, 0) + 1; i <= last; i++)
+    {
+        int t = Background[i].Type;
+        if(filter ? (t >= 0 && t < count && filter[t]) : (t == count))
+            return i;
+    }
+    return 0;
+}
+
+// smbx2compat: SMBX2's BGO count (patched into ffi_bgo.lua's bgoGetCount): BGO
+// objects check it on every field read, which took a third of SMATRS 1-1's mem()
+// reads. The same two engine counts as mem(0xB25958) + mem(0xB250D6).
+static int32_t ffi_bgo_count()
+{
+    return numBackground + numLocked;
 }
 
 // smbx2compat: LunaLua's PlayerSettings (CustomGraphics.h): hitbox, duck height
@@ -3375,6 +3486,12 @@ static void npc_collect(int idx, int playerIdx)
 }
 
 } // namespace LuaMisc
+
+
+void xtech_lua_memNewFrame()
+{
+    LuaMisc::s_sizableBlocksStale = true;
+}
 
 
 // Process delayed calls 鈥?called from xtech_lua_loop()
@@ -4300,6 +4417,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_npc_harmCombo", &LuaMisc::npc_harmCombo), // smbx2compat
         def("xtech_npc_collect", &LuaMisc::npc_collect), // smbx2compat
         def("xtech_block_queryIntersecting", &LuaMisc::block_queryIntersecting), // smbx2compat
+        def("xtech_bgo_queryIntersecting", &LuaMisc::bgo_queryIntersecting), // smbx2compat
         def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat
         def("xtech_mem_setString", &LuaMisc::mem_setString), // smbx2compat
         def("xtech_playerSettings_get", &LuaMisc::playerSettings_get), // smbx2compat
@@ -4654,6 +4772,13 @@ void xtech_lua_register_bindings(lua_State *L)
     // smbx2compat: mem() reads through the FFI (see LuaMisc::ffi_mem_get)
     lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_mem_get));
     lua_setglobal(L, "__xtech_ffiMemGet");
+    // smbx2compat: and finding blocks and BGOs by ID (see LuaMisc::ffi_block_next)
+    lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_block_next));
+    lua_setglobal(L, "__xtech_ffiBlockNext");
+    lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_bgo_next));
+    lua_setglobal(L, "__xtech_ffiBgoNext");
+    lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_bgo_count));
+    lua_setglobal(L, "__xtech_ffiBgoCount");
 
     // smbx2compat: where LunaLua's extended fields live (SMBX2NPCExt_t etc., globals.h)
     pushExtendedFieldsLayout(L);

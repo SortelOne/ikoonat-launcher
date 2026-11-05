@@ -21,3 +21,61 @@ index b6e7e4a9..6f87cc47 100644
  
  if(NOT LUAJIT_NO_UNWIND AND NOT IOS)
    set(LJ_DEFINITIONS ${LJ_DEFINITIONS} -DLUAJIT_UNWIND_EXTERNAL)
+diff --git a/src/lj_jit.h b/src/lj_jit.h
+index af50e5c1..cbb829ac 100644
+--- a/src/lj_jit.h
++++ b/src/lj_jit.h
+@@ -306,7 +306,11 @@ typedef struct HotPenalty {
+   uint16_t reason;	/* Abort reason (really TraceErr). */
+ } HotPenalty;
+ 
+-#define PENALTY_SLOTS	64	/* Penalty cache slot. Must be a power of 2. */
++/* smbx2compat: 1024 slots (LuaJIT has 64), kept outside jit_State, which must
++** stay small: the arm64 VM reaches the dispatch table past it with 12-bit
++** offsets. With 64, SMBX2 games' hundreds of aborting spots pushed each other
++** out before any was blacklisted, so the same traces aborted every frame. */
++#define PENALTY_SLOTS	1024	/* Penalty cache slot. Must be a power of 2. */
+ #define PENALTY_MIN	(36*2)	/* Minimum penalty value. */
+ #define PENALTY_MAX	60000	/* Maximum penalty value. */
+ #define PENALTY_RNDBITS	4	/* # of random bits to add to penalty value. */
+@@ -482,7 +486,7 @@ typedef struct jit_State {
+ 
+   MCode *exitstubgroup[LJ_MAX_EXITSTUBGR];  /* Exit stub group addresses. */
+ 
+-  HotPenalty penalty[PENALTY_SLOTS];  /* Penalty slots. */
++  HotPenalty *penalty;	/* Penalty slots (PENALTY_SLOTS of them). */
+   uint32_t penaltyslot;	/* Round-robin index into penalty slots. */
+ 
+ #ifdef LUAJIT_ENABLE_TABLE_BUMP
+diff --git a/src/lj_trace.c b/src/lj_trace.c
+index 86e841de..9398da3c 100644
+--- a/src/lj_trace.c
++++ b/src/lj_trace.c
+@@ -293,7 +293,7 @@ int lj_trace_flushall(lua_State *L)
+   J->cur.traceno = 0;
+   J->freetrace = 0;
+   /* Clear penalty cache. */
+-  memset(J->penalty, 0, sizeof(J->penalty));
++  memset(J->penalty, 0, PENALTY_SLOTS*sizeof(HotPenalty));
+   /* Free the whole machine code and invalidate all exit stub groups. */
+   lj_mcode_free(J);
+   memset(J->exitstubgroup, 0, sizeof(J->exitstubgroup));
+@@ -309,6 +309,9 @@ void lj_trace_initstate(global_State *g)
+   jit_State *J = G2J(g);
+   TValue *tv;
+ 
++  J->penalty = lj_mem_newvec(mainthread(g), PENALTY_SLOTS, HotPenalty);
++  memset(J->penalty, 0, PENALTY_SLOTS*sizeof(HotPenalty));
++
+   /* Initialize aligned SIMD constants. */
+   tv = LJ_KSIMD(J, LJ_KSIMD_ABS);
+   tv[0].u64 = U64x(7fffffff,ffffffff);
+@@ -373,6 +376,8 @@ void lj_trace_freestate(global_State *g)
+   lj_mem_freevec(g, J->snapbuf, J->sizesnap, SnapShot);
+   lj_mem_freevec(g, J->irbuf + J->irbotlim, J->irtoplim - J->irbotlim, IRIns);
+   lj_mem_freevec(g, J->trace, J->sizetrace, GCRef);
++  if (J->penalty)  /* Not there if the state failed to open. */
++    lj_mem_freevec(g, J->penalty, PENALTY_SLOTS, HotPenalty);
+ }
+ 
+ /* -- Penalties and blacklisting ------------------------------------------ */

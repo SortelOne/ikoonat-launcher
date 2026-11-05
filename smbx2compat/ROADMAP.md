@@ -1,6 +1,6 @@
 # Roadmap: SMATRS on TheXTech-Lua (desktop, then Android)
 
-Status as of 2026-11-04. Goal: play *Super Mario and the Rainbow Stars* (SMATRS,
+Status as of 2026-11-05. Goal: play *Super Mario and the Rainbow Stars* (SMATRS,
 an SMBX2 episode) on this engine, first on macOS, then on Android.
 
 ## Where we are
@@ -552,15 +552,21 @@ image` now changes what the engine draws, as LunaLua's
 - Not checked: 2-3, 2-5 and the badge screen, the other redirect users
   (they need playing to reach). Not done: clip planes.
 
+*Performance round (2026-11-05)*: 1-1 went from ~6.6 to ~4.5 ms a frame
+(Lua ~4.5 to ~2.5); details in the Performance track, steps 4-10. No
+change in what scripts see, apart from the sizable list being rebuilt once a
+frame instead of on every read.
+
 *Next round, in order:*
-1. Performance: ~5.4 of ~6.7 traces abort each frame (`ffi_mem.lua`
-   loops, `ffi_npc.lua:444`, `blockeventmanager.lua:156`); 48,000 `mem()`
-   reads a frame; see the Performance track.
-2. Box light NPC 675 in 2-1: `data._settings` without `sourceSize`, though
+1. Box light NPC 675 in 2-1: `data._settings` without `sourceSize`, though
    the level's settings for it are complete (settings reaching the wrong NPC?).
-3. `smoke/actiontest`: the mushroom check (powerup at tick 180) fails on
-   this round's and the previous round's code alike.
-4. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
+2. `smoke/actiontest`: the mushroom check (powerup at tick 180) is flaky, not
+   broken: the same build passes and fails on back-to-back runs, the player
+   still mid grow-animation (`forcedState=1`) both times. Make the check wait
+   for the animation, or find what makes its timing vary.
+3. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
+4. More speed, if needed: the Performance track's candidates (struct views
+   for SMBX2's field reads, luabind writes).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -652,6 +658,15 @@ and flushes, and, without `nosample`, LuaJIT's sampling profiler. Frames
 100-400 of 1-1 vary by about +-0.3 ms between runs; compare 3+ runs. The
 sampler's function/line attribution is rough (see the probe's header); its
 VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
+Some runs are ~25% slower in every listener at once (the machine, not the
+code); since the performance round, compare the best or median of 3 runs.
+`,memcallers` adds which lines read `mem()` most (sampled; slows the run).
+
+For where native time goes, sample the running game without the probe:
+start `run-level.sh` in the background, then `sample $(pgrep -n TheXTech)
+10 -file out.txt`. The main thread's tree shows Lua (under `lua_pcall`),
+the renderer and the swap; offsets inside a function (`mem_get + 1492`)
+map to code with `objdump -d` on the Release binary.
 
 **Done so far** (Release, M3 Pro, SMATRS 1-1 frames 100-400, ms per frame):
 
@@ -669,6 +684,8 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | ID and collision group round | 11.3 | 8.2 | frames 300-900, muted; engine 3.1; 48,200 `mem()` reads a frame |
 | Level flow and game actions round | 10.5 | 7.6 | same; engine 2.9; 12.5 of 13.9 traces abort a frame |
 | Camera redirect round | 7.0 | 5.1 | same; engine 1.9 (no TheXTech lighting pass); 5.4 of 6.7 traces abort; Lua drop not explained by the round's changes |
+| Same code, start of the performance round | 6.6 | 4.5 | same; engine 2.1; 12.4 of 13.8 traces abort |
+| Performance round (steps 4-10 below) | 4.45-4.5 | 2.45-2.55 | same, 3 runs; engine 1.9-2.0; 11,700 `mem()` reads; ~1 of 2 traces aborts |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
@@ -741,6 +758,64 @@ bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
    some reach engine code, and an FFI-called function must never call back
    into Lua.
 
+Performance round (2026-11-05), each step measured on 1-1 frames 300-900 with
+`nosample`. A macOS `sample` of the running game (no probe) found most of
+these; see "Measuring" for how.
+
+4. **The sizable list once a frame.** SMBX2's `iterateSizable` reads the
+   list's length at every step, and each read rebuilt it (scan every block,
+   sort): `memSizableBlockCount` was ~470 of `mem_get`'s 839 samples.
+   Now it's rebuilt once a frame (`xtech_lua_memNewFrame`) and after SMBX2
+   writes the count or the list (spawning or deleting a sizable).
+   `sizable.lua:onDraw` 0.97 -> 0.08 ms; frame 6.57 -> 5.75.
+5. **No tail calls in `ffi_mem.lua`.** LuaJIT counts every tail call in a
+   trace against its loop-unroll limit (`loopunroll`, 15, `lj_record.c`
+   `lj_record_tailcall`), and the counter only resets when a trace starts.
+   `mem()` -> `readmem` -> the FFI call was 2 tail calls per read (3 with
+   the probe on), and SMBX2's generated field getters (`"=!Block:x"`,
+   `ffi_utils.lua`) add one more, so any trace with more than a handful of
+   reads aborted (`LUNROLL`). Results now go through a local. 5.75 -> 5.44;
+   aborts 13.7 -> 7.5 a frame.
+6. **Block and BGO ID scans in the engine.** `Block.iterateByFilterMap` /
+   `iterate(ids)` (and BGO's) read every object's ID through `mem()`:
+   `darkness.lua:964` and `blockeventmanager.lua:131` each read 14,000 block
+   IDs a frame. Patched (`core/patches.lua`) to `__xtech_ffiBlockNext` /
+   `__xtech_ffiBgoNext`, which find the next matching engine index, still
+   fresh at every step like SMBX2's loop; the ID map becomes a byte table
+   (`core.idFilter` in boot.lua, refilled when a loop starts).
+   `BGO.getIntersecting` uses the BGO quadtree (`xtech_bgo_queryIntersecting`).
+   `mem()` reads 48,200 -> 17,600; `blockeventmanager` update 0.38 -> 0.13
+   ms, `darkness` `onDraw` 0.23 -> 0.05.
+7. **Pointer globals by binary search.** Global reads walked all ~100
+   pointer globals first; reads of object counts (in every BGO field
+   access) made that `mem_get`'s hottest part. `mem_get` samples 281 -> 66.
+8. **LuaJIT's penalty cache: 64 -> 1024 slots** (`smbx2compat/luajit.patch`).
+   A spot that keeps aborting is blacklisted after ~10 aborts, but LuaJIT
+   remembers the last 64 spots only; SMATRS has hundreds, so they pushed each
+   other out and the same traces were recorded and thrown away every frame.
+   Each abort is also a C++-style throw, and on macOS arm64 every throw makes
+   dyld look up unwind tables (`_dyld_find_unwind_sections`), so aborts cost
+   far more than their recording. The table moved out of `jit_State`: the
+   arm64 VM reaches the dispatch table past `jit_State` with 12-bit offsets
+   (`GG_G2DISP` must stay under 4096; it went 3992 -> 2976). Aborts 7-10 ->
+   ~0.9 a frame; the trace compiler (`lj_ir_kgc`, unwinding) dropped out of
+   the sample. Over two minutes, compiling settles at ~0.2 traces a frame
+   and nothing flushes.
+9. **BGO writes without tree updates.** `extraBGOProperties` hides every BGO
+   it draws in `onCameraDraw` and shows it again in `onDrawEnd`; each write
+   ran `syncLayers_BGO` (every layer's tree). Hidden writes now just store
+   the value (drawing checks `Hidden`, as after `ShowLayer`), and location
+   writes resync only when the location changed (`BackgroundMemory`,
+   mememu.cpp). `extraBGOProperties` `onDrawEnd` 0.10 ms -> off the list.
+10. **BGO count in one call.** Every BGO field read checks the BGO against
+   `bgoGetCount()`, two `mem()` reads; now `__xtech_ffiBgoCount` (patched).
+   `mem()` reads 17,600 -> 11,700; frame 4.45-4.47 over 3 runs.
+
+Tried and dropped: `hotloop=56,hotexit=10` (LuaJIT's defaults; SMBX2 sets 3)
+and `maxrecord=4000` both measured slightly worse; `loopunroll=60` removed
+the tail-call aborts but not the time (step 5 does it without the side
+effects). `SMBX2COMPAT_JITOPT` (boot.lua) sets JIT options for such trials.
+
 **Open:** since the FileFormats round, every 1-1 run has had one ~31-35 ms
 frame (onTick ~15 ms, heap +1.9 MB, dozens of traces compiled); not looked at
 yet. The audio round's runs didn't show it (worst after frame 100: ~19-23 ms),
@@ -751,9 +826,13 @@ events and heap change of such a frame; a large GC step is the main suspect
 (SMBX2 runs the GC by hand in `onDrawEnd`, `main_events.lua`).
 
 **Candidates, roughly in order of expected payoff (measure first):**
-0. **Lua drawing.** `sizable.lua:onDraw` (1.32 ms) and `extraBGOProperties`
-   `onCameraDraw` (0.57 ms) are now the biggest listeners; both rebuild draw
-   data every frame.
+0. **Struct views.** The 11,700 `mem()` reads left in 1-1 are ordinary field
+   reads (`v.x`, `v.id`, `v.width` in `blockeventmanager`, `blockutils`,
+   `extraBGOProperties`, `sizable`). Each costs an FFI call plus `mem_get`'s
+   range lookup and mememu's field tables (~10-20 ns). Making SMBX2's
+   getters read engine memory directly would need the engine's structs laid
+   out as SMBX's, or per-field getters; a project of its own.
+   `extraBGOProperties` `onCameraDraw` (~0.25 ms) is the top listener.
 1. **SMBX2's class lookup** around `mem()` (`player.x` is ~50 ns, of which
    the read is 6). The sampler shows `ffi_player.lua` `__index`/`get` and
    `classValidityChecker` near the top. Patch carefully: these are SMBX2's
@@ -762,9 +841,10 @@ events and heap change of such a frame; a large GC step is the main suspect
    calls per call:
    - `NPC.iterateIntersecting`/`getIntersecting` (`ffi_npc.lua:577`) — the
      NPC tree;
-   - `BGO.getIntersecting`/`iterateIntersecting` (`ffi_bgo.lua:217/345`; 1-1
-     has ~1,090 BGOs) — `treeBackgroundQuery`;
-   - `Block.get(id)`/`NPC.get(id)` reading the type of every object;
+   - `BGO.iterateIntersecting` (`ffi_bgo.lua:345`; `getIntersecting` is
+     done) — `treeBackgroundQuery`;
+   - `Block.get(id)`/`NPC.get(id)`/`getByFilterMap` reading the type of
+     every object (the iterate versions are done);
    - `Events.get(name)` and `Layer.get(name)` reading every name as a string.
      `ffi_events` runs `Events.get` on every triggered event
      (`onPostEventDirect`). Use the engine's `FindEvent`/`FindLayer`.
@@ -774,9 +854,7 @@ events and heap change of such a frame; a large GC step is the main suspect
    `NPC(idx)` is 0-based).
 3. **Allocation.** String reads build a new `std::string` and Lua string on
    every call. `PlayerSettings`/`Animation` objects and the iterator closures
-   are new tables each call. The sizable list (`memSizableBlockCount`) is
-   rebuilt and sorted on every read of its length; cache it per frame
-   (`core.onFrameEnd`).
+   are new tables each call.
 4. **Logging in hot paths.** mememu's `MemEmu:` warnings aren't capped (a
    per-frame one once logged 29,000 lines). Cap or rate-limit them like
    `mem_unknown`.

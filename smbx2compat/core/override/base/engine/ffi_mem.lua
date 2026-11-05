@@ -9,7 +9,11 @@
 
   Reads go through LuaJIT's FFI, as a call through a C function pointer the
   engine provides (__xtech_ffiMemGet): LuaJIT compiles those into its traces,
-  but not luabind calls, and SMBX2 reads ~17,000 fields a frame in SMATRS 1-1.
+  but not luabind calls, and SMBX2 reads ~48,000 fields a frame in SMATRS 1-1.
+
+  Results are returned from a local rather than as "return f(...)": LuaJIT
+  counts each tail call in a trace against its loop-unroll limit (15), so a
+  trace that read mem() more than a few times through them was thrown away.
 ]]
 
 local ffi = ffi -- main.lua gives its low-level libraries the FFI as a global
@@ -25,19 +29,58 @@ local FIELD_BOOL = FIELD_BOOL
 local counts = __smbx2core.profileMemCalls
 if counts then
     local get, set, getString, setString = mem_get, mem_set, mem_getString, mem_setString
-    mem_get = function(a, t) counts.get = counts.get + 1 return get(a, t) end
-    mem_set = function(a, t, v) counts.set = counts.set + 1 return set(a, t, v) end
-    mem_getString = function(a) counts.string = counts.string + 1 return getString(a) end
-    mem_setString = function(a, v) counts.string = counts.string + 1 return setString(a, v) end
+    mem_get = function(a, t) counts.get = counts.get + 1 local v = get(a, t) return v end
+    -- ",memcallers": every 97th read, which line asked (skipping mem() itself and
+    -- SMBX2's generated field getters, "=!Block:x"), and the first line outside
+    -- base/engine (the library that wanted the field)
+    local callers, getinfo = __smbx2core.profileMemCallers, __smbx2core.getinfo
+    if callers then
+        local function where(from, skip)
+            for level = from, from + 12 do
+                local info = getinfo(level, "Sl")
+                if not info then
+                    return "?", level
+                end
+                local src = info.short_src
+                if not skip(src) then
+                    return string.gsub(src, "^.*/", "") .. ":" .. info.currentline, level
+                end
+            end
+            return "?", from
+        end
+        local function isMem(src)
+            return string.find(src, "ffi_mem.lua", 1, true) or string.sub(src, 1, 1) == "!"
+        end
+        local function isEngine(src)
+            return isMem(src) or string.find(src, "base/engine/", 1, true)
+        end
+        local countedGet = mem_get
+        mem_get = function(a, t)
+            if counts.get % 97 == 0 then
+                local first, level = where(3, isMem)
+                local user = where(level, isEngine)
+                local key = (user == first) and first or (first .. " < " .. user)
+                callers[key] = (callers[key] or 0) + 97
+            end
+            local v = countedGet(a, t)
+            return v
+        end
+    end
+    mem_set = function(a, t, v) counts.set = counts.set + 1 set(a, t, v) end
+    mem_getString = function(a) counts.string = counts.string + 1 local v = getString(a) return v end
+    mem_setString = function(a, v) counts.string = counts.string + 1 setString(a, v) end
 end
 
 local function readmem(addr, dtype)
+    local v
     if (dtype == FIELD_STRING) then
-        return mem_getString(addr)
+        v = mem_getString(addr)
     elseif (dtype == FIELD_BOOL) then
-        return mem_get(addr, FIELD_WORD) ~= 0
+        v = mem_get(addr, FIELD_WORD) ~= 0
+    else
+        v = mem_get(addr, dtype)
     end
-    return mem_get(addr, dtype)
+    return v
 end
 
 local function writemem(addr, dtype, val)
@@ -52,10 +95,10 @@ end
 
 local function mem(addr, dtype, val)
     if (val == nil) then
-        return readmem(addr, dtype)
-    else
-        return writemem(addr, dtype, val)
+        local v = readmem(addr, dtype)
+        return v
     end
+    writemem(addr, dtype, val)
 end
 
 --------------------

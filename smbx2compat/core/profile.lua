@@ -5,6 +5,8 @@
     SMBX2COMPAT_PROFILE=1                   frames 100-400 (counted from onStart)
     SMBX2COMPAT_PROFILE=200-800             any other range
     SMBX2COMPAT_PROFILE=100-400,nosample    without the sampling profiler
+    SMBX2COMPAT_PROFILE=100-400,memcallers  also which lines read mem() most
+                                            (slower; for finding readers only)
 
   Over that range it measures, then logs once as "[smbx2core] profile ...":
     - frame time: from the engine's onLoop call to the end of its render
@@ -47,6 +49,7 @@ local eventTime, eventOrder = {}, {}
 local frameEvents, gcAtFrameStart = {}, 0 -- this frame's events, and the Lua heap size
 local listenerTime, listenerCalls = {}, {}
 local memCalls = core.profileMemCalls -- {get = n, set = n, string = n}
+local memCallers = core.profileMemCallers -- "line < library line" -> reads (sampled)
 
 local function log(msg)
     xtech_misc_log("[smbx2core] profile " .. msg)
@@ -184,6 +187,13 @@ local function report()
 
     log(string.format("mem() calls per frame: %.0f reads, %.0f writes, %.0f strings",
         memCalls.get / frames, memCalls.set / frames, memCalls.string / frames))
+    if memCallers then
+        local parts = {}
+        for _, e in ipairs(top(memCallers, 25)) do
+            parts[#parts + 1] = string.format("%s %.0f", e[1], e[2] / frames)
+        end
+        log("mem() reads per frame by caller (sampled): " .. table.concat(parts, "; "))
+    end
 
     parts = {}
     for _, e in ipairs(top(listenerTime, 15)) do
@@ -297,6 +307,11 @@ function __xtech_onLoop(...)
     if frame == firstFrame then
         active = true
         memCalls.get, memCalls.set, memCalls.string = 0, 0, 0
+        if memCallers then
+            for k in pairs(memCallers) do
+                memCallers[k] = nil
+            end
+        end
         if sampling then
             jitProfile.start("i1", sample)
         end

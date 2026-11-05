@@ -2602,12 +2602,24 @@ public:
         if(address >= 0x28 && address < 0x38) // SpeedX, SpeedY
             return;
 
+        // smbx2compat: only a moved BGO needs its tree entry redone (syncLayers_BGO
+        // goes through every layer); drawing checks Hidden itself, as after
+        // ShowLayer. SMATRS hides and shows BGOs it draws itself every frame.
+        bool sync = true;
         if(address >= 0x08 && address < 0x28) // Location
+        {
+            const SpeedlessLocation_t old = obj->Location;
             s_spLocMem.setValue(&obj->Location, address - 0x08, value, ftype);
+            sync = (old.X != obj->Location.X || old.Y != obj->Location.Y
+                    || old.Width != obj->Location.Width || old.Height != obj->Location.Height);
+        }
         else
+        {
             BackgroundParent::setValue(obj, address, value, ftype);
+            sync = (address == 0x06);
+        }
 
-        if((address >= 0x08 && address < 0x28) || address == 0x04 || address == 0x06)
+        if(sync)
         {
             int index = obj - &Background[1] + 1;
             if(index >= 1 && index <= maxBackgrounds + maxWarps)

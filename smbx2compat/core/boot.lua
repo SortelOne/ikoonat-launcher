@@ -40,18 +40,24 @@ _G.__smbx2core = core
 -- away (an MCODEAL flush). In SMATRS 1-1 that happened up to every 2-3 frames.
 -- SMBX2 runs as 32-bit Windows code, where this can't happen.
 jit.opt.start("sizemcode=8192", "maxmcode=8192")
+local jitOpt = jit.opt -- main.lua's lockdown hides jit
 
 -- SMBX2COMPAT_PROFILE turns on the timing probe (profile.lua); ffi_mem.lua
 -- counts mem() calls into profileMemCalls when it's set
 core.profileSpec = os.getenv("SMBX2COMPAT_PROFILE")
 if core.profileSpec and core.profileSpec ~= "" and core.profileSpec ~= "0" then
     core.profileMemCalls = {get = 0, set = 0, string = 0}
+    if string.find(core.profileSpec, "memcallers", 1, true) then
+        core.profileMemCallers = {}
+        core.getinfo = debug.getinfo -- main.lua's lockdown takes debug away
+    end
     core.jitUtil = require("jit.util") -- main.lua takes jit out of package.loaded
 else
     core.profileSpec = nil
 end
 -- Testing: SMBX2COMPAT_SHOTS=300,900 saves screenshots of those frames (see the end)
 core.shotsSpec = os.getenv("SMBX2COMPAT_SHOTS")
+core.jitOptSpec = os.getenv("SMBX2COMPAT_JITOPT")
 
 
 -------------
@@ -334,6 +340,36 @@ do
     end
 end
 
+-- Block/BGO ID maps as byte tables for the engine's ID searches (the iterate
+-- patches to ffi_block.lua/ffi_bgo.lua in patches.lua): filter[id] is 1 for
+-- each ID the map has a true value for. One table per map, refilled when a
+-- loop over it starts (i == 0), since scripts can change a map between loops.
+do
+    local ffi = require("ffi")
+    local size = 2001 -- SMBX2's IDs go up to 2000 (blocks)
+    local filters = setmetatable({}, {__mode = "k"})
+    core.idFilterSize = size
+
+    function core.idFilter(map, i)
+        local filter = filters[map]
+        if filter and i ~= 0 then
+            return filter
+        end
+        if filter then
+            ffi.fill(filter, size)
+        else
+            filter = ffi.new("uint8_t[?]", size)
+            filters[map] = filter
+        end
+        for id, v in pairs(map) do
+            if v and type(id) == "number" and id >= 0 and id < size and id % 1 == 0 then
+                filter[id] = 1
+            end
+        end
+        return filter
+    end
+end
+
 
 ------------------
 -- Run main.lua --
@@ -349,6 +385,20 @@ do
     end
     if __isLuaError then
         error("main.lua flagged an error (logged above)", 0)
+    end
+end
+
+-- SMBX2COMPAT_JITOPT="hotloop=56,loopunroll=60" overrides main.lua's JIT
+-- settings, for trying them out with the profiler
+do
+    local spec = core.jitOptSpec
+    if spec and spec ~= "" then
+        local opts = {}
+        for opt in string.gmatch(spec, "[^,]+") do
+            opts[#opts + 1] = opt
+        end
+        jitOpt.start(unpack(opts))
+        core.log("JIT options: " .. spec)
     end
 end
 

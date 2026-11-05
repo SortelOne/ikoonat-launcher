@@ -71,9 +71,14 @@ re-exported to that patch (`git -C 3rdparty/PGE_File_Formats diff > ...`).
 
 Same for LuaJIT: `git -C 3rdparty/LuaJIT apply ../../smbx2compat/luajit.patch`
 adds a `LUAJIT_ENABLE_LUA52COMPAT` CMake option, which `cmake/library_luajit.cmake`
-turns on (SMBX2's scripts need Lua 5.2 syntax, as LunaLua's LuaJIT allows). After
-changing LuaJIT's build flags, delete `build/external/luabind/src/LuaJIT_local-*`
-and the game binary, or the old library stays linked.
+turns on (SMBX2's scripts need Lua 5.2 syntax, as LunaLua's LuaJIT allows), and
+raises the trace penalty cache from 64 to 1024 slots, moved out of `jit_State`
+(`lj_jit.h`, `lj_trace.c`; why: ROADMAP.md Performance track, step 8). Keep
+`jit_State` from growing: the arm64 VM reaches the dispatch table past it with
+12-bit offsets. After changing LuaJIT's sources or build flags, delete
+`build/external/luabind/src/LuaJIT_local-*` and the game binary, re-run
+`cmake build` (configure writes the stamp files), then build; otherwise the old
+library stays linked.
 
 ## Build (macOS, Homebrew cmake + ninja)
 
@@ -243,7 +248,10 @@ How it works (details in `core/boot.lua`'s header):
   in-memory source edits (written with `\n`; they also match SMBX2's CRLF files).
   `Block.iterateIntersecting`/`getIntersecting` are patched to use the engine's
   block quadtree (`xtech_block_queryIntersecting`), since a full scan per call
-  was ~20 ms a frame in SMATRS 1-1.
+  was ~20 ms a frame in SMATRS 1-1; `BGO.getIntersecting` the same way.
+  Block/BGO `iterate(ids)`/`iterateByFilterMap` find matches in the engine
+  (`__xtech_ffiBlockNext`/`__xtech_ffiBgoNext`, FFI pointers like
+  `__xtech_ffiMemGet`), and `bgoGetCount` is one FFI call.
 - `mem()` (`override/.../ffi_mem.lua`) sends every address to `xtech_mem_get/set`
   (strings: `xtech_mem_getString/setString`) in `xtech_lua_bindings.cpp`.
   Globals go to mememu. SMBX keeps arrays behind pointer globals; each gets a
@@ -258,6 +266,10 @@ How it works (details in `core/boot.lua`'s header):
   Reads go through LuaJIT's FFI (a C function pointer, `__xtech_ffiMemGet`
   -> `LuaMisc::ffi_mem_get`) so traces can include them; writes and strings
   stay on luabind. Nothing an FFI-called function does may call back into Lua.
+  Return those results through a local, not as `return f(...)`: LuaJIT counts
+  each tail call in a trace against its loop-unroll limit (15) and aborts the
+  trace past it. SMBX's sizable list (`0xB2BEE4`/`0xB2BED8`) is rebuilt from
+  the engine's blocks once a frame and after SMBX2 writes it.
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
   memory`. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.
@@ -274,9 +286,14 @@ How it works (details in `core/boot.lua`'s header):
   compiles: with LuaJIT's 64 KB code areas, arm64's branch range made it throw
   away all compiled code every few frames in SMATRS (ROADMAP.md, Performance
   track). Don't remove it.
-- Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample]` turns on `core/profile.lua`
-  (frame/event/listener times, `mem()` counts, slowest frames, JIT traces and
+- Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample][,memcallers]` turns on
+  `core/profile.lua` (frame/event/listener times, `mem()` counts and, with
+  `memcallers`, the lines reading most, slowest frames, JIT traces and
   flushes, LuaJIT's sampler); results log as `[smbx2core] profile ...`.
+  Compare the best or median of 3 runs (some runs are ~25% slower overall).
+  `SMBX2COMPAT_JITOPT="hotloop=56,..."` overrides SMBX2's JIT options for
+  trials. For native time, `sample` the running game (ROADMAP.md,
+  Performance track, "Measuring").
 - Reading a run: `grep -n "Lua: \|Lua error\|smbx2core" <log> | grep -v MemEmu`;
   a distinct-error tally: `grep "==>" <log> | sed 's/.*==> //' | sort | uniq -c`.
   The Lua files under `core/` can be syntax-checked with the system LuaJIT
@@ -304,7 +321,8 @@ How it works (details in `core/boot.lua`'s header):
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
   overrides too) except clip planes. 2-1 runs too, with one error from the
-  box light NPC 675 (`sourceSize` nil). See ROADMAP.md Phase 1 "Next round".
+  box light NPC 675 (`sourceSize` nil). `smoke/actiontest`'s mushroom check
+  passes or fails from run to run. See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

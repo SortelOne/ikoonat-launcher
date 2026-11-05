@@ -30,6 +30,9 @@ void xtech_lua_register_bindings(lua_State *L);
 // Process delayed calls queue — call each frame from xtech_lua_loop()
 void xtech_lua_process_delayed_calls();
 
+// smbx2compat: start of a frame for mem()'s cached views of the engine
+void xtech_lua_memNewFrame();
+
 // Clear all pending delayed calls — call from xtech_lua_reset()
 void xtech_lua_clear_delayed_calls();
 
