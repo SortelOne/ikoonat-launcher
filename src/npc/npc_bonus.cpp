@@ -42,6 +42,10 @@
 #include "../controls.h"
 
 #include <Logger/logger.h>
+
+#ifdef ENABLE_XTECH_LUA
+#   include "../script/include/xtech_lua_events.h" // smbx2compat
+#endif
 #ifdef THEXTECH_INTERPROC_SUPPORTED
 #   include <InterProcess/intproc.h>
 #endif
@@ -242,6 +246,13 @@ void TouchBonus(int A, int B)
     // don't get just-thrown items, except coins
     if(NPC[B].CantHurtPlayer == A && !(NPC[B]->IsACoin && Player[A].HoldingNPC != B && NPC[B].Killed == 0))
         return;
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onNPCCollect, which scripts may cancel; not for a fairy pendant
+    // touched in a clown car, which stays (LunaLua's runtimeHookCollectNPC)
+    if(!(NPC[B].Type == NPCID_FLY_POWER && Player[A].Mount == 2) && xtech_lua_event_smbx2NPCCollect(B, A))
+        return;
+#endif
 
     int sfx_extra_item     = (Player[A].Character == 5) ? SFX_HeroHeart : SFX_GotItem;
     int sfx_grow_item      = (Player[A].Character == 5) ? SFX_HeroItem  : SFX_PlayerGrow;

@@ -132,6 +132,12 @@ void BlockHit(int A, bool HitDown, int whatPlayer)
 
     auto &b = Block[A];
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onBlockHit, which scripts may cancel (LunaLua's runtimeHookHitBlock)
+    if(xtech_lua_event_smbx2BlockHit(A, HitDown, whatPlayer))
+        return;
+#endif
+
     if(BattleMode && b.RespawnDelay_ScreensLeft == 0)
         b.RespawnDelay_ScreensLeft = 1;
 
@@ -973,6 +979,12 @@ bool KillBlock(int A, bool Splode)
     default:
         break;
     }
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onBlockRemove, which scripts may cancel (LunaLua's runtimeHookRemoveBlock)
+    if(xtech_lua_event_smbx2BlockRemove(A, Splode))
+        return false;
+#endif
 
     if(Block[A].Hidden)
         return false;
@@ -2125,6 +2137,12 @@ resume_ProcEvent:
 void PowBlock()
 {
     // For NetPlay: make this only affect screens where the earthquake block NPC is near at least one vScreen
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onPOW, which scripts may cancel (LunaLua's runtimeHookPOW)
+    if(xtech_lua_event_smbx2POW())
+        return;
+#endif
 
     int numScreens = 0;
     int Z = 0;

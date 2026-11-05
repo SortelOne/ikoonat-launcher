@@ -425,28 +425,74 @@ core.log("main.lua done; level " .. __xtech_levelFile .. " in " .. core.episodeP
 local started = false
 local tickEndReady, drawEndReady = false, false
 
-local function sendEvent(name, cancellable, ...)
+-- Players whose section changed: LunaLua sends them onSectionChange right
+-- after the event during which that happened (LunaLuaMain.h callEvent)
+local sectionChanges = {}
+local sendingSectionChanges = false
+
+function core.queueSectionChange(playerIdx)
+    if sendingSectionChanges then
+        return
+    end
+    for _, p in ipairs(sectionChanges) do
+        if p == playerIdx then
+            return
+        end
+    end
+    sectionChanges[#sectionChanges + 1] = playerIdx
+end
+
+local callEventObj
+
+local function sendSectionChanges()
+    sendingSectionChanges = true
+    local players = sectionChanges
+    sectionChanges = {}
+    for _, p in ipairs(players) do
+        callEventObj({eventName = "onSectionChange", directEventName = "onSectionChange",
+            loopable = false, cancellable = false, cancelled = false}, xtech_player_get(p).Section, p)
+    end
+    sendingSectionChanges = false
+end
+
+-- Returns whether a script cancelled the event
+function callEventObj(e, ...)
     if not started then
         return false
     end
-    local e = {
+    __callEvent(e, ...)
+    if #sectionChanges > 0 and not sendingSectionChanges then
+        sendSectionChanges()
+    end
+    return e.cancelled
+end
+
+local function sendEvent(name, cancellable, ...)
+    return callEventObj({
         eventName = name,
         directEventName = name,
         loopable = false,
         cancellable = cancellable,
         cancelled = false,
-    }
-    __callEvent(e, ...)
-    return e.cancelled
+    }, ...)
 end
 core.sendEvent = sendEvent
 
+-- onStart, followed by onSectionChange for each player (LunaLua's triggerOnStart)
+local function start()
+    if started then
+        return
+    end
+    started = true
+    for p = 1, xtech_player_count() do
+        core.queueSectionChange(p)
+    end
+    sendEvent("onStart", false)
+end
+
 -- Called by the engine at the top of each game frame, before input is read
 function __xtech_onLoop()
-    if not started then
-        started = true
-        sendEvent("onStart", false)
-    end
+    start()
     sendEvent("onLoop", false)
     __doEventQueue()
     -- LunaLua sends these right after SMBX reads input; TheXTech calls us just
@@ -502,6 +548,63 @@ end
 -- BlockCache); ffi_block.lua drops its Block object for the old block
 function __xtech_onBlockReuse(idx)
     sendEvent("onBlockInvalidateForReuseInternal", false, idx)
+end
+
+-- Engine events about one object (LunaLua's RuntimeHookHooks.cpp). Each
+-- returns whether a script cancelled it; main_events.lua converts the indices
+-- into objects and sends the onPost* events itself.
+function __xtech_onNPCKill(npcIdx, killReason)
+    return sendEvent("onNPCKill", true, npcIdx, killReason)
+end
+
+function __xtech_onNPCHarm(npcIdx, harmType, culpritIdx)
+    return sendEvent("onNPCHarm", true, npcIdx, harmType, culpritIdx)
+end
+
+function __xtech_onNPCCollect(npcIdx, playerIdx)
+    return sendEvent("onNPCCollect", true, npcIdx, playerIdx)
+end
+
+function __xtech_onBlockHit(blockIdx, fromUpSide, playerIdx)
+    return sendEvent("onBlockHit", true, blockIdx, fromUpSide, playerIdx)
+end
+
+function __xtech_onBlockRemove(blockIdx, makeEffects)
+    return sendEvent("onBlockRemove", true, blockIdx, makeEffects, false)
+end
+
+function __xtech_onPOW()
+    return sendEvent("onPOW", true)
+end
+
+function __xtech_onPlayerHarm(playerIdx)
+    return sendEvent("onPlayerHarm", true, playerIdx)
+end
+
+function __xtech_onPlayerKill(playerIdx)
+    return sendEvent("onPlayerKill", true, playerIdx)
+end
+
+function __xtech_onWarpEnter(warpIdx, playerIdx)
+    return sendEvent("onWarpEnter", true, warpIdx, playerIdx)
+end
+
+function __xtech_onWarp(warpIdx, playerIdx, sectionChanged)
+    if sectionChanged then
+        core.queueSectionChange(playerIdx)
+    end
+    sendEvent("onWarp", false, warpIdx, playerIdx)
+    return false
+end
+
+-- A level event: LunaLua sends onStart just before "Level - Start", then
+-- onEventDirect (cancellable) now and onEvent from the next frame's event queue
+function __xtech_onEvent(name)
+    if name == "Level - Start" then
+        start()
+    end
+    return callEventObj({eventName = "onEvent", directEventName = "onEventDirect",
+        loopable = true, cancellable = true, cancelled = false}, name)
 end
 
 function __xtech_onExit()

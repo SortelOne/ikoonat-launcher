@@ -568,6 +568,11 @@ void PlayerEffectWarpPipe(int A)
         if(p.HoldingNPC > 0)
             CheckSectionNPC(p.HoldingNPC);
 
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: onWarp, now that the player is at the exit (LunaLua's runtimeHookWarpPipe)
+        xtech_lua_event_smbx2Warp(p.Warp, A);
+#endif
+
         // set any other players warping to the same pipe to this state (needed to avoid splitting a shared screen)
         if(is_shared_screen && !do_scroll)
         {
@@ -1094,6 +1099,11 @@ void PlayerEffectWarpDoor(int A)
             PlayerGrabCode(A);
         }
 
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: onWarp, now that the player is at the exit (LunaLua's runtimeHookWarpDoor)
+        xtech_lua_event_smbx2Warp(p.Warp, A);
+#endif
+
         p.Effect = PLREFF_NORMAL;
         p.Effect2 = 0;
         p.WarpCD = 40;
@@ -1370,6 +1380,12 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
     if(!canWarp)
         return false;
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onWarpEnter, which scripts may cancel (LunaLua's runtimeHookWarpEnter)
+    if(xtech_lua_event_smbx2WarpEnter(B, A))
+        return false;
+#endif
+
     if(warp.Stars > numStars)
     {
         bool do_swap_frame = (g_config.fix_visual_bugs && warp.Effect == 1 && direction == 3 && plr.Duck && plr.SwordPoke == 0);
@@ -1564,6 +1580,11 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
 
         if(warp.eventExit != EVENT_NONE)
             TriggerEvent(warp.eventExit, A);
+
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: onWarp (LunaLua's runtimeHookWarpInstant)
+        xtech_lua_event_smbx2Warp(B, A);
+#endif
 
         return true; // break
     }

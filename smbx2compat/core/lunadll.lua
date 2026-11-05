@@ -642,6 +642,24 @@ end
 ------------------------------------------
 -- ffi_player.lua, ffi_npc.lua, ffi_block.lua --
 ------------------------------------------
+
+-- A script moved a player to another section: onSectionChange follows the
+-- current event (boot.lua)
+function dll.LunaLuaQueuePlayerSectionChangedEvent(playerIdx)
+    core.queueSectionChange(playerIdx)
+end
+
+-- Block:collidesWith: which side of the block the player touches (SMBX's
+-- FindCollision), from the two objects' mem() addresses
+function dll.LunaLuaBlocksTestCollision(plAddr, blAddr)
+    return xtech_block_testCollision(tonumber(plAddr), tonumber(blAddr))
+end
+
+-- ctrlnotification.lua's battery warning; LunaLua also returns
+-- SDL_JOYSTICK_POWER_UNKNOWN (-1) unless battery reporting is turned on
+function dll.LunaLuaGetSelectedControllerPowerLevel(playerNum)
+    return -1
+end
 -- LunaLua keeps extra per-object fields beside SMBX's own memory (layouts in
 -- its LuaProxyFFI.cpp), indexed like the object arrays. The engine checks them
 -- in its collisions, so they live there (SMBX2NPCExt_t etc. in src/globals.h):

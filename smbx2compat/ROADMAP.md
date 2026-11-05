@@ -604,12 +604,79 @@ frame instead of on every read.
   off, and `Block(idx)` is the same block back at its place. 12 of 12 OK in
   3 runs; 1-1, 2-1, collisiontest unchanged.
 
+*Engine events round (2026-11-05)*:
+- Core mode now sends SMBX2 the events LunaLua sends from its SMBX hooks
+  (`RuntimeHookHooks.cpp`, `RuntimeHookNpcHarm.cpp`), from the same places
+  in the engine, and respects a cancel:
+
+  | Event | Engine function | A cancel... |
+  |---|---|---|
+  | `onNPCKill` | `KillNPC`, top (after the resume switch) | clears `Killed`, NPC stays |
+  | `onNPCHarm` | `NPCHit`, before the freeze and before the per-type logic | skips the hit |
+  | `onNPCCollect` | `TouchBonus`, after its early returns | skips it |
+  | `onBlockHit` | `BlockHit`, top | skips it |
+  | `onBlockRemove` | `KillBlock`, top (also hidden blocks, as LunaLua) | skips it |
+  | `onPOW` | `PowBlock`, top | skips it |
+  | `onPlayerHarm` | `PlayerHurt`, after its "can't be hurt now" returns | skips it |
+  | `onPlayerKill` | `KillPlayer`, top | skips it |
+  | `onWarpEnter` | `checkWarp`, once the player can warp | no warp |
+  | `onEventDirect` | `ProcEvent_Safe`, first entry | the event (and what it triggers) doesn't run |
+  | `onWarp`, `onSectionChange` | warp exits (instant, pipe, door) | not cancellable |
+
+  Only the main event comes from the engine. SMBX2's `main_events.lua`
+  turns the indices into objects and sends `onPostNPCKill` etc. itself.
+  `onEvent` is queued for the next frame, as LunaLua's loopable events are.
+  Plumbing: `xtech_lua_event_smbx2*` (`script/src/xtech_lua_events.cpp`,
+  `s_coreEvent`: core mode only, never in the editor, returns the cancel)
+  -> boot.lua `__xtech_on*` -> `sendEvent(name, true, ...)`.
+- `onStart` now comes just before the "Level - Start" event (LunaLua's
+  `__vbaStrCmp_TriggerSMBXEventHook`), followed by `onSectionChange` for
+  each player. Before, it came at the first `onLoop`, after the level's
+  start events, and no `onEvent` reached scripts before it.
+  `onSectionChange` is queued and sent after the current event, as
+  LunaLua's `callEvent` does: on warps that change section, after
+  `onStart`, and when a script moves a player (`LunaLuaQueuePlayerSectionChangedEvent`).
+- LunaLua's `vulnerableharmtypes` NPC property now works
+  (`xtech_lua_smbx2NpcVulnerableHarmTypes`, read by `NPCHit`): an NPC whose
+  config lists the hit's harm type dies to it (`Killed = B`), whatever the
+  engine would do with its ID. Before, SMBX2's own NPCs (IDs past SMBX 1.3's
+  292, set up by `npcManager.registerHarmTypes`) took no damage at all.
+  `onNPCHarm` is sent once per hit, before the per-type logic, when that
+  property applies or the engine has logic for the NPC (SMBX 1.3's IDs,
+  TheXTech's own, coins, bonuses). LunaLua sends it at ~60 places inside
+  SMBX's harm code, only where a harm happens, so here a hit that the
+  engine then ignores (a hit on a spring, say) can still send it.
+- LunaLua's extended NPC/block properties (and the other `mem()` storage)
+  go back to their defaults at each core level (`xtech_lua_memNewLevel`),
+  as `ResetLunaModule` does. They used to last for the whole session.
+- Also: `Block:hit`/`Block:remove` (LunaLua's `LegacyBlock`, in
+  `core/classes.lua`, via `xtech_block_hit`/`xtech_block_remove`; a block
+  with death events is queued like `SafelyKillBlock`), `Block:collidesWith`
+  (`LunaLuaBlocksTestCollision` -> `FindCollision`), and
+  `LunaLuaGetSelectedControllerPowerLevel` (-1, as LunaLua without battery
+  reporting). The last two became reachable once these events arrived.
+- Difference left: `triggerEvent` queues the event for later in the frame
+  (`TriggerEvent` -> `UpdateEvents`); LunaLua runs it at once.
+- New test level `smoke/eventtest` (data dir): start order, each event
+  cancelled once and then let through (with its `onPost*`), the custom-NPC
+  harm types, `Block:collidesWith`; 24 of 24 OK. actiontest 12/12,
+  collisiontest 3/3, bonus1/errtest their known errors. 1-1 and 2-1: no
+  errors, no unknown `mem()`. 1-1 frames 300-900 (Release): 4.98, 4.42,
+  4.69 ms (Lua 2.91, 2.74, 2.57), within run-to-run noise of the 4.5 ms
+  before.
+
 *Next round, in order:*
-1. Cancellable engine events (`onNPCHarm`, `onNPCKill`, `onNPCCollect`,
-   ...; Phase 5). Core mode sends SMBX2 no per-object engine events yet;
-   LunaLua's senders are in `RuntimeHookHooks.cpp` (`NPCKillHook` sends
-   `onNPCKill` before the kill, cancellable via `killFlag = 0`).
-2. More speed, if needed: the Performance track's candidates (struct views
+1. The rest of LunaLua's events that SMATRS listens to (files in the
+   episode): `onMessageBox` (4), `onKeyboardPress` (4), `onExitLevel`'s
+   real exit type (4, sent with 0 now), `onCheckpoint` (2), `onPause`,
+   `onColorSwitch`, `onJump` (1 each). SMBX2's own libraries also use
+   `onNPCTransform` (6) and `onNPCGenerated`/`onExplosion` (2 each).
+   `onFramebufferResize` (36) already works: SMBX2 sends it in Lua.
+2. Play Chapter 1 (Phase 5's "done when"): SMBX2's custom NPCs can be
+   hurt now, so levels may behave differently. If a script relies on
+   `onNPCHarm` only arriving for real harms, move the send into the
+   type branches (see above).
+3. More speed, if needed: the Performance track's candidates (struct views
    for SMBX2's field reads, luabind writes).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
@@ -647,7 +714,9 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 5 — Events, input, audio, saves
 - Cancellable events (`eventObj.cancelled`): fire `onNPCHarm` / `onPlayerHarm` /
-  `onBlockHit` *before* the engine acts, and respect cancel.
+  `onBlockHit` *before* the engine acts, and respect cancel. Done 2026-11-05
+  for LunaLua's object, warp and level-event hooks (Phase 1 "Engine events
+  round"); the rarer events are listed there.
 - `onEvent`, `onInputUpdate`, alt-jump/alt-run, `player:harm()` / `kill()`
   (harm/kill done 2026-11-04).
 - `SaveData` / `GameData` persisted per episode. `Audio.*` is done (Phase 1,
@@ -672,6 +741,26 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - Controls: the Odin 3's built-in gamepad goes through SDL's game-controller
   support; map SMATRS's extra inputs (alt-jump/alt-run, menus). Touch is optional.
 - Performance pass on a real device (270k lines of Lua per frame budget).
+- Crash and error reports from the Odin (Jake asked, 2026-11-05): a way to
+  get what went wrong to Claude without a debugger. What exists: TheXTech's
+  `lib/CrashHandler` already catches crashes on Android and writes a stack
+  trace (`_Unwind_Backtrace`, raw addresses) into the log file in the
+  user folder; Lua errors go to the same log (`[smbx2core] ==>` with a
+  traceback). To add:
+  1. Logs in a folder Jake can reach from the Odin's file manager (or the
+     shared TheXTech folder), and crash logs exempt from the log pruning.
+  2. On the next launch after a crash (a marker file the crash handler
+     writes), offer "Share crash log" through Android's share sheet (Drive,
+     email, ...), with the previous log and the last screenshot attached.
+     Also a "Share last log" item in the pause/options menu for script errors
+     that don't crash.
+  3. Keep the unstripped `libmain.so` of every APK we build (named by the
+     build's git hash, which goes into the log header), so a raw backtrace
+     can be turned into file:line with `llvm-addr2line`/`ndk-stack` here.
+  4. Optional: an on-screen error toast in core mode when a script error is
+     logged the first time, so problems show while playing.
+  Jake puts a shared log into `../TheXTech-data/odin-logs/`; reading it is
+  then the same as reading a desktop run's log.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)
@@ -959,6 +1048,23 @@ events and heap change of such a frame; a large GC step is the main suspect
 
 Phases 0–1 are days of work; 2–6 are the bulk and realistically take weeks to
 months. Phase 7 setup can start any time after Phase 0.
+
+Before M6: a memory leak audit (Jake asked, 2026-11-05), since our changes
+keep engine resources across levels. Each level gets a fresh Lua state, so
+Lua's own heap is freed with it; the risk is engine-side things the Lua side
+creates or registers: script pictures and capture buffers (FBOs, GL textures)
+and shaders (`xtech_lua_draw.cpp`, `render_gl_script.cpp`), sprite overrides
+and their backups (`load_gfx.cpp`), audio chunks/streams
+(`xtech_lua_audio.cpp`), `mem()` stores and caches, the once-only log sets,
+`CustomParams` strings, the collision group tables. How: (1) a soak run
+that loads levels over and over (1-1, 2-1, the smoke levels; dying reloads)
+and logs resident memory and GL object counts per load; growth per load
+points at a leak; (2) macOS's `leaks` tool on the running game (comes with
+Xcode's command-line tools; check it's there first) and an
+AddressSanitizer build (`-fsanitize=address`, part of clang, no install) for
+use-after-free and overruns; (3) read each place above for a matching
+free/reset at level unload; (4) the same soak on the Odin (Android's
+`dumpsys meminfo`).
 
 ## Risks
 

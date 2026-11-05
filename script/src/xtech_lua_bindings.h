@@ -33,6 +33,10 @@ void xtech_lua_process_delayed_calls();
 // smbx2compat: start of a frame for mem()'s cached views of the engine
 void xtech_lua_memNewFrame();
 
+// smbx2compat: start of a core-mode level: LunaLua's extended NPC/block
+// properties (and other mem() storage) go back to their defaults
+void xtech_lua_memNewLevel();
+
 // Clear all pending delayed calls — call from xtech_lua_reset()
 void xtech_lua_clear_delayed_calls();
 

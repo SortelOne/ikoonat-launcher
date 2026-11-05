@@ -24,6 +24,7 @@
 #include "../npc.h"
 #ifdef ENABLE_XTECH_LUA
 #   include "../script/include/xtech_lua_events.h"
+#   include "../script/include/xtech_lua_main.h" // smbx2compat
 #endif
 #include "../sound.h"
 #include "../collision.h"
@@ -50,6 +51,34 @@ static inline int s_hitDamage(int damage)
 {
     return (g_npcHitDamage >= 0) ? g_npcHitDamage : damage;
 }
+
+#ifdef ENABLE_XTECH_LUA
+// smbx2compat: SMBX2's NPCs die to the harm types their config lists
+// (vulnerableharmtypes), whatever the engine would do with their ID
+// (LunaLua's runtimeHookNPCVulnerability)
+static bool s_smbx2Vulnerable(int A, int B, int C)
+{
+    if(!xtech_lua_isSmbx2Core() || B < 0 || B > 31 || !(xtech_lua_smbx2NpcVulnerableHarmTypes(NPC[A].Type) & (1u << B)))
+        return false;
+
+    // a projectile NPC still respects nofireball/noiceball
+    if(B == 3 && NPC[C].Type == NPCID_PLR_FIREBALL && NPC[A]->NoFireBall)
+        return false;
+    if(B == 3 && NPC[C].Type == NPCID_PLR_ICEBALL && NPC[A]->NoIceBall)
+        return false;
+
+    // friendly NPCs only go when they despawn
+    return !NPC[A].Inert || B == 9;
+}
+
+// smbx2compat: whether NPCHit has logic for NPC A (SMBX 1.3's NPCs, TheXTech's
+// own above SMBX2's range, coins, bonuses), so onNPCHarm isn't sent for SMBX2's
+// NPCs that no hit affects (LunaLua sends it only where SMBX harms)
+static bool s_engineHarms(int A)
+{
+    return NPC[A].Type <= NPCID_CHAR4_HEAVY || NPC[A].Type >= NPCID_INVINCIBILITY_POWER || NPC[A]->IsACoin || NPC[A]->IsABonus;
+}
+#endif
 
 void NPCHit(int A, int B, int C)
 {
@@ -95,6 +124,12 @@ void NPCHit(int A, int B, int C)
 
             if(NPC[A]->NoIceBall || NPC[A].Location.Width > 128 || NPC[A].Location.Height > 128)
                 return;
+
+#ifdef ENABLE_XTECH_LUA
+            // smbx2compat: freezing is a harm SMBX2's scripts may cancel
+            if(xtech_lua_event_smbx2NPCHarm(A, B, C))
+                return;
+#endif
 
             bool reset_frame = true;
 
@@ -304,10 +339,21 @@ void NPCHit(int A, int B, int C)
     // NEWLY used to check when NPC's tree location needs to be updated
     NPC_t oldNPC = NPC[A];
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onNPCHarm, which scripts may cancel (LunaLua sends it once per hit)
+    bool smbx2Vulnerable = s_smbx2Vulnerable(A, B, C);
+    if((smbx2Vulnerable || s_engineHarms(A)) && xtech_lua_event_smbx2NPCHarm(A, B, C))
+        return;
+#else
+    constexpr bool smbx2Vulnerable = false;
+#endif
+
     // BEGIN NORMAL LOGIC: giant switch over NPC's type
 
+    if(smbx2Vulnerable)
+        NPC[A].Killed = B;
     // Yoshi Ice
-    if(NPC[A].Type == NPCID_ICE_BLOCK)
+    else if(NPC[A].Type == NPCID_ICE_BLOCK)
     {
         if(B != 1 && B != 7 && B != 8 && B != 4)
             NPC[A].Killed = B;

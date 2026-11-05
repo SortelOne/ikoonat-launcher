@@ -459,7 +459,7 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     // LunaLua gives every level a new Lua state, and main.lua replaces io, os,
     // dofile, ... in _G, so restart ours (bindings and all) the same way
     xtech_lua_clear_delayed_calls();
-    xtech_lua_memNewFrame();
+    xtech_lua_memNewLevel();
     lua_close(g_L);
     g_L = nullptr;
     g_gameLoaded = false;

@@ -97,6 +97,15 @@ bool KillNPC(int A, int B)
         break;
     }
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onNPCKill; a script that cancels it keeps the NPC alive (LunaLua's NPCKillHook)
+    if(xtech_lua_event_smbx2NPCKill(A, B))
+    {
+        NPC[A].Killed = 0;
+        return false;
+    }
+#endif
+
     // don't need to worry about updating NPC A's tree because that will certainly happen in either the syncLayersNPC or the Deactivate call at the end of the procedure
 
     // Immortal NPCs respawn instead of dying (unless despawned with B=9)

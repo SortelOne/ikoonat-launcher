@@ -232,6 +232,31 @@ _G.inputConfig1 = inputConfig(1)
 _G.inputConfig2 = inputConfig(2)
 
 
+------------------
+-- Legacy Block --
+------------------
+
+-- ffi_block.lua keeps LunaLua's C++ Block class (as LegacyBlock) for
+-- Block:remove and Block:hit. They run the engine's KillBlock/BlockHit, which
+-- send events back into Lua, so they are luabind calls, not FFI ones.
+local legacyBlockMT = {}
+legacyBlockMT.__index = legacyBlockMT
+
+function legacyBlockMT:remove(playSoundEffect)
+    xtech_block_remove(self.idx, playSoundEffect and true or false)
+end
+
+_G.Block = setmetatable({
+    _rawHitBlock = function(idx, fromUpSide, playerIdx, hittingCount)
+        xtech_block_hit(idx, fromUpSide ~= 0, playerIdx, hittingCount)
+    end,
+}, {
+    __call = function(_, idx)
+        return setmetatable({idx = idx}, legacyBlockMT)
+    end,
+})
+
+
 ----------------
 -- Legacy NPC --
 ----------------

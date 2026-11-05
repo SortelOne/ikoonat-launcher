@@ -2762,11 +2762,13 @@ static unsigned memFieldSize(FIELDTYPE ft)
     }
 }
 
-// Storage behind each table, made on first use
+// Storage behind each table, made on first use and dropped when a level starts
+// (LunaLua's ResetLunaModule resets its extended properties for each level)
+static std::vector<uint8_t> s_memTypeStores[c_numMemTypeArrays];
+
 static std::vector<uint8_t> &memTypeArrayStore(size_t t)
 {
-    static std::vector<uint8_t> s_stores[c_numMemTypeArrays];
-    std::vector<uint8_t> &s = s_stores[t];
+    std::vector<uint8_t> &s = s_memTypeStores[t];
     if(s.empty())
     {
         const MemTypeArray &a = s_memTypeArrays[t];
@@ -3486,12 +3488,69 @@ static void npc_collect(int idx, int playerIdx)
         TouchBonus(playerIdx, A);
 }
 
+// Block._rawHitBlock: as if hit, then sets the hits it has left if given
+static void block_hit(int idx, bool fromUpSide, int playerIdx, int hittingCount)
+{
+    if(idx < 1 || idx > numBlock)
+        return;
+
+    BlockHit(idx, fromUpSide, (playerIdx >= 1 && playerIdx <= numPlayers) ? playerIdx : 0);
+    if(hittingCount != -1)
+        Block[idx].RapidHit = hittingCount;
+}
+
+// Block:remove. A block with death events is queued for UpdateBlocks, as
+// SafelyKillBlock does: an event that shows a message pauses the game, which
+// only the game loop can resume.
+static void block_remove(int idx, bool playSoundEffect)
+{
+    if(idx < 1 || idx > numBlock)
+        return;
+
+    if(Block[idx].TriggerDeath == EVENT_NONE && Block[idx].TriggerLast == EVENT_NONE)
+        KillBlock(idx, playSoundEffect);
+    else
+        SafelyKillBlock(idx);
+}
+
+// LunaLuaBlocksTestCollision (Block:collidesWith): SMBX's FindCollision of a
+// player against a block, given their mem() addresses; 0 when they don't touch
+static int block_testCollision(unsigned plAddr, unsigned blAddr)
+{
+    int p = 0, b = 0;
+    unsigned offset;
+    const ObjMemArray *pa = objMemArrayAt(plAddr, p, offset);
+    const ObjMemArray *ba = objMemArrayAt(blAddr, b, offset);
+    if(!pa || pa->kind != OBJMEM_PLAYER || p < 1 || p > numPlayers
+       || !ba || ba->kind != OBJMEM_BLOCK || b < 1 || b > numBlock)
+        return 0;
+
+    return FindCollision(Player[p].Location, Block[b].Location);
+}
+
 } // namespace LuaMisc
+
+// smbx2compat: for NPCHit (npc_hit.cpp)
+unsigned xtech_lua_smbx2NpcVulnerableHarmTypes(int npcType)
+{
+    using namespace LuaMisc;
+    static const size_t s_table = (mem_propertyTableAddress("npc", "vulnerableharmtypes") - c_memTypeArraysBase) / c_memTypeArraySpan;
+    if(npcType < 0 || npcType > c_smbx2NpcMaxId)
+        return 0;
+    return (unsigned)(int32_t)memTypeArrayGet(s_table, npcType, 0, FT_DWORD);
+}
 
 
 void xtech_lua_memNewFrame()
 {
     LuaMisc::s_sizableBlocksStale = true;
+}
+
+void xtech_lua_memNewLevel()
+{
+    for(auto &s : LuaMisc::s_memTypeStores)
+        s.clear();
+    xtech_lua_memNewFrame();
 }
 
 
@@ -4417,6 +4476,9 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_doBombExplosion", &LuaMisc::doBombExplosion), // smbx2compat
         def("xtech_npc_harmCombo", &LuaMisc::npc_harmCombo), // smbx2compat
         def("xtech_npc_collect", &LuaMisc::npc_collect), // smbx2compat
+        def("xtech_block_hit", &LuaMisc::block_hit), // smbx2compat
+        def("xtech_block_remove", &LuaMisc::block_remove), // smbx2compat
+        def("xtech_block_testCollision", &LuaMisc::block_testCollision), // smbx2compat
         def("xtech_block_queryIntersecting", &LuaMisc::block_queryIntersecting), // smbx2compat
         def("xtech_bgo_queryIntersecting", &LuaMisc::bgo_queryIntersecting), // smbx2compat
         def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat

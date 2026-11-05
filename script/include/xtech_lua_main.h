@@ -35,4 +35,8 @@ extern bool xtech_lua_getFunc(const char* funcName);
 // smbx2compat: the level runs SMBX2's own scripts (core mode)
 extern bool xtech_lua_isSmbx2Core();
 
+// smbx2compat: LunaLua's per-NPC-type vulnerableharmtypes (bit N = harm type N
+// kills it), which SMBX2's npcManager.registerHarmTypes sets
+extern unsigned xtech_lua_smbx2NpcVulnerableHarmTypes(int npcType);
+
 #endif // LUA_MAIN_HHH

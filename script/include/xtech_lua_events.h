@@ -79,4 +79,27 @@ void xtech_lua_event_unpause();
 void xtech_lua_event_warpEnter(int playerId, int warpId);
 void xtech_lua_event_warpExit(int playerId, int warpId);
 
+// --- smbx2compat: SMBX2 core mode's object events ---
+// The events LunaLua sends from its SMBX hooks (RuntimeHookHooks.cpp), with the
+// engine's indices (1-based NPCs, blocks, players, warps), as LunaLua passes them.
+// SMBX2's main_events.lua turns them into objects and sends the onPost* events.
+// Each returns true when a script cancelled the event; outside core mode or the
+// editor they send nothing and return false. Never reach these from a function
+// scripts call through the FFI: they call back into Lua.
+
+bool xtech_lua_event_smbx2NPCKill(int npcIdx, int killReason);
+bool xtech_lua_event_smbx2NPCHarm(int npcIdx, int harmType, int culpritIdx);
+bool xtech_lua_event_smbx2NPCCollect(int npcIdx, int playerIdx);
+bool xtech_lua_event_smbx2BlockHit(int blockIdx, bool fromUpSide, int playerIdx);
+bool xtech_lua_event_smbx2BlockRemove(int blockIdx, bool makeEffects);
+bool xtech_lua_event_smbx2POW();
+bool xtech_lua_event_smbx2PlayerHarm(int playerIdx);
+bool xtech_lua_event_smbx2PlayerKill(int playerIdx);
+// onWarpEnter; onWarp follows once the player is at the exit
+bool xtech_lua_event_smbx2WarpEnter(int warpIdx, int playerIdx);
+void xtech_lua_event_smbx2Warp(int warpIdx, int playerIdx);
+// onEventDirect (onEvent itself is queued for the next frame); "Level - Start"
+// sends onStart first, as LunaLua does
+bool xtech_lua_event_smbx2Event(const char *eventName);
+
 #endif // XTECH_LUA_EVENTS_H

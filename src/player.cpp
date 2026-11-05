@@ -914,6 +914,12 @@ void PlayerHurt(const int A)
     if(p.Dead || p.TimeToLive > 0 || p.Stoned || p.Immune > 0 || p.Effect > 0)
         return;
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onPlayerHarm, which scripts may cancel; not once the level is won (LunaLua's runtimeHookPlayerHarm)
+    if(LevelMacro == LEVELMACRO_OFF && xtech_lua_event_smbx2PlayerHarm(A))
+        return;
+#endif
+
 //    if(nPlay.Online) // netplay stuffs
 //    {
 //        if(nPlay.Allow == false && A != nPlay.MySlot + 1)
@@ -1274,6 +1280,12 @@ void PlayerDead(int A)
 
 void KillPlayer(const int A)
 {
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onPlayerKill, which scripts may cancel; not once the level is won (LunaLua's runtimeHookPlayerKill)
+    if(LevelMacro == LEVELMACRO_OFF && xtech_lua_event_smbx2PlayerKill(A))
+        return;
+#endif
+
     auto &p = Player[A];
 
     p.Location.SpeedX = 0;

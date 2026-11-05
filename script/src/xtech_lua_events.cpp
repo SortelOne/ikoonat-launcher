@@ -37,6 +37,8 @@ extern "C"
 
 #include <Logger/logger.h>
 
+#include "globals.h" // smbx2compat: Player, LevelEditor
+
 #include "xtech_lua_events.h"
 
 
@@ -291,4 +293,119 @@ void xtech_lua_event_warpEnter(int playerId, int warpId)
 void xtech_lua_event_warpExit(int playerId, int warpId)
 {
     s_safeCall("onWarpExit", playerId, warpId);
+}
+
+
+// ============================================================================
+// smbx2compat: SMBX2 core mode's object events (boot.lua's __xtech_on* handlers)
+// ============================================================================
+
+static void s_pushArg(lua_State *L, int v)
+{
+    lua_pushinteger(L, v);
+}
+
+static void s_pushArg(lua_State *L, bool v)
+{
+    lua_pushboolean(L, v);
+}
+
+static void s_pushArg(lua_State *L, const char *v)
+{
+    lua_pushstring(L, v);
+}
+
+// Calls a boot.lua handler; true when it reports the event cancelled
+template<typename... Args>
+static bool s_coreEvent(const char *funcName, Args... args)
+{
+    if(LevelEditor || !xtech_lua_isSmbx2Core())
+        return false;
+
+    lua_State *L = xtech_lua_getState();
+    if(!L)
+        return false;
+
+    if(!xtech_lua_getFunc(funcName))
+    {
+        lua_pop(L, 1);
+        return false;
+    }
+
+    (void)std::initializer_list<int>{(s_pushArg(L, args), 0)...};
+
+    // SMBX2's __callEvent catches the scripts' errors; this only catches boot.lua's
+    if(lua_pcall(L, (int)sizeof...(args), 1, 0) != 0)
+    {
+        const char *err = lua_tostring(L, -1);
+        pLogWarning("Lua event %s error: %s", funcName, err ? err : "(no message)");
+        lua_pop(L, 1);
+        return false;
+    }
+
+    bool cancelled = lua_toboolean(L, -1);
+    lua_pop(L, 1);
+    return cancelled;
+}
+
+bool xtech_lua_event_smbx2NPCKill(int npcIdx, int killReason)
+{
+    return s_coreEvent("__xtech_onNPCKill", npcIdx, killReason);
+}
+
+bool xtech_lua_event_smbx2NPCHarm(int npcIdx, int harmType, int culpritIdx)
+{
+    return s_coreEvent("__xtech_onNPCHarm", npcIdx, harmType, culpritIdx);
+}
+
+bool xtech_lua_event_smbx2NPCCollect(int npcIdx, int playerIdx)
+{
+    return s_coreEvent("__xtech_onNPCCollect", npcIdx, playerIdx);
+}
+
+bool xtech_lua_event_smbx2BlockHit(int blockIdx, bool fromUpSide, int playerIdx)
+{
+    return s_coreEvent("__xtech_onBlockHit", blockIdx, fromUpSide, playerIdx);
+}
+
+bool xtech_lua_event_smbx2BlockRemove(int blockIdx, bool makeEffects)
+{
+    return s_coreEvent("__xtech_onBlockRemove", blockIdx, makeEffects);
+}
+
+bool xtech_lua_event_smbx2POW()
+{
+    return s_coreEvent("__xtech_onPOW");
+}
+
+bool xtech_lua_event_smbx2PlayerHarm(int playerIdx)
+{
+    return s_coreEvent("__xtech_onPlayerHarm", playerIdx);
+}
+
+bool xtech_lua_event_smbx2PlayerKill(int playerIdx)
+{
+    return s_coreEvent("__xtech_onPlayerKill", playerIdx);
+}
+
+// the player's section when it entered the warp, so onWarp can tell a section change
+static int s_warpEnterSection = -1;
+
+bool xtech_lua_event_smbx2WarpEnter(int warpIdx, int playerIdx)
+{
+    if(s_coreEvent("__xtech_onWarpEnter", warpIdx, playerIdx))
+        return true;
+
+    s_warpEnterSection = Player[playerIdx].Section;
+    return false;
+}
+
+void xtech_lua_event_smbx2Warp(int warpIdx, int playerIdx)
+{
+    s_coreEvent("__xtech_onWarp", warpIdx, playerIdx, Player[playerIdx].Section != s_warpEnterSection);
+}
+
+bool xtech_lua_event_smbx2Event(const char *eventName)
+{
+    return s_coreEvent("__xtech_onEvent", eventName);
 }

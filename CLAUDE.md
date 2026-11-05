@@ -138,7 +138,10 @@ player so the level reloads and the overrides are restored at unload) and
 logs `collisiontest: ... -> OK` or `WRONG` for each) and `actiontest.lvlx`
 (`npc:harm`, `npcToCoins`, P-switches and the Block object of a block they
 turn into a coin, `npc:collect`, then `Level.exit()`;
-`actiontest: ... -> OK`/`WRONG`, then `actiontest: onExit`).
+`actiontest: ... -> OK`/`WRONG`, then `actiontest: onExit`) and
+`eventtest.lvlx` (the engine's events: start order, each cancellable one
+cancelled once then let through, custom-NPC harm types, an instant warp;
+`eventtest: ... -> OK`/`WRONG`, then `eventtest: onExit`).
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -216,6 +219,18 @@ How it works (details in `core/boot.lua`'s header):
   `onBlockInvalidateForReuseInternal`) and skip the classic-order re-sort,
   as LunaLua does. Any new engine code that moves or drops objects in the
   arrays needs the same.
+- Engine events: the engine sends LunaLua's per-object events from where
+  LunaLua hooks SMBX (`onNPCKill` in `KillNPC`, `onNPCHarm` in `NPCHit`,
+  `onNPCCollect`, `onBlockHit`, `onBlockRemove`, `onPOW`, `onPlayerHarm`,
+  `onPlayerKill`, `onWarpEnter`/`onWarp`, `onEventDirect` in
+  `ProcEvent_Safe`) through `xtech_lua_event_smbx2*`
+  (`script/include/xtech_lua_events.h`) -> boot.lua `__xtech_on*`, and
+  stops when a script cancels; SMBX2's `main_events.lua` sends the
+  `onPost*` ones. `onStart` comes just before "Level - Start", then
+  `onSectionChange` per player. These call into Lua, so no function
+  scripts reach through the FFI may lead to them. SMBX2's NPCs take damage
+  through LunaLua's `vulnerableharmtypes` (`NPCHit`); the extended
+  properties reset at each level (`xtech_lua_memNewLevel`).
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks

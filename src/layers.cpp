@@ -1229,6 +1229,12 @@ eventindex_t ProcEvent_Safe(bool is_resume, eventindex_t index, int whichPlayer,
     if(is_resume)
         goto event_resume;
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: onEventDirect, which scripts may cancel (LunaLua's TriggerSMBXEvent hook)
+    if(xtech_lua_event_smbx2Event(evt.Name.c_str()))
+        return EVENT_NONE;
+#endif
+
     recentlyTriggeredEvents.insert(index);
 
     if(g_config.speedrun_stop_timer_by == Config_t::SPEEDRUN_STOP_EVENT && equalCase(evt.Name.c_str(), g_config.speedrun_stop_timer_at))
