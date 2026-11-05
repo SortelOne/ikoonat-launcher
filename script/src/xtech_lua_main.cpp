@@ -52,6 +52,7 @@ extern "C"
 #include "xtech_lua_draw.h" // smbx2compat
 #include "xtech_lua_data.h"
 #include "xtech_lua_events.h" // smbx2compat
+#include "xtech_lua_loadscreen.h" // smbx2compat
 
 
 // ============================================================================
@@ -284,30 +285,38 @@ bool xtech_lua_getFunc(const char* funcName)
     return lua_isfunction(g_L, -1);
 }
 
-// smbx2compat: shared by xtech_lua_init and SMBX2 core mode, which restarts the state per level
-static bool createLuaState()
+// smbx2compat: shared by xtech_lua_init, SMBX2 core mode (which restarts the
+// state per level) and the loading screen's state (levelState false)
+lua_State *xtech_lua_newState(bool levelState)
 {
     // Create Lua state
-    g_L = luaL_newstate();
-    if(!g_L)
+    lua_State *L = luaL_newstate();
+    if(!L)
     {
         pLogWarning("Lua: Failed to create Lua state");
-        return false;
+        return nullptr;
     }
 
     // Open standard libraries
-    luaL_openlibs(g_L);
+    luaL_openlibs(L);
 
     // Initialize luabind
-    luabind::open(g_L);
+    luabind::open(L);
     luabind::set_pcall_callback(&pushTracebackHandler); // smbx2compat
 
     // Register game bindings
-    xtech_lua_register_bindings(g_L);
-    xtech_lua_register_fileformats(g_L); // smbx2compat
-    xtech_lua_register_audio(g_L); // smbx2compat
-    xtech_lua_register_draw(g_L); // smbx2compat
-    return true;
+    xtech_lua_register_bindings(L);
+    xtech_lua_register_fileformats(L); // smbx2compat
+    xtech_lua_register_audio(L); // smbx2compat
+    xtech_lua_register_draw(L, levelState); // smbx2compat
+    xtech_lua_register_loadscreen(L); // smbx2compat
+    return L;
+}
+
+static bool createLuaState()
+{
+    g_L = xtech_lua_newState(true);
+    return g_L != nullptr;
 }
 
 bool xtech_lua_init()
@@ -443,7 +452,7 @@ bool xtech_lua_isSmbx2Core()
 // instead of the v0.1 shim. It needs SMBX2's data folder at <assets>/smbx2/ and
 // our host layer at <assets>/scripts/smbx2core/boot.lua (smbx2compat/core in the
 // repo). SMBX2COMPAT_MODE=shim in the environment forces the shim.
-static bool findSmbx2Core(std::string &dataRoot, std::string &coreDir)
+bool xtech_lua_findSmbx2Core(std::string &dataRoot, std::string &coreDir)
 {
     const char *mode = std::getenv("SMBX2COMPAT_MODE");
     if(mode && std::strcmp(mode, "shim") == 0)
@@ -475,6 +484,7 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     g_L = nullptr;
     g_gameLoaded = false;
     g_compatLoaded = false;
+    xtech_lua_loadScreenUpdate("old level's Lua closed");
     if(!createLuaState())
     {
         g_luaInitialized = false;
@@ -507,8 +517,10 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     g_smbx2Core = true;
     g_luaWorking = true;
 
+    xtech_lua_loadScreenUpdate("boot.lua");
     luabind::object onInit = getLuaFunc("__onInit");
     safeCallLuaFuncWith(onInit, "__onInit", episodePath, FileNameFull);
+    xtech_lua_loadScreenUpdate("__onInit");
 
     // boot.lua turns these into SMBX2's per-frame events (onStart, onTick, onDraw, ...)
     g_luaFunc_onLoop        = getLuaFunc("__xtech_onLoop");
@@ -565,7 +577,7 @@ void xtech_lua_loadLevel()
 
     // smbx2compat: SMBX2 core mode when SMBX2's scripts are installed, else the shim
     std::string smbx2Data, smbx2Core;
-    if(findSmbx2Core(smbx2Data, smbx2Core))
+    if(xtech_lua_findSmbx2Core(smbx2Data, smbx2Core))
     {
         loadSmbx2Level(smbx2Data, smbx2Core);
         return;
@@ -1020,6 +1032,7 @@ bool xtech_lua_quit()
     g_luaWorking = false;
     g_gameLoaded = false;
     g_compatLoaded = false; // smbx2compat: the shim lives in the state being destroyed
+    xtech_lua_loadScreenQuit(); // smbx2compat
 
     // Destroy Lua state
     if(g_L)

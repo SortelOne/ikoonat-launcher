@@ -44,6 +44,7 @@
 #include "../screen_fader.h"
 #ifdef ENABLE_XTECH_LUA
 #   include "../script/include/xtech_lua_main.h"
+#   include "../script/include/xtech_lua_loadscreen.h" // smbx2compat
 #endif
 #include "message.h"
 
@@ -102,6 +103,10 @@ void UpdateGraphics2(bool skipRepaint)
 {
     if(!GameIsActive)
         return;
+
+#ifdef ENABLE_XTECH_LUA
+    xtech_lua_loadScreenEnd(); // smbx2compat: as UpdateGraphicsDraw
+#endif
 
 #ifdef USE_RENDER_BLOCKING
     if(XRender::renderBlocked())

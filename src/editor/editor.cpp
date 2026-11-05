@@ -73,6 +73,10 @@
 
 #include <PGE_File_Formats/file_formats.h>
 
+#ifdef ENABLE_XTECH_LUA
+#include "xtech_lua_loadscreen.h" // smbx2compat
+#endif
+
 // static int ScrollDelay = 0; // slows down the camera movement when scrolling through a level
 //Public Declare Function GetCursorPos Lib "user32" (lpPoint As POINTAPI) As long long;
 
@@ -2596,6 +2600,8 @@ void zTestLevel(bool magicHand, bool interProcess)
         LevelBeatCode = BEATCODE_NONE;
     }
 
+    bool loadScreen = false; // smbx2compat: SMBX2's loading screen is showing
+
 #ifdef THEXTECH_INTERPROC_SUPPORTED
     if(interProcess)
     {
@@ -2669,13 +2675,20 @@ void zTestLevel(bool magicHand, bool interProcess)
             ReportLoadFailure(FullFileName);
             ErrorQuit = true;
         }
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: SMBX2's loading screen, as for levels of an episode (LunaLua's
+        // TestMode.cpp), once OpenLevel has set the episode folder it reads
+        else
+            loadScreen = xtech_lua_loadScreenStart();
+#endif
     }
 
     // reset Drop/Add allowed characters
     ConnectScreen::SaveChars();
 
     int waitms = ((int)g_config.speedrun_mode != 0) ? 750 : 0;
-    GameThing(waitms, 0);
+    if(!loadScreen) // smbx2compat
+        GameThing(waitms, 0);
 
     SetupScreens();
     LevelSelect = false;

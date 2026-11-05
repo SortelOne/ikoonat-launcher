@@ -16,10 +16,17 @@
 
   Files in override/ replace the SMBX2 file at the same path under scripts/;
   patches.lua lists small source edits applied to SMBX2 files as they load.
+
+  The loading screen's state (xtech_lua_loadscreen.cpp) runs this file too,
+  with __xtech_loadScreen set: it skips host.lua, classes.lua and
+  extrasettings.lua, and runs loadscreen.lua in place of steps 4 and 5.
 ]]
 
 local smbxPath = __xtech_smbx2Path
 local coreDir = __xtech_coreDir
+-- The loading screen's own state (xtech_lua_loadscreen.cpp): set up the same
+-- way, then loadscreen.lua runs SMBX2's loading screen instead of main.lua
+local loadScreen = __xtech_loadScreen
 local scriptsDir = smbxPath .. "/scripts/"
 local overrideDir = coreDir .. "/override/"
 
@@ -193,10 +200,20 @@ core.addRoot(smbxPath)
 core.addRoot(core.episodePath)
 core.addRoot(core.customPath)
 
+-- While the level loads, the loading screen draws a frame here whenever one is
+-- due: every file the level's scripts look for or load passes through
+local loadScreenUpdate = (not loadScreen) and xtech_misc_loadScreenUpdate or function() end
+
 -- Turns a path from SMBX2 code into a real file path, or nil if there's no such
 -- file. The second result is true when the file is one of our overrides.
 local function resolve(path)
+    loadScreenUpdate()
     path = normalize(path)
+    -- SMBX2 runs in its data folder, so relative paths are from there (SMATRS's
+    -- loading screen looks for "scripts/shaders/..." that way)
+    if string.sub(path, 1, 1) ~= "/" then
+        path = smbxPath .. "/" .. path
+    end
     if startsWithCI(path, scriptsDir) then
         local override = xtech_misc_resolveFileCI(overrideDir, string.sub(path, #scriptsDir + 1))
         if override ~= "" then
@@ -329,9 +346,11 @@ function getSMBXPath()
 end
 
 runCoreFile("constants.lua")
-runCoreFile("host.lua")
-runCoreFile("classes.lua")
-core.extraSettings = runCoreFile("extrasettings.lua")
+if not loadScreen then -- LunaLua's loading screen state has none of these
+    runCoreFile("host.lua")
+    runCoreFile("classes.lua")
+    core.extraSettings = runCoreFile("extrasettings.lua")
+end
 core.glsl = runCoreFile("glsl.lua")
 
 do
@@ -391,6 +410,12 @@ do
         end
         return filter
     end
+end
+
+
+if loadScreen then
+    runCoreFile("loadscreen.lua")
+    return
 end
 
 

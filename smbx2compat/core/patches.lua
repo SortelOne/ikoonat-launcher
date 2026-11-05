@@ -12,6 +12,20 @@
 ]]
 
 return {
+    -- LunaLua falls back to its default loading screen without a word when the
+    -- episode's loadscreen.lua fails; log why (xtech_lua_loadscreen.cpp)
+    ["base/engine/loadscreen.lua"] = {
+        {
+            "\tif pcall(function() customRequire(\"loadscreen\") end) then",
+            "\tlocal ok, err = pcall(function() customRequire(\"loadscreen\") end)\n" ..
+            "\tif not ok and not string.find(tostring(err), \"module 'loadscreen' not found\", 1, true) then\n" ..
+            "\t\t__smbx2core.warn(\"loading screen: the episode's loadscreen.lua: \" .. tostring(err))\n" ..
+            "\tend\n" ..
+            "\tif ok then",
+            "log why the episode's loading screen failed",
+        },
+    },
+
     -- Block queries through the engine's block quadtree (xtech_block_queryIntersecting).
     -- SMBX2 scans the blocks SMBX's X-sorted column lookup points at, which TheXTech
     -- doesn't keep, so it would scan every block in the level each call.

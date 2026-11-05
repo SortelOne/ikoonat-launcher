@@ -64,6 +64,13 @@
 #include "npc/npc_activation.h"
 #include "npc/npc_queues.h"
 #include "translate_episode.h"
+
+#ifdef ENABLE_XTECH_LUA
+#   include "xtech_lua_loadscreen.h" // smbx2compat
+#   define LOAD_SCREEN_UPDATE(where) xtech_lua_loadScreenUpdate(where)
+#else
+#   define LOAD_SCREEN_UPDATE(where)
+#endif
 #include "fontman/font_manager.h"
 
 #include <DirManager/dirman.h>
@@ -321,6 +328,7 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
     qScreen = false;
     qScreen_canonical = false;
     ClearLevel();
+    LOAD_SCREEN_UPDATE("level cleared"); // smbx2compat: SMBX2's loading screen draws between steps
     BlockSound();
     FreezeNPCs = false;
     CoinMode = false;
@@ -366,9 +374,12 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
     LoadCustomConfig();
     FindCustomPlayers();
     FindCustomNPCs();
+    LOAD_SCREEN_UPDATE("custom config"); // smbx2compat
     LoadCustomGFX();
+    LOAD_SCREEN_UPDATE("custom graphics"); // smbx2compat
     LoadCustomSound();
     FontManager::loadCustomFonts();
+    LOAD_SCREEN_UPDATE("custom sounds"); // smbx2compat
 
 
     load.si.begin(g_curLevelMedals.should_initialize());
@@ -393,10 +404,12 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
         return false;
     }
 
+    LOAD_SCREEN_UPDATE("level file read"); // smbx2compat
     if(!OpenLevel_Unpack(load, lvl))
         return false;
 #endif
 
+    LOAD_SCREEN_UPDATE("level objects"); // smbx2compat
     OpenLevel_FixLayersEvents(load);
 
     return true;

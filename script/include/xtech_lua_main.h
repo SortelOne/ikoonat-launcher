@@ -34,6 +34,11 @@ extern bool xtech_lua_getFunc(const char* funcName);
 
 // smbx2compat: the level runs SMBX2's own scripts (core mode)
 extern bool xtech_lua_isSmbx2Core();
+// smbx2compat: SMBX2's data folder and our core/ folder, if core mode can run
+extern bool xtech_lua_findSmbx2Core(std::string &dataRoot, std::string &coreDir);
+// smbx2compat: a Lua state with the engine's bindings; levelState: closing it
+// resets SMBX2's drawing (false for the loading screen's)
+extern lua_State* xtech_lua_newState(bool levelState);
 
 // smbx2compat: LunaLua's per-NPC-type vulnerableharmtypes (bit N = harm type N
 // kills it), which SMBX2's npcManager.registerHarmTypes sets

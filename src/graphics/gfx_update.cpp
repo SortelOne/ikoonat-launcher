@@ -55,6 +55,7 @@
 #ifdef ENABLE_XTECH_LUA
 #   include "xtech_lua_main.h"
 #   include "xtech_lua_draw.h" // smbx2compat
+#   include "xtech_lua_loadscreen.h" // smbx2compat
 // smbx2compat: draws SMBX2 scripts queued below LunaLua's priority p (xtech_lua_draw.h)
 #   define SMBX2_DRAW_BELOW(p) xtech_lua_drawBelow(XTECH_LUA_PRI_##p)
 // smbx2compat: false when an SMBX2 library draws this itself
@@ -2092,6 +2093,11 @@ static bool s_should_draw_player(const Player_t& p)
 
 void UpdateGraphicsDraw(bool skipRepaint)
 {
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: SMBX2's loading screen ends as the level is first drawn (LunaLua's RenderLevelHook)
+    xtech_lua_loadScreenEnd();
+#endif
+
     // begin render code
     XRender::setTargetTexture();
 

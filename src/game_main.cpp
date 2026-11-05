@@ -49,6 +49,7 @@
 #ifdef ENABLE_XTECH_LUA
 #include "xtech_lua_main.h"
 #include "xtech_lua_events.h"
+#include "xtech_lua_loadscreen.h" // smbx2compat
 #endif
 
 #ifdef THEXTECH_ENABLE_SDL_NET
@@ -1314,6 +1315,14 @@ int GameMain(const CmdLineSetup_t &setup)
 
                 levelPath = s_prepare_episode_path(levelPath);
 
+#ifdef ENABLE_XTECH_LUA
+                // smbx2compat: in core mode SMBX2's loading screen shows while the
+                // level loads, in place of the enter screen (LunaLua's CustomLoadScreenHook)
+                bool loadScreen = xtech_lua_loadScreenStart();
+#else
+                bool loadScreen = false;
+#endif
+
                 if(!OpenLevel(levelPath))
                 {
                     ReportLoadFailure(levelPath);
@@ -1326,7 +1335,14 @@ int GameMain(const CmdLineSetup_t &setup)
                     }
                 }
 
-                if(!GoToLevelNoGameThing)
+                if(loadScreen)
+                {
+#ifdef ENABLE_XTECH_LUA
+                    xtech_lua_loadScreenUpdate("level file");
+#endif
+                    g_ShortDelay = false;
+                }
+                else if(!GoToLevelNoGameThing)
                 {
                     GameThing(1000 - (g_ShortDelay * 250), 3);
                     g_ShortDelay = false;
@@ -1584,6 +1600,9 @@ int GameMain(const CmdLineSetup_t &setup)
 
                 // Update graphics before loop begin (to process inital lazy-unpacking of used sprites)
                 GraphicsLazyPreLoad();
+#ifdef ENABLE_XTECH_LUA
+                xtech_lua_loadScreenUpdate("graphics"); // smbx2compat
+#endif
                 resetFrameTimer();
 
                 speedRun_triggerEnter();
@@ -2659,6 +2678,12 @@ void StartEpisode()
 
         levelPath = s_prepare_episode_path(levelPath);
 
+#ifdef ENABLE_XTECH_LUA
+        bool loadScreen = xtech_lua_loadScreenStart(); // smbx2compat: as above
+#else
+        bool loadScreen = false;
+#endif
+
         if(!OpenLevel(levelPath))
         {
             ReportLoadFailure(levelName);
@@ -2668,7 +2693,7 @@ void StartEpisode()
             if(NoMap)
                 ErrorQuit = true;
         }
-        else
+        else if(!loadScreen)
             GameThing(1000, 3);
     }
 }

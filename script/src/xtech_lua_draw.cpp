@@ -266,6 +266,29 @@ std::vector<float> s_xy, s_uv, s_rgba;
 bool s_shotDue = false;
 int s_shotCount = 0;
 
+// The loading screen's Lua state draws while the level's state loads
+// (xtech_lua_loadscreen.cpp). Its images, shaders, capture buffers and queue are
+// kept here and swapped in while it runs, so the two never share handles.
+struct OwnerState
+{
+    std::unordered_map<uintptr_t, StdPicture *> images;
+    std::unordered_map<uintptr_t, int> shaders, buffers;
+    int standardShader = 0;
+    std::vector<int> freedShaders, freedBuffers;
+    int fbW = 0, fbH = 0;
+    std::vector<DrawOp> ops;
+    std::vector<DrawVertex> vertices;
+    std::vector<std::string> texts;
+    std::vector<ScriptOp> scriptOps;
+    std::vector<float> floats;
+    std::vector<QueuedVar> vars;
+    std::vector<uint64_t> varData;
+    std::vector<uint32_t> order;
+    size_t orderCursor = 0;
+    std::vector<std::pair<uint32_t, int>> redirects;
+    int curCamera = 0, drawScreen = 0;
+} s_otherOwner;
+
 void warnOnce(bool &warned, const char *what)
 {
     if(!warned)
@@ -1151,6 +1174,38 @@ int lua_ownerGC(lua_State *)
 } // namespace
 
 
+void xtech_lua_drawSwapLoadScreen()
+{
+    using std::swap;
+    OwnerState &o = s_otherOwner;
+    swap(s_images, o.images);
+    swap(s_shaders, o.shaders);
+    swap(s_buffers, o.buffers);
+    swap(s_standardShader, o.standardShader);
+    swap(s_freedShaders, o.freedShaders);
+    swap(s_freedBuffers, o.freedBuffers);
+    swap(s_fbW, o.fbW);
+    swap(s_fbH, o.fbH);
+    swap(s_ops, o.ops);
+    swap(s_vertices, o.vertices);
+    swap(s_texts, o.texts);
+    swap(s_scriptOps, o.scriptOps);
+    swap(s_floats, o.floats);
+    swap(s_vars, o.vars);
+    swap(s_varData, o.varData);
+    swap(s_order, o.order);
+    swap(s_orderCursor, o.orderCursor);
+    swap(s_redirects, o.redirects);
+    swap(s_curCamera, o.curCamera);
+    swap(s_drawScreen, o.drawScreen);
+}
+
+void xtech_lua_drawLoadScreenSize(int &w, int &h)
+{
+    w = s_fbW;
+    h = s_fbH;
+}
+
 bool xtech_lua_drawVanilla(XTechLuaVanillaDraw what)
 {
     return s_vanilla[what];
@@ -1267,7 +1322,7 @@ void xtech_lua_drawReset()
     }
 }
 
-void xtech_lua_register_draw(lua_State *L)
+void xtech_lua_register_draw(lua_State *L, bool ownsDrawing)
 {
     lua_register(L, "xtech_gfx_imageLoad", lua_imageLoad);
     lua_register(L, "xtech_gfx_imageFree", lua_imageFree);
@@ -1297,7 +1352,10 @@ void xtech_lua_register_draw(lua_State *L)
     lua_pushlightuserdata(L, reinterpret_cast<void *>(&ffi_alloc));
     lua_setglobal(L, "__xtech_ffiAlloc");
 
-    // pictures belong to this Lua state; free them with it
+    // pictures belong to this Lua state; free them with it (not the loading
+    // screen's: resetting would undo the level's sprite overrides)
+    if(!ownsDrawing)
+        return;
     lua_newuserdata(L, 1);
     lua_newtable(L);
     lua_pushcfunction(L, lua_ownerGC);

@@ -435,7 +435,7 @@ static void forEach(int id, int section, luabind::object callback)
 {
     if(!callback.is_valid()) return;
 
-    lua_State* L = xtech_lua_getState();
+    lua_State* L = callback.interpreter(); // smbx2compat: the calling state
 
     for(int i = 1; i <= numNPCs; i++)
     {
@@ -1534,9 +1534,8 @@ static int misc_getStrWidth(const std::string &text)
 
 // ============================================================================
 // Dynamic config access (Lua can read/write g_config options by internal name)
-static luabind::object misc_getConfig(const std::string &name)
+static luabind::object misc_getConfig(lua_State* L, const std::string &name)
 {
-    lua_State* L = xtech_lua_getState();
     for(BaseConfigOption_t<true>* option : g_config.m_options)
     {
         if(!option->m_base || !option->m_base->m_internal_name)
@@ -1954,9 +1953,8 @@ static bool worldmap_isLevelMedalGotten(const std::string &levelName, int varian
 }
 
 // Returns the screen X, Y of a world level by filename (second return value is Y via luabind)
-static luabind::object worldmap_getLevelScreenPos(const std::string &levelName)
+static luabind::object worldmap_getLevelScreenPos(lua_State* L, const std::string &levelName)
 {
-    lua_State* L = xtech_lua_getState();
     for(int i = 1; i <= numWorldLevels; i++)
     {
         if(WorldLevel[i].Active && WorldLevel[i].FileName == levelName)
@@ -2060,9 +2058,8 @@ static const struct timespec &fileTime(const struct stat &st)
 #endif
 }
 
-static luabind::object misc_readFileCached(const std::string &path)
+static luabind::object misc_readFileCached(lua_State* L, const std::string &path)
 {
-    lua_State* L = xtech_lua_getState();
     struct stat st;
     if(stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
         return luabind::object(); // nil
@@ -2090,7 +2087,7 @@ static luabind::object misc_readFileCached(const std::string &path)
     return luabind::object(L, c.data);
 }
 #else
-static luabind::object misc_readFileCached(const std::string &)
+static luabind::object misc_readFileCached(lua_State *, const std::string &)
 {
     return luabind::object(); // nil: read as before
 }
@@ -2098,9 +2095,8 @@ static luabind::object misc_readFileCached(const std::string &)
 
 // smbx2compat: {w, h} of an image file, or nil. SMBX2's Graphics.loadImage
 // needs sizes when it loads; drawing the images comes later.
-static luabind::object misc_imageSize(const std::string &path)
+static luabind::object misc_imageSize(lua_State* L, const std::string &path)
 {
-    lua_State* L = xtech_lua_getState();
     PGE_Size size;
     if(!GraphicsHelps::getImageMetrics(path, &size))
         return luabind::object(); // nil
@@ -2133,9 +2129,8 @@ static std::string misc_imagePixels(const std::string &path)
 }
 
 // smbx2compat: SMBX2's Misc.listFiles / listDirectories (names only, like LunaLua)
-static luabind::object misc_listDir(const std::string &path, bool wantDirs)
+static luabind::object misc_listDir(lua_State* L, const std::string &path, bool wantDirs)
 {
-    lua_State* L = xtech_lua_getState();
     std::vector<std::string> names;
     DirMan dir(path);
     bool ok = wantDirs ? dir.getListOfFolders(names) : dir.getListOfFiles(names);
@@ -2184,9 +2179,8 @@ static luabind::object objectCustomParams(lua_State* L, T& arr, int count)
     return t;
 }
 
-static luabind::object misc_customParams(const std::string &kind)
+static luabind::object misc_customParams(lua_State* L, const std::string &kind)
 {
-    lua_State* L = xtech_lua_getState();
 
     if(kind == "level")
         return luabind::object(L, g_levelCustomParams);
@@ -3347,9 +3341,8 @@ static void mem_setString(unsigned int addr, const std::string &value)
 // core/patches.lua). SMBX2 scans the blocks its X-sorted column lookup points at;
 // we ask the engine's block quadtree instead, then apply SMBX2's own test (edges
 // that only touch don't count). Returns block indices, lowest first.
-static luabind::object block_queryIntersecting(double x1, double y1, double x2, double y2)
+static luabind::object block_queryIntersecting(lua_State* L, double x1, double y1, double x2, double y2)
 {
-    lua_State* L = xtech_lua_getState();
     luabind::object ret = luabind::newtable(L);
 
     num_t left(std::min(x1, x2), nullptr);
@@ -3377,9 +3370,8 @@ static luabind::object block_queryIntersecting(double x1, double y1, double x2, 
 // smbx2compat: SMBX2's BGO.getIntersecting (patched in core/patches.lua), through
 // the engine's BGO quadtree like block_queryIntersecting. SMBX2's BGO indices
 // start at 0 (Background[1]), locked BGOs after the level's own included.
-static luabind::object bgo_queryIntersecting(double x1, double y1, double x2, double y2)
+static luabind::object bgo_queryIntersecting(lua_State* L, double x1, double y1, double x2, double y2)
 {
-    lua_State* L = xtech_lua_getState();
     luabind::object ret = luabind::newtable(L);
 
     num_t left(std::min(x1, x2), nullptr);
@@ -3485,9 +3477,8 @@ static bool playerSettingsFrame(int character, int state, int indexX, int indexY
     return true;
 }
 
-static luabind::object playerSettings_getSpriteOffset(int character, int state, bool y, int indexX, int indexY)
+static luabind::object playerSettings_getSpriteOffset(lua_State* L, int character, int state, bool y, int indexX, int indexY)
 {
-    lua_State* L = xtech_lua_getState();
     int frame;
     if(!playerSettingsFrame(character, state, indexX, indexY, frame))
         return luabind::object(); // nil: invalid index

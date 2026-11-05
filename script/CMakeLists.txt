@@ -27,6 +27,7 @@ set(LIB_XTECHLUA_SRCS
     src/xtech_lua_fileformats.cpp # smbx2compat
     src/xtech_lua_audio.cpp # smbx2compat
     src/xtech_lua_draw.cpp # smbx2compat
+    src/xtech_lua_loadscreen.cpp # smbx2compat
 )
 
 add_library(XTechLua STATIC

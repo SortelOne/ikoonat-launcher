@@ -28,6 +28,8 @@ project, so never prepare anything from this repo as an upstream PR.
     declared in `script/include/xtech_lua_draw.h`. Shader and capture-buffer
     draws go to the renderer's script draws: `src/core/render_script.h`,
     `src/core/opengl/render_gl_script.cpp` (**ours**).
+  - `xtech_lua_loadscreen.cpp` — **ours**. SMBX2's loading screens: a second
+    Lua state drawn while a level loads (see "SMBX2 core mode").
   - `luabind_num_t.h` — **ours**. luabind converter for `num_t` (fixed-point
     type). Without it any Lua read/write of `Location.X`, `SpeedX`, etc. fails with
     "Trying to use unregistered class: num_t".
@@ -330,9 +332,29 @@ How it works (details in `core/boot.lua`'s header):
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
   folder, and `screencapture` can't capture the window.
+  `SMBX2COMPAT_LOADSHOTS=10,60` does the same for frames of each loading screen.
+- Loading screens (LunaLua's Misc/LoadScreen.cpp): a second Lua state for the
+  session (`xtech_lua_loadscreen.cpp`), set up by `boot.lua` with
+  `__xtech_loadScreen` (no host.lua/classes.lua), runs `core/loadscreen.lua` ->
+  SMBX2's `base/engine/loadscreen.lua` -> the episode's `loadscreen.lua`. It
+  replaces the engine's enter screen in core mode: started before `OpenLevel`
+  (after it for `-l` tests), it draws a frame whenever 15 ms have passed at
+  `xtech_lua_loadScreenUpdate("step")` calls (in `OpenLevelData`, the core-mode
+  level start, and `core.resolve` for every file the level's scripts look up),
+  and ends at the level's first render (`UpdateGraphicsDraw`) once the script's
+  `_loadScreenTimeout` has passed (SMATRS's closing animation; the game waits,
+  as in LunaLua). Its images, shaders, buffers and draw queue are swapped in
+  only while it runs (`xtech_lua_drawSwapLoadScreen`), so handles never mix
+  with the level's. Each one logs `Lua: loading screen: loaded in ... ms,
+  ... longest gap N ms (step)`: the step after the longest stretch without a
+  frame. `SMBX2COMPAT_LOADSCREEN=0` shows the engine's enter screen instead
+  (to compare load times). Since both states call the bindings, a binding
+  that builds a Lua value takes the calling `lua_State* L` as its first
+  parameter (luabind fills it in), never `xtech_lua_getState()` (the level's).
 - SMATRS plays at 960x540 (`FFI_GraphicsSetMainFramebufferSize` sets the
   engine's internal resolution for the level).
-- Every file read goes through `core.resolve`: backslashes → `/`, case-insensitive
+- Every file read goes through `core.resolve`: backslashes → `/`, relative
+  paths from SMBX2's data folder (its working folder on Windows), case-insensitive
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
   `core/override/` replace the SMBX2 file at the same path under `scripts/`
   (only `lockdown.lua` and `ffi_mem.lua` so far), and `core/patches.lua` lists

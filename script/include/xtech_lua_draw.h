@@ -79,6 +79,13 @@ void xtech_lua_drawBelow(double maxPriority);
 void xtech_lua_drawCameraStart(int screenZ);
 void xtech_lua_drawFrameEnd();
 void xtech_lua_drawReset();
-void xtech_lua_register_draw(lua_State *L);
+//! ownsDrawing: closing the state resets SMBX2's drawing (the level's state)
+void xtech_lua_register_draw(lua_State *L, bool ownsDrawing = true);
+
+// Used by xtech_lua_loadscreen.cpp
+//! Swaps the loading screen's images, shaders, buffers and queue in or out
+void xtech_lua_drawSwapLoadScreen();
+//! The framebuffer size the swapped-in state asked for (0 if none)
+void xtech_lua_drawLoadScreenSize(int &w, int &h);
 
 #endif // XTECH_LUA_DRAW_H

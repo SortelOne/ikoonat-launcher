@@ -910,14 +910,41 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     freed at each level end (`s_pictures`, xtech_lua_draw.cpp). Prologue:
     ~2.0 s (`__onInit` 2.9 -> 1.1 s). The first level after starting the game
     still reads everything (~2.1 s for `__onInit`).
+- *Loading screens (2026-11-05):* LunaLua runs `scripts/base/engine/
+  loadscreen.lua` (which runs the episode's `loadscreen.lua`) in a second Lua
+  state on its own thread while SMBX loads, in place of SMBX's enter screen
+  ("Mario x lives" and a one-second wait). Ours (`xtech_lua_loadscreen.cpp`,
+  `core/loadscreen.lua`): the second state lives for the session, set up by
+  `boot.lua` (`__xtech_loadScreen`: no host.lua/classes.lua, loadscreen.lua
+  instead of main.lua), and draws a frame whenever 15 ms have passed at the
+  calls between load steps: in `OpenLevelData` (cleared, custom config,
+  graphics, sounds, file read, objects), in the core-mode level start, and
+  in `core.resolve`, which every file the level's scripts look for passes
+  through (SMBX2's `bgoconfig.lua` alone probes 1000 `background-N.txt`).
+  It starts before `OpenLevel` (after it for `-l` tests, which only then know
+  the episode folder) and ends at the level's first render, after running
+  until the script's `_loadScreenTimeout` (SMATRS's closing animation, ~0.6 s;
+  the game waits, as in LunaLua). Its images, shaders, buffers and draw queue
+  are swapped in only while it runs (`xtech_lua_drawSwapLoadScreen`).
+  - Found on the way: 10 bindings built their results in the level's state
+    (`xtech_lua_getState()`), wrong for any other state; they take the
+    calling `lua_State*` now. `core.resolve` treats relative paths as from
+    SMBX2's data folder (SMBX2's working folder on Windows; SMATRS's loading
+    screen looks for `scripts/shaders/...` that way). A failing episode
+    `loadscreen.lua` is logged (patches.lua; LunaLua falls back silently).
+  - Measured (Release): ~1.1-3 ms per frame, ~55 fps, ~0.25 s added to a
+    3.7 s `-l` load; level changes in the episode 2.0-2.5 s plus the closing
+    animation, and no more one-second enter screen. Longest pauses ~110-180 ms
+    (one map shader compile or model, the level's custom graphics).
+    The log has one line per loading screen (`Lua: loading screen: ...`).
+  - Gap: clip planes (the map screen's chapter name should wipe in; it shows
+    whole), as everywhere else.
 - *Next:*
-  - Jake keeps playing from the menu (`play.sh`); check the window placement
-    and the storybook.
-  - `loadscreen.lua`: LunaLua runs it on its own thread while a level loads;
-    we show nothing for those ~2 s. Single-threaded idea: a second Lua state
-    for the load screen, drawn from a count hook in the loading state and
-    between the engine's own load steps.
+  - Jake checks the loading screens (chapter art after the prologue, the
+    level card, the map's photos).
   - Map performance (unmeasured).
+  - Clip planes (`glDraw{clipPlanes=}`): the loading screen's name wipe, and
+    whatever else uses them.
   - Later: SMBX2's NPC type flags above, if an episode needs them.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
