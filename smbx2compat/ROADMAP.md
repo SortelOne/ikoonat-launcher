@@ -718,7 +718,8 @@ frame instead of on every read.
   frames 300-900 (Release): 4.52, 4.71, 4.58 ms (Lua 2.56, 2.64, 2.53).
   The keyboard events are untested: nothing here can press a key.
 
-*Next round, in order:*
+*Next round, in order:* (2026-11-05: Jake moved the world map and episode
+flow first, Phase 6; the Chapter 1 sweep waits)
 1. Play Chapter 1 (Phase 5's "done when"). This round changed a lot that
    scripts see (pausing, message boxes, the pause menu, input order, -1
    flags), so check SMATRS's dialogue boxes, pause menu and respawn rooms
@@ -776,10 +777,49 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - Done when: Chapter 1 levels are completable.
 
 ### Phase 6 — World map and episode flow
-- SMATRS uses a 3D world map (`lib3d`). Interim: start levels from a simple
-  level list or TheXTech's 2D world map. Full `lib3d` support depends on Phase 4
-  (`glDraw` + shaders, 3D meshes, depth).
-- Done when: Chapter 1 is playable start to finish on desktop.
+- SMATRS's 3D world map is a **level** (`World Map.lvlx`), drawn by the
+  episode's own `_scripts/smatrs/map.lua` with its `_scripts/lib3d.lua`
+  (meshes through `Graphics.glDraw` with shaders and `depthTest`, into a
+  capture buffer). `World.wld` is a hub world whose start level is that map,
+  so there is no SMBX world map at all, and no level list is needed (Jake,
+  2026-11-05: play it as on Windows).
+- *Map round (2026-11-05):* the map now renders in core mode (terrain,
+  cliffs, objects, water, level cards, HUD):
+  - `Graphics.glDraw{depthTest=true}` tests and writes depth (GL_LEQUAL) in
+    the capture buffer's own depth buffer, which clearing the buffer clears
+    (LunaLua keeps depth on for every draw; only lib3d's draws rely on it).
+  - The terrain shader asks for more uniforms than macOS's GL allows (12828
+    components of 4096). map.lua retries with smaller sizes when a material
+    lacks its uniforms, so a shader over the GPU's limits now reports
+    uncompiled with no variables (lunadll.lua), as on a GPU that can't take
+    it; it settles at 16 joined pieces.
+  - Checked by placing the player through `SaveData.lastEnteredMapLevel`
+    (`SMBX2COMPAT_DEBUG`). Launched directly the map counts as "in the
+    editor": no main menu, and with no save the player stays at (0,0) over
+    open sea.
+- *Next: episode flow*, so the game starts as on Windows:
+  1. `Misc.inEditor()` false when the episode is played (true for `-l` tests):
+     SMATRS then sets `GameData.menuMode` and shows its main menu over the map,
+     and a new save is sent to `_prologue.lvlx` (`generalStuff.lua`
+     `getForcedLevel`).
+  2. `Level.load(filename)` (map -> level, level -> map; `levelEnterMenu`,
+     `levelEnd`), `Level.exit` back to the hub.
+  3. `Misc.saveGame` + `onSaveGame`: SMBX2's `savedata.lua` writes `SaveData`
+     to `<episode>/save<slot>-ext.dat` (slot from `mem(0xB2C62A)`); `GameData`
+     already passes between levels (`LunaLuaSet/GetGameData`).
+  4. Starting the episode from TheXTech's menu (hub world `World.wld`).
+  5. Then: NPC `mem()` 0xB8/0xC0 (removed DefaultLocation fields) the map
+     reads, the 11 missing APIs it logs, `loadscreen.lua`, performance.
+- Done when: Chapter 1 is playable start to finish on desktop, from the
+  main menu.
+- *Testing after the episode flow works (Jake, 2026-11-05; on hold until
+  then):* besides the Chapter 1 sweep (Phase 5 "Next round"), run a random
+  sample of levels from the whole episode (both chapters, bonus/boss/special
+  levels) and each section of the map level (section 0 Chapter 1, 2 Chapter 2,
+  1 the daredevil area; pick one through a debug file setting
+  `SaveData.lastEnteredMapLevel` to a level in that section). Tally script
+  errors, missing APIs and unknown `mem()` per level, look at screenshots,
+  fix what turns up. A cheap way to cover many features at once.
 
 ### Phase 7 — Android
 - Turn on Lua in `android-project/thextech/build.gradle`
@@ -1124,7 +1164,8 @@ free/reset at level unload; (4) the same soak on the Odin (Android's
   "one more API".
 - **`mem()` fidelity:** libraries poke undocumented SMBX 1.3 offsets; every one
   needs a mapping.
-- **Shaders / `lib3d`:** the 3D world map may be the hardest single feature.
+- **Shaders / `lib3d`:** the 3D world map renders since 2026-11-05 (Phase 6);
+  its cost per frame isn't measured yet.
 - **Licensing:** SMBX2's built-in libraries and SMATRS assets are fine to use
   privately, but never commit or redistribute them.
 - **Separate fork:** we no longer merge upstream, so fixes from vkdfkc or TheXTech
@@ -1140,7 +1181,8 @@ free/reset at level unload; (4) the same soak on the Odin (Android's
    through SDL's game-controller support, so touch controls are low priority. VERIFY
    the device's GLES version and screen resolution when Phase 7 starts; SMATRS
    targets SMBX2's 800×600, so expect letterboxing or a widescreen pass.
-3. **World map:** start with a simple level list; the 3D map comes later.
+3. **World map:** ~~start with a simple level list~~ (2026-11-05) play it as
+   intended, through SMATRS's own 3D map level; see Phase 6.
 4. **Android data:** ~1 GB sideloaded to the device is fine.
 5. **Approach:** run SMBX2's real built-in libraries on an emulated LunaLua core
    (explained in "Strategy decision" above).

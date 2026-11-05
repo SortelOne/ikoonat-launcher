@@ -79,6 +79,8 @@ struct ScriptDraw_t
     //! added to every vertex (scene coordinates -> the camera's view)
     float offsetX = 0.0f, offsetY = 0.0f;
     bool linearFiltered = false;
+    //! test and write depth (LEQUAL), in a capture buffer's own depth buffer
+    bool depthTest = false;
 
     const ScriptDrawVar_t *attributes = nullptr;
     int attributeCount = 0;

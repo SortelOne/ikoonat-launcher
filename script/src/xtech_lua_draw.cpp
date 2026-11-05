@@ -216,6 +216,7 @@ struct ScriptOp
     uint32_t xy, uv, rgba;  // offsets into s_floats (c_none: absent)
     float color[4];
     bool linear;
+    bool depthTest;
     uint32_t varFirst;      // s_vars: attributes, then uniforms
     uint32_t attrCount, unifCount;
 };
@@ -437,6 +438,7 @@ void queueScriptDraw(const FFI_GL_Draw_Cmd &cmd, int shader)
     so.color[2] = cmd.mColor[2];
     so.color[3] = cmd.mColor[3];
     so.linear = cmd.mLinearFiltered;
+    so.depthTest = cmd.mDepthTest;
 
     so.xy = (uint32_t)s_floats.size();
     s_floats.insert(s_floats.end(), cmd.mVert, cmd.mVert + 2 * cmd.mCount);
@@ -648,6 +650,7 @@ void drawScriptOp(const ScriptOp &so, double offX, double offY)
     d.offsetX = (float)offX;
     d.offsetY = (float)offY;
     d.linearFiltered = so.linear;
+    d.depthTest = so.depthTest;
 
     s_drawVars.clear();
     for(uint32_t i = 0; i < so.attrCount + so.unifCount; i++)

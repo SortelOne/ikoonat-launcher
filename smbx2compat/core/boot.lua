@@ -58,6 +58,9 @@ end
 -- Testing: SMBX2COMPAT_SHOTS=300,900 saves screenshots of those frames (see the end)
 core.shotsSpec = os.getenv("SMBX2COMPAT_SHOTS")
 core.jitOptSpec = os.getenv("SMBX2COMPAT_JITOPT")
+-- Debugging: SMBX2COMPAT_DEBUG=/path/file.lua runs that file once the level's
+-- scripts have loaded (before onStart), with core passed as its argument
+core.debugSpec = os.getenv("SMBX2COMPAT_DEBUG")
 
 
 -------------
@@ -406,7 +409,18 @@ end
 do
     local onInit = __onInit
     function __onInit(episodePath, lvlName)
-        return onInit(scriptPath(normalize(episodePath)), lvlName)
+        local ret = onInit(scriptPath(normalize(episodePath)), lvlName)
+        if core.debugSpec and core.debugSpec ~= "" then
+            local chunk, err = loadstring(core.readFile(core.debugSpec) or "", "=" .. core.debugSpec)
+            local ok
+            if chunk then
+                ok, err = xpcall(chunk, traceback, core)
+            end
+            if not ok then
+                core.warn("debug script: " .. tostring(err))
+            end
+        end
+        return ret
     end
 end
 

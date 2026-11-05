@@ -24,7 +24,10 @@
 // call with its own program, uniforms and textures, blended premultiplied
 // (GL_ONE, GL_ONE_MINUS_SRC_ALPHA). The engine's queued draws are drawn first
 // (flushDrawQueues), so a script draw lands above everything queued before it.
-// It neither tests nor writes depth, so later opaque draws still cover it.
+// It neither tests nor writes depth, so later opaque draws still cover it,
+// unless it asks for a depth test (lib3d's 3D meshes): then, in a capture
+// buffer, it tests and writes that buffer's own depth as LunaLua does
+// (GL_LEQUAL, cleared to the far plane with the buffer).
 //
 // Sources come translated to this context's GLSL by smbx2compat/core/glsl.lua,
 // which turns SMBX2's GLSL 1.20 built-ins into these names:
@@ -173,6 +176,53 @@ void RenderGL::scriptBindBuffer(int id, const ScriptBuffer_t &b)
     m_script_bound_buffer = id;
 }
 
+bool RenderGL::scriptAddDepth(ScriptBuffer_t &b)
+{
+    if(b.depth_rb)
+        return true;
+
+    glGenRenderbuffers(1, &b.depth_rb);
+    glBindRenderbuffer(GL_RENDERBUFFER, b.depth_rb);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, b.w, b.h);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, b.depth_rb);
+    if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+    {
+        pLogWarning("smbx2compat: couldn't add a depth buffer to a %dx%d capture buffer", b.w, b.h);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, 0);
+        glDeleteRenderbuffers(1, &b.depth_rb);
+        b.depth_rb = 0;
+        return false;
+    }
+
+    return true;
+}
+
+// clears the bound framebuffer's depth to value, then puts back the engine's
+// clear value (render_gl_init.cpp)
+void RenderGL::scriptClearDepth(GLfloat value)
+{
+#if (defined(THEXTECH_BUILD_GL_DESKTOP_MODERN) || defined(THEXTECH_BUILD_GL_DESKTOP_LEGACY)) && (defined(THEXTECH_BUILD_GL_ES_MODERN) || defined(THEXTECH_BUILD_GL_ES_LEGACY))
+    if(m_gl_profile != SDL_GL_CONTEXT_PROFILE_ES)
+        glClearDepth(value);
+    else
+        glClearDepthf(value);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    if(m_gl_profile != SDL_GL_CONTEXT_PROFILE_ES)
+        glClearDepth(-1.0f);
+    else
+        glClearDepthf(-1.0f);
+#elif defined(THEXTECH_BUILD_GL_ES_MODERN) || defined(THEXTECH_BUILD_GL_ES_LEGACY)
+    glClearDepthf(value);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glClearDepthf(-1.0f);
+#else
+    glClearDepth(value);
+    glClear(GL_DEPTH_BUFFER_BIT);
+    glClearDepth(-1.0f);
+#endif
+}
+
 void RenderGL::scriptDrawEnd()
 {
     if(!m_script_bound_buffer)
@@ -231,13 +281,7 @@ void RenderGL::scriptRedirect(int buffer)
     if(b && m_use_depth_buffer && !b->depth_rb)
     {
         glBindFramebuffer(GL_FRAMEBUFFER, b->fb);
-        glGenRenderbuffers(1, &b->depth_rb);
-        glBindRenderbuffer(GL_RENDERBUFFER, b->depth_rb);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, b->w, b->h);
-        glBindRenderbuffer(GL_RENDERBUFFER, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, b->depth_rb);
-        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
-            pLogWarning("smbx2compat: couldn't add a depth buffer to a %dx%d capture buffer", b->w, b->h);
+        scriptAddDepth(*b);
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, scriptCurrentFB());
@@ -447,6 +491,10 @@ void RenderGL::scriptBufferClear(int buffer)
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
+    // LunaLua clears depth with the buffer (to the far plane)
+    if(it->second.depth_rb)
+        scriptClearDepth(1.0f);
+
     // the engine's (initState)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 }
@@ -498,7 +546,7 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
 
     const ScriptProgram_t &prog = pit->second;
 
-    const ScriptBuffer_t *target = nullptr;
+    ScriptBuffer_t *target = nullptr;
     if(d.target)
     {
         auto bit = m_script_buffers.find(d.target);
@@ -570,6 +618,16 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
         scriptBindBuffer(d.target, *target);
     else
         flushDrawQueues();
+
+    // a new depth buffer starts at the far plane, as if cleared with the buffer
+    bool depth_test = false;
+    if(d.depthTest && target)
+    {
+        bool fresh = !target->depth_rb;
+        depth_test = scriptAddDepth(*target);
+        if(depth_test && fresh)
+            scriptClearDepth(1.0f);
+    }
 
     // matrices: P maps the view to clip space, MV moves scene coordinates into the view
     Mat4 proj;
@@ -741,15 +799,30 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
     }
 
     // LunaLua's state for these draws
-    if(m_use_depth_buffer)
+    GLboolean depth_mask = GL_TRUE;
+    if(depth_test)
+    {
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depth_mask);
+        glEnable(GL_DEPTH_TEST);
+        glDepthFunc(GL_LEQUAL);
+        glDepthMask(GL_TRUE);
+    }
+    else if(m_use_depth_buffer)
         glDisable(GL_DEPTH_TEST);
     glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
     glDrawArrays((GLenum)d.primitive, 0, (GLsizei)d.count);
 
-    // the engine's state again
+    // the engine's state again (render_gl_init.cpp)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    if(m_use_depth_buffer)
+    if(depth_test)
+    {
+        glDepthFunc(GL_GEQUAL);
+        glDepthMask(depth_mask);
+        if(!m_use_depth_buffer)
+            glDisable(GL_DEPTH_TEST);
+    }
+    else if(m_use_depth_buffer)
         glEnable(GL_DEPTH_TEST);
 
     for(int i = 0; i < d.attributeCount; i++)

@@ -445,7 +445,8 @@ private:
     {
         GLuint fb = 0;
         GLuint texture = 0;
-        // depth buffer for the engine's draws, made the first time they're redirected here
+        // depth buffer, made the first time the engine's draws are redirected here
+        // or a script draw tests depth in it
         GLuint depth_rb = 0;
         int w = 0;
         int h = 0;
@@ -474,6 +475,9 @@ private:
     //! framebuffer the engine is drawing to
     GLuint scriptCurrentFB() const;
     void scriptBindBuffer(int id, const ScriptBuffer_t &b);
+    //! gives the buffer (bound) a depth buffer; false if GL can't
+    bool scriptAddDepth(ScriptBuffer_t &b);
+    void scriptClearDepth(GLfloat value);
     void scriptCleanup();
 
     /***********************************************************\

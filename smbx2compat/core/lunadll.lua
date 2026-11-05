@@ -471,6 +471,13 @@ local function compileShader(key)
     if ok then
         s.uniforms = engineVariables(key, false)
         s.attributes = engineVariables(key, true)
+    elseif string.find(tostring(err), "[Ll]imit") or string.find(tostring(err), "exceeded") then
+        -- Over this GPU's limits (SMATRS's map terrain asks for more uniforms than
+        -- macOS allows). Report it uncompiled with no variables, as a GPU that
+        -- can't take it does, so scripts with smaller fallbacks try those.
+        core.warn("shader over this GPU's limits (scripts may retry smaller): " ..
+                  shaderLabel(s.fragment) .. "\n" .. tostring(err))
+        s.uniforms, s.attributes, s.overLimit = {}, {}, true
     else
         core.warn("shader didn't compile here (drawn without it): " ..
                   shaderLabel(s.fragment) .. "\n" .. tostring(err))
@@ -488,7 +495,7 @@ function dll.FFI_ShaderCompile(obj)
     if not s.uniforms then
         compileShader(key)
     end
-    return true
+    return not s.overLimit
 end
 
 function dll.FFI_ShaderError(obj)

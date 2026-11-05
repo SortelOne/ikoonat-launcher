@@ -206,7 +206,12 @@ How it works (details in `core/boot.lua`'s header):
   first, blending is LunaLua's premultiplied one. SMBX2's images load
   premultiplied (`StdPictureLoad::premultiply`), as in LunaLua; batched draws
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
-  top-down rows like the game buffer. `Graphics.redirectCameraFB` queues
+  top-down rows like the game buffer. `glDraw{depthTest=true}` (lib3d's 3D
+  meshes) tests and writes depth (LEQUAL) in a depth buffer the capture
+  buffer gets on first use; clearing the buffer clears it. A shader over the
+  GPU's limits (not a translation failure) reports uncompiled with no
+  variables, so scripts with smaller fallbacks retry (SMATRS's map terrain).
+  `Graphics.redirectCameraFB` queues
   `OP_REDIRECT`/`OP_UNREDIRECT` at its two priorities; `RenderGL::scriptRedirect`
   puts the capture buffer in `BUFFER_GAME`'s slot meanwhile, so the engine's
   own draws and passes go into it too (camera at its top-left; one camera,
@@ -277,6 +282,15 @@ How it works (details in `core/boot.lua`'s header):
   for a straight-alpha load of the same file and keeps a backup, like the
   per-level custom graphics; `UnloadCustomGFX` restores them. `hardcoded-*`
   overrides are kept for scripts only.
+- Debugging episode scripts: `SMBX2COMPAT_DEBUG=/path/file.lua` runs that file
+  in the level's state after its scripts load (before onStart), with `core`
+  as its argument; `Misc.getCustomEnvironment()._G.require(...)` reaches the
+  episode's modules and `SaveData`. Keep such files in the scratchpad.
+- SMATRS's 3D world map is the level `World Map.lvlx` (hub of `World.wld`),
+  drawn by the episode's `map.lua`/`lib3d.lua`. Launched with `-l` it counts
+  as in the editor (no main menu) and, with no save, leaves the player at
+  (0,0) over open sea; set `SaveData.lastEnteredMapLevel` (debug file) to
+  start at a level's spot. See ROADMAP.md Phase 6.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
