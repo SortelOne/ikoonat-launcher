@@ -45,6 +45,7 @@
 #include "main/level_save_info.h"
 #include "menu_main.h"
 #include "saved_layers.h"
+#include "main/smbx2_ids.h" // smbx2compat
 
 std::string makeGameSavePath(std::string epPath, std::string saveFile)
 {
@@ -74,7 +75,7 @@ static void s_LoadCharacter(SavedChar_t& dest, const saveCharState& s)
     else
         dest.State = int(s.state);
 
-    dest.HeldBonus = int(s.itemID);
+    dest.HeldBonus = NPCIDFromFile(int(s.itemID)); // smbx2compat
 
     switch(s.mountID)
     {
@@ -314,7 +315,7 @@ void SaveGame()
         saveCharState c;
         c.id = static_cast<unsigned long>(A);
         c.state = uint32_t(SavedChar[A].State);
-        c.itemID = uint32_t(SavedChar[A].HeldBonus);
+        c.itemID = uint32_t(NPCIDToFile(SavedChar[A].HeldBonus)); // smbx2compat
         c.mountID = uint32_t(SavedChar[A].Mount);
         c.mountType = uint32_t(SavedChar[A].MountType);
         c.health = uint32_t(SavedChar[A].Hearts);

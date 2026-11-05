@@ -58,6 +58,7 @@
 #include "npc/npc_queues.h"
 
 #include "controls.h"
+#include "main/smbx2_collision.h" // smbx2compat
 
 
 //void WaterCheck(const int A);
@@ -4891,10 +4892,12 @@ void PlayerCollide(const int A)
     {
         auto &p2 = Player[B];
 
+        // smbx2compat: also SMBX2's noplayerinteraction and collision groups
         if(B != A && !p2.Dead && p2.TimeToLive == 0 &&
            (p2.Effect == PLREFF_NORMAL || p2.Effect == PLREFF_WARP_PIPE) &&
            !(p2.Mount == 2 || p1.Mount == 2) &&
-           (!BattleMode || (p1.Immune == 0 && p2.Immune == 0)))
+           (!BattleMode || (p1.Immune == 0 && p2.Immune == 0)) &&
+           SMBX2Collision_PlayerPlayer(A, B))
         {
             tempLocation = p1.Location;
 

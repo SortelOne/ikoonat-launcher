@@ -41,6 +41,7 @@
 #include "player/player_update_priv.h"
 
 #include "main/trees.h"
+#include "main/smbx2_collision.h" // smbx2compat
 
 void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, const bool movingBlock, const int floorBlock, const tempf_t oldSpeedY)
 {
@@ -59,7 +60,9 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
 
     for(int B : treeNPCQuery(Player[A].Location, SORTMODE_ID))
     {
-        if(NPC[B].Active && NPC[B].Killed == 0 && NPC[B].Effect != NPCEFF_PET_TONGUE && NPC[B].Effect != NPCEFF_PET_INSIDE)
+        // smbx2compat: also SMBX2's nonpcinteraction and collision groups
+        if(NPC[B].Active && NPC[B].Killed == 0 && NPC[B].Effect != NPCEFF_PET_TONGUE && NPC[B].Effect != NPCEFF_PET_INSIDE &&
+           SMBX2Collision_PlayerNPC(A, B))
         {
             // If Not (NPC(B).Type = 17 And NPC(B).CantHurt > 0) And Not (.Mount = 2 And NPC(B).Type = 56) And Not NPC(B).vehiclePlr = A And Not NPC(B).Type = 197 And Not NPC(B).Type = 237 Then
             if(!(Player[A].Mount == 2 && NPC[B].Type == NPCID_VEHICLE) &&

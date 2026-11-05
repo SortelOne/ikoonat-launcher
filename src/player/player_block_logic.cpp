@@ -36,6 +36,7 @@
 #include "phys_env.h"
 
 #include "main/trees.h"
+#include "main/smbx2_collision.h" // smbx2compat
 
 void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontResetGrabTime, tempf_t cursed_value_C, const int oldStandingOnNpc)
 {
@@ -83,7 +84,8 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                     if(Player[A].Location.Y <= Block[B].Location.Y + Block[B].Location.Height)
                     {
 
-                        if(!Block[B].Hidden)
+                        // smbx2compat: also SMBX2's noblockcollision and collision groups
+                        if(!Block[B].Hidden && SMBX2Collision_PlayerBlock(A, B))
                         {
                             // the hitspot is used for collision detection to find out where to put the player after it collides with a block
                             // the numbers tell what side the collision happened so it can move the plaer to the correct position

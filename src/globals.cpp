@@ -153,6 +153,7 @@ RangeArr<NPC_t, -128, maxNPCs> NPC;
 RangeArr<Block_t, 0, maxBlocks> Block;
 
 RangeArr<Player_t, 0, maxPlayers> Player;
+SMBX2PlayerExt_t g_smbx2PlayerExt[c_smbx2PlayerExtSlots]; // smbx2compat
 RangeArrI<int8_t, 0, maxPlayerFrames, 0> PlayerFrameX[numCharacters + 1];
 RangeArrI<int8_t, 0, maxPlayerFrames, 0> PlayerFrameY[numCharacters + 1];
 RangeArrI<bool, 0, maxBackgroundType, false> BackgroundFence;

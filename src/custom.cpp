@@ -40,6 +40,8 @@
 #include <PGE_File_Formats/file_formats.h>
 #include <fmt_format_ne.h>
 
+#include "main/smbx2_ids.h" // smbx2compat
+
 
 static struct PlayerBackup
 {
@@ -184,7 +186,7 @@ void SaveNPCDefaults()
     for(int A = 1; A <= maxNPCType; A++)
     {
         // Global override of NPC setup
-        npcPathRes = NPCDir.resolveFileCaseExistsAbs(fmt::sprintf_ne("npc-%d.txt", A));
+        npcPathRes = NPCDir.resolveFileCaseExistsAbs(fmt::sprintf_ne("npc-%d.txt", NPCFileID(A))); // smbx2compat
 
         if(!npcPathRes.empty())
             LoadCustomNPC(A, npcPathRes);
@@ -380,7 +382,7 @@ void FindCustomNPCs(/*std::string cFilePath*/)
 
     for(int A = 1; A <= maxNPCType; ++A)
     {
-        const auto nFile = fmt::sprintf_ne("npc-%d.txt", A);
+        const auto nFile = fmt::sprintf_ne("npc-%d.txt", NPCFileID(A)); // smbx2compat
         // Episode-wide custom NPC setup
         npcPath = g_dirEpisode.resolveFileCaseExistsAbs(nFile);
         // Level-wide custom NPC setup

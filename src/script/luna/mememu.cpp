@@ -33,6 +33,7 @@
 #include "npc/npc_queues.h"
 #include "main/cheat_code.h"
 #include "graphics.h" // smbx2compat: doShakeScreen
+#include "blocks.h" // smbx2compat: BlockShakeUp/Down
 
 #include <unordered_map>
 #include <functional>
@@ -2140,14 +2141,15 @@ public:
             }
         );
         insert(0x000000e4, &NPC_t::Frame);
-        insert(0x000000e8, &NPC_t::FrameCount);
-        insert(0x000000ec, &NPC_t::Direction);
         // smbx2compat: Special..Special5 are Doubles in SMBX (SMBX2's ai1..ai5) but whole numbers
         // here; take any field type without a mismatch warning
 #define NPC_SPECIAL(addr, field) \
         insert(addr, \
             [](const NPC_t& n, FIELDTYPE ftype)->num_t { return valueToMem(n.field, ftype); }, \
             [](NPC_t& n, num_t in, FIELDTYPE ftype)->void { memToValue(n.field, in, ftype); })
+        // smbx2compat: also Floats in SMBX (animationTimer, directionFaced), used by SMBX2's NPC scripts
+        NPC_SPECIAL(0x000000e8, FrameCount);
+        NPC_SPECIAL(0x000000ec, Direction);
         NPC_SPECIAL(0x000000f0, Special);
         NPC_SPECIAL(0x000000f8, Special2);
         NPC_SPECIAL(0x00000100, Special3);
@@ -2390,12 +2392,51 @@ public:
         insert(0x04, &Block_t::RapidHit);
         insert(0x06, &Block_t::DefaultType);
         insert(0x08, &Block_t::DefaultSpecial);
+        // smbx2compat: unused in SMBX; SMBX2's Block.spawn clears it
+        insert(0x0A,
+            [](const Block_t&, FIELDTYPE ftype)->num_t { return valueToMem(0, ftype); },
+            [](Block_t&, num_t, FIELDTYPE)->void {}
+        );
         // 0x0C..0x1B: TriggerHit, TriggerDeath, TriggerLast, Layer (strings)
         insert(0x1C, &Block_t::Hidden);
         insert(0x1E, &Block_t::Type);
         // 0x20..0x4F: Location (getValue/setValue)
         insert(0x50, &Block_t::Special);
         // 0x52..0x57: ShakeY, ShakeY2, ShakeY3; TheXTech keeps one counter and offset
+        // smbx2compat: SMBX2's Block:hit() starts a bump by writing ShakeY (down if
+        // positive, up if negative; 6 or 12 pixels) and checks both for one in progress
+        insert(0x52, // ShakeY
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(b.ShakeCounter ? 1 : 0, ftype);
+            },
+            [](Block_t& b, num_t in, FIELDTYPE ftype)->void
+            {
+                int shake = 0;
+                memToValue(shake, in, ftype);
+                int A = int(&b - &Block[0]);
+                if(A < 1 || A > numBlock)
+                    return;
+                if(shake > 0)
+                    BlockShakeDown(A);
+                else if(shake <= -12)
+                    BlockShakeUp(A);
+                else if(shake < 0)
+                    BlockShakeUpPow(A);
+                else
+                {
+                    b.ShakeCounter = 0;
+                    b.ShakeOffset = 0;
+                }
+            }
+        );
+        insert(0x54, // ShakeY2: follows ShakeY here
+            [](const Block_t& b, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(b.ShakeCounter ? 1 : 0, ftype);
+            },
+            [](Block_t&, num_t, FIELDTYPE)->void {}
+        );
         insert(0x56, // ShakeY3: the render offset
             [](const Block_t& b, FIELDTYPE ftype)->num_t
             {
@@ -2437,6 +2478,11 @@ public:
         );
         insert(0x62, &Block_t::tempBlockVehicleYOffset);
         // 0x64: noProjClipping (derived in TheXTech: tempBlockNoProjClipping())
+        // smbx2compat: reads give the derived value; writes (SMBX2's Block.spawn clears it) are dropped
+        insert(0x64,
+            [](const Block_t& b, FIELDTYPE ftype)->num_t { return valueToMem(b.tempBlockNoProjClipping() ? -1 : 0, ftype); },
+            [](Block_t&, num_t, FIELDTYPE)->void {}
+        );
         insert(0x66, &Block_t::tempBlockNpcIdx);
     }
 

@@ -176,8 +176,9 @@ enum EFFID : vbint_t
     EFFID_SPIKY_S4_DIE = 146,
     EFFID_SMOKE_S2 = 147,
     EFFID_CHAR3_HEAVY_EXPLODE = 148,
-    EFFID_GENERIC_NPC_DIE = 149,
-    EFFID_GENERIC_NPC_SQUISH = 150,
+    // smbx2compat: TheXTech's own, moved from 149/150 (engine effects in SMBX2)
+    EFFID_GENERIC_NPC_DIE = 1001,
+    EFFID_GENERIC_NPC_SQUISH = 1002,
 };
 
 

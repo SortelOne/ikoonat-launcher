@@ -26,6 +26,7 @@
 #include "sound.h"
 #include "npc.h"
 #include "npc_id.h"
+#include "main/smbx2_ids.h" // smbx2compat
 #include "npc_traits.h"
 #include "npc_special_data.h"
 #include <PGE_File_Formats/file_formats.h>
@@ -166,7 +167,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
         block.h = (int32_t)b.Location.Height;
 
         if(b.Special >= 1000)
-            block.npc_id = b.Special - 1000;
+            block.npc_id = NPCIDToFile(b.Special - 1000); // smbx2compat
         else if(b.Special > 0)
             block.npc_id = -b.Special;
         else
@@ -227,7 +228,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
     {
         const auto &n = NPC[i];
 
-        npc.id = n.Type;
+        npc.id = NPCIDToFile(n.Type); // smbx2compat
         npc.x = (int32_t)n.Location.X;
         npc.y = (int32_t)n.Location.Y;
         npc.direct = n.Direction;
@@ -237,7 +238,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
 
         if(NPCIsContainer(n))
         {
-            npc.contents = n.Special;
+            npc.contents = NPCIDToFile(n.Special); // smbx2compat
             npc.special_data = n.Variant;
         }
 

@@ -30,7 +30,7 @@ an SMBX2 episode) on this engine, first on macOS, then on Android.
 | Shader files | 189 |
 | Custom NPC/block Lua (`npc-N.lua`) | 62 |
 | Highest IDs used | NPC 780, block 1283, BGO 751+ |
-| Engine limits today | `maxNPCType` 306, `maxBlockType` 702, `maxBackgroundType` 200 (`src/global_constants.h`) |
+| Engine limits | SMBX2's since 2026-11-04: 1000 NPC, 2000 block, 1000 BGO and effect types (`src/global_constants.h`; were 306 / 702 / 200 / 200) |
 
 ## Strategy decision (recommended)
 
@@ -449,12 +449,53 @@ image` now changes what the engine draws, as LunaLua's
   `doPSwitch`/`doPSwitchRaw`, `doBombExplosion`, `_npcHarmCombo*`,
   `_npcCollect`.
 
+*ID and collision group round (2026-11-04)* (Phase 3's first half):
+- The engine takes SMBX2's limits (LunaLua's `MAX_ID`s): 2000 block types,
+  1000 NPC, BGO and effect types (`src/global_constants.h`). SMATRS's
+  levels use up to block 1383, NPC 999 and BGO 923, and its effects go to
+  975. Nothing in a level or a `mem()` write becomes ID 1 any more, and
+  `NPC.spawn` takes LunaLua's 1-1000.
+- Three ranges clashed: TheXTech's own NPCs 301-306 (power-ups and the flag
+  exit; SMBX2's are Thwimp, Blurp, Torpedo Ted, ...), its conveyor blocks
+  701/702 and its generic NPC death effects 149/150 (SMBX2's engine effects
+  go to 161). They moved to 1001-1006, 2001/2002 and 1001/1002. Only the
+  NPCs appear in files: `src/main/smbx2_ids.h` maps 301-306 to 1001-1006 in
+  levels, the editor's level writer and saves when SMBX2's data isn't
+  installed, and their images and `npc-N.txt` keep the 301-306 names.
+- With SMBX2's data installed, default block/NPC/BGO/effect/background2
+  sprites come from SMBX2's `graphics/` folders first (it has its own
+  versions of 44 NPCs, 198 blocks and 22 effects that the asset pack also
+  has), then the asset pack. Character and Yoshi sheets still come from
+  the asset pack (SMBX2's go with its own hitbox files).
+- Collision groups reach the engine. LunaLua's extended fields
+  (`noblockcollision`, `nonpccollision`, `collisionGroup`; players'
+  `nonpcinteraction`, `noplayerinteraction`) now live in the engine:
+  inside `NPC_t`/`Block_t`, so they move when the engine moves an object,
+  and in an array for players. The arrays SMBX2's `ffi_*.lua` index are
+  structs as wide as a whole engine object (built from
+  `__xtech_extendedFields`). `src/main/smbx2_collision.h` has the checks,
+  placed where LunaLua hooks SMBX: NPC-NPC, held NPC-NPC, NPC-block (an NPC's
+  stand-in block uses the NPC's group), player-block, player-NPC and
+  player-player. lunadll.lua keeps the group names and copies each
+  `Misc.groupsCollide` flip into the engine. `smoke/collisiontest.lvlx`
+  checks a group falling through, no group landing, and a flipped pair.
+- mememu: NPC `0xE8`/`0xEC` (animation timer and direction, Floats in SMBX)
+  take floats without a warning; SMBX2's NPC scripts now run for real IDs,
+  and those warnings had reached ~16,000 per 30 s. Block `0x52` (ShakeY)
+  writes start the engine's bump (up or down, 6 or 12 px), as SMBX2's
+  `Block:hit()` expects; `0x0A`/`0x54`/`0x64` writes from `Block.spawn` are
+  accepted quietly.
+- Not done: LunaLua's `noblockcollision` also turns off water physics and
+  the "killed by a bumped block" check; only the block collisions honour
+  it. Group reference counts don't drop when the engine removes an NPC, so
+  an unused group name keeps its index until the level ends (harmless).
+
 *Next round, in order:*
-1. Phase 3 IDs (block 756 and friends now become 1, and their sprite
-   overrides wait for them); engine collisions honouring collision groups.
-2. Level flow and game actions: `Level.exit`/`Level.finish` flags in
-   `mem()`, and the `Misc` stubs above.
-3. `Graphics.redirectCameraFB` (glowing background layers).
+1. Level flow and game actions: `Level.exit`/`Level.finish` flags in
+   `mem()`, and the `Misc` stubs above (`doPOW`, `doPSwitch`, `npcToCoins`,
+   `doBombExplosion`, `_npcHarmCombo*`, `_npcCollect`).
+2. `Graphics.redirectCameraFB` (glowing background layers).
+3. Performance: the ID round added ~2 ms of Lua (Performance track).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -470,8 +511,11 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 ### Phase 3 — Extended IDs and custom NPCs/blocks
 - Raise `maxNPCType` / `maxBlockType` / `maxBackgroundType` past SMATRS's needs
   (≥ 1000 / 1300 / 1000), including arrays sized from them and save formats.
+  Done 2026-11-04 (Phase 1, "ID and collision group round").
 - Load SMBX2-style per-ID config (`npc-N.txt`, `npc-N.ini`) and graphics for IDs
-  with no built-in definition.
+  with no built-in definition. Graphics done; SMBX2's own configs come from
+  its `npc-N.lua`/`block-N.lua` (`npcManager.setNpcSettings`) through
+  `mem()`, which now reaches the engine's traits for every ID.
 - Let Lua own NPC AI for custom IDs (`npcManager` behaviour); engine physics/AI
   runs only when the config asks for it.
 - Done when: custom NPCs in 1-1 appear and move.
@@ -557,6 +601,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | Drawing round (Lua draws backgrounds, BGOs, sizables, HUD) | 7.8-7.9 | 6.2 | sound off, frames 200-900; engine ~1.6 |
 | Shader round (shaders and capture buffers drawn) | 9.7-11.4 | 6.6-7.4 | same; engine 3.1-4.0; runs vary ~1 ms |
 | Sprite override round | 8.9 | 6.1 | frames 300-900, real sound (low volume); engine 2.8 |
+| ID and collision group round | 11.3 | 8.2 | frames 300-900, muted; engine 3.1; 48,200 `mem()` reads a frame |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
@@ -590,6 +635,15 @@ same). Keeping a capture buffer bound across consecutive draws into it is in;
 it didn't measurably help here. Lua grew ~0.4 ms (SMBX2 packing uniforms in
 `validateAndConvertVariableTable`). Android's drivers will behave differently;
 measure there (Phase 7).
+
+The ID round gives SMBX2's own objects their real IDs (before, SMATRS's 863
+SMBX2-only objects in 1-1 were all ID 1), so their scripts now have work:
+`blockeventmanager.lua:update` 0.81 ms, `npcEventManager.lua:update` 0.15
+ms, and `mem()` reads went from ~34k to ~48k a frame. LuaJIT aborts ~14 of
+15 traces it starts each frame (`LLEAVE`/`LUNROLL`/`LINNER` in
+`ffi_mem.lua`, `blockeventmanager.lua:156`, `npcEventManager.lua:184`,
+`ffi_npc.lua:444`), so much of that code runs interpreted; worth a look.
+The frame-831 `onCameraDraw` spike (14 ms) is still there.
 
 bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
 

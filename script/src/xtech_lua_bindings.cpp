@@ -67,6 +67,7 @@ extern "C"
 #include "main/level_save_info.h"
 #include "main/level_file.h"
 #include "main/trees.h" // smbx2compat: block quadtree queries
+#include "main/smbx2_collision.h" // smbx2compat: collision groups
 
 #include "script/luna/lunaplayer.h"
 #include "script/luna/lunanpc.h"
@@ -482,7 +483,7 @@ static NPC_t* lua_npc_create(int type, num_t x, num_t y, num_t xspd, num_t yspd)
 // new NPC's 0-based index (LunaLua's), or -1 when the NPC array is full.
 static int lua_npc_spawnLegacy(int type, double x, double y, int section, bool respawn, bool centered)
 {
-    if(numNPCs >= maxNPCs)
+    if(numNPCs >= maxNPCs || type < 1 || type > maxNPCType)
         return -1;
 
     numNPCs++;
@@ -2527,9 +2528,9 @@ static const MemField *memFieldAt(const ObjMemArray &a, unsigned offset, int &k)
 // vScreenX, ...) and LunaLua's extended NPC/block properties, which SMBX2 finds
 // with Misc.__getNPCPropertyTableAddress. npcconfig_core.lua reads them at
 // address + stride * ID. Each table gets a made-up range; IDs the engine has map
-// onto its traits, and the rest (SMBX2's IDs past the engine's limits, and the
-// extended properties, which TheXTech doesn't use) are kept as plain storage,
-// so values set from npc-N.txt or Lua read back.
+// onto its traits (all of SMBX2's since the engine took SMBX2's limits), and
+// the extended properties, which TheXTech doesn't use, are kept as plain
+// storage, so values set from npc-N.txt or Lua read back.
 // SMBX's list of sizable blocks, top to bottom; TheXTech draws them without one
 static std::vector<int> s_sizableBlocks;
 
@@ -3404,6 +3405,45 @@ static CSprite* copyFromBlueprint(const std::string &name)
 // Helper macro to define an EFFID constant in luabind
 
 
+
+// smbx2compat: SMBX2's Misc.groupsCollide flips one pair of collision groups;
+// smbx2compat/core/lunadll.lua mirrors each change into the engine's matrix
+static void lua_collision_setFlipped(unsigned i, unsigned j, bool flipped)
+{
+    SMBX2Collision_SetFlipped(i, j, flipped);
+}
+
+// smbx2compat: SMBX2 indexes LunaLua's extended fields arrays by object index.
+// NPCs and blocks carry theirs inside NPC_t/Block_t (so they move with the
+// object); lunadll.lua declares a struct that spans one whole object, with the
+// fields at this offset, so the arrays step by the object's size.
+template<class T>
+static void pushObjectExtLayout(lua_State *L, const char *name, T &first, const void *ext, size_t extSize)
+{
+    lua_createtable(L, 0, 4);
+    lua_pushlightuserdata(L, static_cast<void *>(&first));
+    lua_setfield(L, -2, "base");
+    lua_pushinteger(L, static_cast<lua_Integer>(static_cast<const char *>(ext) - reinterpret_cast<const char *>(&first)));
+    lua_setfield(L, -2, "offset");
+    lua_pushinteger(L, static_cast<lua_Integer>(extSize));
+    lua_setfield(L, -2, "size");
+    lua_pushinteger(L, static_cast<lua_Integer>(sizeof(T)));
+    lua_setfield(L, -2, "stride");
+    lua_setfield(L, -2, name);
+}
+
+static void pushExtendedFieldsLayout(lua_State *L)
+{
+    lua_createtable(L, 0, 4);
+    pushObjectExtLayout(L, "npc", NPC[0], &NPC[0].smbx2Ext, sizeof(SMBX2NPCExt_t));
+    pushObjectExtLayout(L, "block", Block[0], &Block[0].smbx2Ext, sizeof(SMBX2BlockExt_t));
+    lua_pushlightuserdata(L, static_cast<void *>(g_smbx2PlayerExt));
+    lua_setfield(L, -2, "player");
+    lua_pushinteger(L, c_smbx2PlayerExtSlots);
+    lua_setfield(L, -2, "playerSlots");
+    lua_setglobal(L, "__xtech_extendedFields");
+}
+
 void xtech_lua_register_bindings(lua_State *L)
 {
     using namespace luabind;
@@ -3923,6 +3963,8 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_npc_forEach", &LuaNPC::forEach),
         def("xtech_npc_create", &LuaNPC::lua_npc_create),
         def("xtech_npc_spawnLegacy", &LuaNPC::lua_npc_spawnLegacy), // smbx2compat
+        def("xtech_collision_setFlipped", &lua_collision_setFlipped), // smbx2compat
+        def("xtech_collision_clear", &SMBX2Collision_Clear), // smbx2compat
 
         // ================================================================
         // Layer API functions
@@ -4439,4 +4481,7 @@ void xtech_lua_register_bindings(lua_State *L)
     // smbx2compat: mem() reads through the FFI (see LuaMisc::ffi_mem_get)
     lua_pushlightuserdata(L, reinterpret_cast<void *>(&LuaMisc::ffi_mem_get));
     lua_setglobal(L, "__xtech_ffiMemGet");
+
+    // smbx2compat: where LunaLua's extended fields live (SMBX2NPCExt_t etc., globals.h)
+    pushExtendedFieldsLayout(L);
 }

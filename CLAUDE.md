@@ -127,8 +127,10 @@ on but sends it to SDL's silent dummy device, so audio code really runs.
 Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
 level script), `errtest.lvlx` (raises Lua errors every frame, through the
 shim and directly from the engine; the game must keep running and log each once)
-and `spritetest.lvlx` (sets, clears and re-sets sprite overrides, then kills the
-player so the level reloads and the overrides are restored at unload).
+`spritetest.lvlx` (sets, clears and re-sets sprite overrides, then kills the
+player so the level reloads and the overrides are restored at unload) and
+`collisiontest.lvlx` (goombas in collision groups against floor blocks; it
+logs `collisiontest: ... -> OK` or `WRONG` for each).
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -190,12 +192,29 @@ How it works (details in `core/boot.lua`'s header):
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
   top-down rows like the game buffer. `redirectCameraFB` and clip planes
   aren't done.
+- Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
+  effects; `src/global_constants.h`). TheXTech's own types that clashed with
+  SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
+  701/702 to 2001/2002, effects 149/150 to 1001/1002. `src/main/smbx2_ids.h`
+  translates the NPCs for files: without SMBX2's data, levels and saves
+  still say 301-306; graphics and `npc-N.txt` always do. With SMBX2's data
+  installed (`g_smbx2Ids`, set in `LoadGFX`), default sprites come from
+  SMBX2's `graphics/<category>/` first, then the asset pack.
+- Collision groups and LunaLua's extended object fields (`noblockcollision`,
+  `nonpccollision`, `collisionGroup`, ...): `SMBX2NPCExt_t`/`SMBX2BlockExt_t`
+  inside `NPC_t`/`Block_t` (so they move with the object) and
+  `g_smbx2PlayerExt[]` (`src/globals.h`). lunadll.lua hands SMBX2 structs that
+  span a whole engine object, with the fields at the engine's offset
+  (`__xtech_extendedFields`), and mirrors `Misc.groupsCollide` flips into
+  `src/main/smbx2_collision.h`, which the engine checks where LunaLua hooks
+  SMBX: NPC-NPC, held NPC-NPC, NPC-block, player-block, player-NPC,
+  player-player.
 - Sprite overrides (`Graphics.sprites.block[id].img = ...`): lunadll.lua's
   `FFI_SetSpriteOverride` -> `xtech_gfx_setSpriteOverride` ->
   `SpriteOverride_Set` (`src/load_gfx.cpp`), which swaps the engine's texture
   for a straight-alpha load of the same file and keeps a backup, like the
-  per-level custom graphics; `UnloadCustomGFX` restores them. IDs past the
-  engine's limits and `hardcoded-*` are kept for scripts only.
+  per-level custom graphics; `UnloadCustomGFX` restores them. `hardcoded-*`
+  overrides are kept for scripts only.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
@@ -269,9 +288,9 @@ How it works (details in `core/boot.lua`'s header):
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers and sprite overrides too) except
-  `redirectCameraFB`, and SMBX2-only IDs load, spawn and get set (via
-  `mem()`) as ID 1. `Level.exit()` does nothing yet (its mode flags aren't
-  in `mem()`). See ROADMAP.md Phase 1 "Next round".
+  `redirectCameraFB`. `Level.exit()` does nothing yet (its mode flags aren't
+  in `mem()`), nor do `Misc.doPOW` and friends. See ROADMAP.md Phase 1
+  "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

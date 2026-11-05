@@ -850,6 +850,8 @@ set(THEXTECH_SRC
     src/main/level_medals.cpp
     src/main/main_config.cpp
     src/main/level_file.cpp
+    src/main/smbx2_ids.cpp
+    src/main/smbx2_collision.cpp
     src/main/menu_loop.cpp
     src/main/menu_main.cpp
     src/main/screen_pause.cpp

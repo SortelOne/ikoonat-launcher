@@ -239,21 +239,16 @@ _G.inputConfig2 = inputConfig(2)
 -- ffi_npc.lua keeps the NPC class LunaLua registers in C++ (as LegacyNPC) and
 -- builds its NPC.spawn on LegacyNPC.spawn; nothing else of that class is used.
 -- Before this, NPC is still the engine's own class, which has no spawn.
-local ENGINE_MAX_NPC_ID = 306 -- maxNPCType in src/global_constants.h
+local NPC_MAX_ID = 1000 -- LunaLua's NPC::MAX_ID (the engine's 1001+ are TheXTech's own)
 
 _G.NPC = {
     spawn = function(id, x, y, section, respawn, centered)
         id, section = math.floor(tonumber(id) or 0), math.floor(tonumber(section) or -1)
-        if id < 1 then
-            error("Invalid NPC-ID!\nGot NPC-ID: " .. tostring(id), 2)
+        if id < 1 or id > NPC_MAX_ID then
+            error("Invalid NPC-ID!\nNeed NPC-ID between 1-" .. NPC_MAX_ID .. "\nGot NPC-ID: " .. tostring(id), 2)
         end
         if section < 0 or section > 20 then
             error("Invalid Section!\nNeed Section-Index between 0-20\nGot Section-Index: " .. tostring(section), 2)
-        end
-        -- Like the level loader, IDs past the engine's become ID 1 (ROADMAP Phase 3)
-        if id > ENGINE_MAX_NPC_ID then
-            core.missingAPI("NPC IDs above " .. ENGINE_MAX_NPC_ID .. " (spawned as ID 1)")
-            id = 1
         end
         local idx = xtech_npc_spawnLegacy(id, tonumber(x) or 0, tonumber(y) or 0, section,
                                           respawn and true or false, centered and true or false)

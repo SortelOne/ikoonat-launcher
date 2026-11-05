@@ -268,6 +268,37 @@ enum WingBehaviors : uint8_t
     WING_OVERRIDE = 255,
 };
 
+// smbx2compat: LunaLua's extra per-object fields (ExtendedNPCFields etc. in its
+// LuaProxyFFI.cpp). SMBX2's ffi_*.lua scripts reach them through
+// LunaLuaGet*ExtendedFieldsArray (smbx2compat/core/lunadll.lua), and the
+// engine's collisions check them (main/smbx2_collision.h). NPCs and blocks
+// keep them inside, so they move with the object.
+struct SMBX2NPCExt_t
+{
+    bool noblockcollision = false;
+    bool nonpccollision = false;
+    int16_t fullyInsideSection = 0;
+    uint32_t collisionGroup = 0;
+};
+
+struct SMBX2BlockExt_t
+{
+    double layerSpeedX = 0.0;
+    double layerSpeedY = 0.0;
+    double extraSpeedX = 0.0;
+    double extraSpeedY = 0.0;
+    uint32_t collisionGroup = 0;
+};
+
+struct SMBX2PlayerExt_t
+{
+    bool noblockcollision = false;
+    bool nonpcinteraction = false;
+    bool noplayerinteraction = false;
+    uint32_t collisionGroup = 0;
+    int32_t slidingTimeSinceOnSlope = 0;
+};
+
 //Public Type NPC 'The NPC Type
 struct NPC_t
 {
@@ -384,6 +415,8 @@ struct NPC_t
     stringindex_t Name = STRINGINDEX_NONE;
     //! smbx2compat: custom params (JSON) from the level file, index into g_objectCustomParams (0 = none)
     uint32_t CustomParams = 0;
+    //! smbx2compat: LunaLua's extended fields (see SMBX2NPCExt_t)
+    SMBX2NPCExt_t smbx2Ext;
 
 //    Projectile As Boolean 'If the NPC is a projectile
     bool Projectile = false;
@@ -962,6 +995,8 @@ struct Block_t
     stringindex_t Name = STRINGINDEX_NONE;
     //! smbx2compat: custom params (JSON) from the level file, index into g_objectCustomParams (0 = none)
     uint32_t CustomParams = 0;
+    //! smbx2compat: LunaLua's extended fields (see SMBX2NPCExt_t)
+    SMBX2BlockExt_t smbx2Ext;
 //    NPC As Integer 'when a coin is turned into a block after the p switch is hit
     NPCID coinSwitchNpcType = NPCID(0);
 //    Type As Integer 'the block's type
@@ -1661,6 +1696,10 @@ DECLREF_T(Block);
 
 //Public Player(0 To maxPlayers) As Player
 extern RangeArr<Player_t, 0, maxPlayers> Player;
+//! smbx2compat: LunaLua's extended player fields by SMBX2 player index (see SMBX2NPCExt_t);
+//! SMBX2's character templates use 1000 and up
+const int c_smbx2PlayerExtSlots = 1100;
+extern SMBX2PlayerExt_t g_smbx2PlayerExt[c_smbx2PlayerExtSlots];
 // Per-character player frame offset X (1-indexed, element 0 unused)
 extern RangeArrI<int8_t, 0, maxPlayerFrames, 0> PlayerFrameX[numCharacters + 1];
 // Per-character player frame offset Y (1-indexed, element 0 unused)

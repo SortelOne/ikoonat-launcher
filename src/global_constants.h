@@ -109,16 +109,18 @@ const int maxEffects = 1000;
 const int maxNPCs = 5000;
 //Public Const maxBackgrounds As Integer = 8000    'Max # of background objects
 const int maxBackgrounds = 8000;
+// smbx2compat: SMBX2's limits (2000 blocks, 1000 BGOs/NPCs/effects) plus TheXTech's
+// own types above them (blk_id.h, npc_id.h, eff_id.h)
 //Public Const maxBlockType As Integer = 700 'Maximum number of block types
-const int maxBlockType = 702;
+const int maxBlockType = 2002;
 //Public Const maxBackgroundType As Integer = 200 'Maximum number of background types
-const int maxBackgroundType = 200;
+const int maxBackgroundType = 1000;
 //Public Const maxSceneType As Integer = 100 'Maximum number of scenetypes
 const int maxSceneType = 100;
 //Public Const maxNPCType As Integer = 300 'Maximum number of NPC types
-const int maxNPCType = 306;
+const int maxNPCType = 1006;
 //Public Const maxEffectType As Integer = 200 'Maximum number of effect types
-const int maxEffectType = 200;
+const int maxEffectType = 1002;
 
 //Public Const maxWarps As Integer = 200 'Maximum number of warps
 #ifdef LOW_MEM

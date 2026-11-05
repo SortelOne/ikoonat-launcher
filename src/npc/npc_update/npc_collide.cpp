@@ -30,6 +30,7 @@
 #include "editor.h"
 
 #include "main/trees.h"
+#include "main/smbx2_collision.h" // smbx2compat
 
 void NPCCollide(int A)
 {
@@ -125,6 +126,10 @@ void NPCCollide(int A)
 
         // skip NPC-NPC collision if either NPC has NoNPCCollision
         if(NPC[A]->NoNPCCollision || NPC[B]->NoNPCCollision)
+            continue;
+
+        // smbx2compat: SMBX2's nonpccollision and collision groups
+        if(!SMBX2Collision_NPCNPC(A, B))
             continue;
 
         // first exclusion condition
@@ -616,6 +621,10 @@ void NPCCollideHeld(int A)
         // }
 
         if(B == A || !NPC[B].Active)
+            continue;
+
+        // smbx2compat: SMBX2's collision groups (LunaLua checks only the groups for held NPCs)
+        if(!SMBX2Collision_Groups(NPC[A].smbx2Ext.collisionGroup, NPC[B].smbx2Ext.collisionGroup))
             continue;
 
         // don't kill dead or friendly NPC

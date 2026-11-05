@@ -31,6 +31,7 @@
 #include "blk_id.h"
 
 #include "main/trees.h"
+#include "main/smbx2_collision.h" // smbx2compat
 
 void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA, const int numTempBlock, const tempf_t speedVar)
 {
@@ -102,9 +103,11 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
 
 
                                 // the coinSwitchBlockType != B check is an SMBX 1.3 bug, probably because the field was called "Block"
+                                // smbx2compat: also SMBX2's noblockcollision and collision groups
                                 if(NPC[A].coinSwitchBlockType() != B && NPC[A].tempBlock != B &&
                                    !(NPC[A].Projectile && Block[B].tempBlockNoProjClipping()) &&
-                                   !BlockNoClipping[Block[B].Type] && !Block[B].Hidden)
+                                   !BlockNoClipping[Block[B].Type] && !Block[B].Hidden &&
+                                   SMBX2Collision_NPCBlock(A, B))
                                 {
                                     if(Block[B].tempBlockNpcType == NPCID_TANK_TREADS && !NPC[A]->NoClipping && NPC[A].Type != NPCID_BULLET)
                                         NPCHit(A, 8);

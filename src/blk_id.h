@@ -31,13 +31,14 @@ enum BLKID
 
     // these can be expanded into user-modifiable ranges in the future.
     // currently the "CONV" blocks can't be placed or modified in any way by the user
-    BLKID_CONVEYOR_L_START = 701,
-    BLKID_CONVEYOR_L_CONV = 701,
-    BLKID_CONVEYOR_L_END = 701,
+    // smbx2compat: moved from 701/702 (real blocks in SMBX2) past SMBX2's 2000 block IDs
+    BLKID_CONVEYOR_L_START = 2001,
+    BLKID_CONVEYOR_L_CONV = 2001,
+    BLKID_CONVEYOR_L_END = 2001,
 
-    BLKID_CONVEYOR_R_START = 702,
-    BLKID_CONVEYOR_R_CONV = 702,
-    BLKID_CONVEYOR_R_END = 702,
+    BLKID_CONVEYOR_R_START = 2002,
+    BLKID_CONVEYOR_R_CONV = 2002,
+    BLKID_CONVEYOR_R_END = 2002,
 };
 
 

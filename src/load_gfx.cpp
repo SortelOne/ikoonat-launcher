@@ -42,6 +42,7 @@
 #include "main/asset_pack.h"
 #include "main/screen_asset_pack.h"
 #include "main/game_strings.h"
+#include "main/smbx2_ids.h" // smbx2compat
 
 #include <IniProcessor/ini_processing.h>
 #include <Utils/files.h>
@@ -958,6 +959,17 @@ static inline void s_find_image(std::string& dest, DirListCI& CurDir, std::strin
 #endif
 }
 
+// smbx2compat: with SMBX2's data installed, its own sprite for an ID (up to
+// SMBX2's limit, smbx2Max) is the default; otherwise the asset pack's
+static void s_find_default_image(std::string& dest, DirListCI& CurDir, DirListCI& smbx2Dir, int index, int smbx2Max, const std::string& baseName)
+{
+    dest.clear();
+    if(g_smbx2Ids && index <= smbx2Max)
+        s_find_image(dest, smbx2Dir, baseName);
+    if(dest.empty())
+        s_find_image(dest, CurDir, baseName);
+}
+
 void LoadGFX()
 {
 #if defined(PGE_MIN_PORT) || defined(THEXTECH_CLI_BUILD)
@@ -967,6 +979,9 @@ void LoadGFX()
 
     std::string p;
     DirListCI CurDir;
+    DirListCI smbx2Dir; // smbx2compat
+
+    SMBX2Ids_Detect(); // smbx2compat
 
     pLogDebug("Loading character textures");
     LoaderUpdateDebugString("Characters");
@@ -986,18 +1001,19 @@ void LoadGFX()
     pLogDebug("Loading block textures");
     LoaderUpdateDebugString("Blocks");
     CurDir.setCurDir(getGfxDir() + "block/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("block/"));
     for(int A = 1; A <= maxBlockType; ++A)
     {
         if(A == BLKID_CONVEYOR_L_CONV || A == BLKID_CONVEYOR_R_CONV)
             continue;
 
         LoaderUpdateDebugString(fmt::sprintf_ne("Block %d", A));
-        s_find_image(p, CurDir, fmt::sprintf_ne("block-%d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, 2000, fmt::sprintf_ne("block-%d", A));
 
+        // smbx2compat: SMBX2's IDs have gaps, so a missing one doesn't end the list
         if(!p.empty())
             XRender::lazyLoadPicture(GFXBlockBMP[A], p);
-        else
-            break;
 
         if(A % 20 == 0)
             UpdateLoad();
@@ -1007,10 +1023,12 @@ void LoadGFX()
     pLogDebug("Loading BG2 textures");
     LoaderUpdateDebugString("Backgrounds");
     CurDir.setCurDir(getGfxDir() + "background2/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("background2/"));
     for(int A = 1; A <= numBackground2; ++A)
     {
         LoaderUpdateDebugString(fmt::sprintf_ne("Background %d", A));
-        s_find_image(p, CurDir, fmt::sprintf_ne("background2-%d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, numBackground2, fmt::sprintf_ne("background2-%d", A));
 
         if(!p.empty())
             XRender::lazyLoadPicture(GFXBackground2BMP[A], p);
@@ -1025,10 +1043,12 @@ void LoadGFX()
     pLogDebug("Loading NPC textures");
     LoaderUpdateDebugString("NPC");
     CurDir.setCurDir(getGfxDir() + "npc/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("npc/"));
     for(int A = 1; A <= maxNPCType; ++A)
     {
         LoaderUpdateDebugString(fmt::sprintf_ne("NPC %d", A));
-        s_find_image(p, CurDir, fmt::sprintf_ne("npc-%d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, 1000, fmt::sprintf_ne("npc-%d", NPCFileID(A)));
 
         if(!p.empty())
         {
@@ -1046,22 +1066,19 @@ void LoadGFX()
             if(A % 20 == 0)
                 UpdateLoad();
         }
-        else
-        {
-            // GFXNPCWidth(A) = 0;
-            // GFXNPCHeight(A) = 0;
-            break;
-        }
+        // smbx2compat: no break; SMBX2's IDs have gaps, and TheXTech's own start at 1001
     }
     UpdateLoad();
 
     pLogDebug("Loading effect textures");
     LoaderUpdateDebugString("Effects");
     CurDir.setCurDir(getGfxDir() + "effect/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("effect/"));
     for(int A = 1; A <= maxEffectType; ++A)
     {
         LoaderUpdateDebugString(fmt::sprintf_ne("Effect %d", A));
-        s_find_image(p, CurDir, fmt::sprintf_ne("effect-%d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, 1000, fmt::sprintf_ne("effect-%d", A));
 
         if(!p.empty())
         {
@@ -1069,8 +1086,7 @@ void LoadGFX()
             if(A % 20 == 0)
                 UpdateLoad();
         }
-        else
-            break;
+        // smbx2compat: no break (gaps in SMBX2's IDs)
     }
     UpdateLoad();
 
@@ -1116,10 +1132,12 @@ void LoadGFX()
     pLogDebug("Loading background textures");
     LoaderUpdateDebugString("BGO");
     CurDir.setCurDir(getGfxDir() + "background/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("background/"));
     for(int A = 1; A <= maxBackgroundType; ++A)
     {
         LoaderUpdateDebugString(fmt::sprintf_ne("BGO %d", A));
-        s_find_image(p, CurDir, fmt::sprintf_ne("background-%d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, 1000, fmt::sprintf_ne("background-%d", A));
 
         if(!p.empty())
         {
@@ -1127,10 +1145,7 @@ void LoadGFX()
             BackgroundWidth[A] = GFXBackgroundBMP[A].w;
             BackgroundHeight[A] = GFXBackgroundBMP[A].h;
         }
-        else
-        {
-            break;
-        }
+        // smbx2compat: no break (gaps in SMBX2's IDs)
 
         if(A % 20 == 0)
             UpdateLoad();
@@ -1535,7 +1550,8 @@ void LoadCustomGFX(bool include_world, const char* preview_players_from)
 
     for(int A = 1; A <= maxNPCType; ++A)
     {
-        loadCGFX("npc", "npc-", A,
+        // smbx2compat: TheXTech's own NPCs past 1000 keep their 301-306 file names
+        loadCGFX("npc", "npc-", NPCFileID(A),
                  nullptr, nullptr, nullptr, GFXNPCBMP[A]);
 
         // load converted conveyer block graphics from conveyer NPC graphics

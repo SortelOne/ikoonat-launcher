@@ -57,6 +57,7 @@
 #include "trees.h"
 #include "npc_traits.h"
 #include "npc_special_data.h"
+#include "main/smbx2_ids.h" // smbx2compat
 #include "graphics/gfx_camera.h"
 #include "graphics/gfx_update.h"
 #include "npc/npc_activation.h"
@@ -844,6 +845,9 @@ bool OpenLevel_Block(void* userdata, LevelBlock& b)
         block.Type = int(b.id);
         block.DefaultType = block.Type;
 
+        if(b.npc_id > 0)
+            b.npc_id = NPCIDFromFile(int(b.npc_id)); // smbx2compat: TheXTech's own NPCs (smbx2_ids.h)
+
         if(b.npc_id > maxNPCType)
         {
             pLogWarning("Block contents %d is out of range (max NPC type %d), reset to 1 coin", (int)b.npc_id, maxNPCType);
@@ -970,6 +974,11 @@ bool OpenLevel_NPC(void* userdata, LevelNPC& n)
         if(!LevelEditor)
             npc.Location.Y -= 0.01_n;
         npc.Direction = n.direct;
+
+        // smbx2compat: TheXTech's own NPCs (smbx2_ids.h)
+        n.id = NPCIDFromFile(int(n.id));
+        if(n.contents > 0)
+            n.contents = NPCIDFromFile(int(n.contents));
 
         if(n.id > maxNPCType) // Drop ID to 1 for NPCs of out of range IDs
         {

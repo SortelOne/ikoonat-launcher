@@ -634,14 +634,39 @@ end
 ------------------------------------------
 -- ffi_player.lua, ffi_npc.lua, ffi_block.lua --
 ------------------------------------------
--- LunaLua keeps extra per-object fields beside SMBX's own memory. The struct
--- layouts are LunaLua's (LuaProxyFFI.cpp); the arrays are ours, indexed like
--- the engine's object arrays. Players reach index 1000+ for character templates.
+-- LunaLua keeps extra per-object fields beside SMBX's own memory (layouts in
+-- its LuaProxyFFI.cpp), indexed like the object arrays. The engine checks them
+-- in its collisions, so they live there (SMBX2NPCExt_t etc. in src/globals.h):
+-- inside each NPC and block, so they move with it, and in an array for
+-- players (1000+ are SMBX2's character templates). For NPCs and blocks the
+-- struct spans a whole engine object, with LunaLua's fields where the engine
+-- keeps them, so that indexing the array steps from object to object.
+local extLayout = __xtech_extendedFields
 
--- Upper bounds from src/global_constants.h (maxNPCs, maxBlocks)
-local MAX_NPCS = 5000
-local MAX_BLOCKS = 20000
-local PLAYER_SLOTS = 1100
+local NPC_FIELDS = [[
+    bool noblockcollision;
+    bool nonpccollision;
+    short fullyInsideSection;
+    unsigned int collisionGroup;]]
+
+local BLOCK_FIELDS = [[
+    double layerSpeedX;
+    double layerSpeedY;
+    double extraSpeedX;
+    double extraSpeedY;
+    unsigned int collisionGroup;]]
+
+local function objectStruct(name, fields, layout)
+    return string.format("typedef struct %s_\n{\n    char _xt_before[%d];\n%s\n    char _xt_after[%d];\n} %s;",
+                         name, layout.offset, fields, layout.stride - layout.offset - layout.size, name)
+end
+
+-- The engine's struct and ours must agree, or every field lands in the wrong place
+local function checkLayout(name, firstField, layout)
+    if ffi.sizeof(name) ~= layout.stride or ffi.offsetof(name, firstField) ~= layout.offset then
+        error(name .. " doesn't match the engine's layout", 2)
+    end
+end
 
 function dll.LunaLuaGetPlayerExtendedFieldsStruct()
     return [[
@@ -656,41 +681,23 @@ typedef struct ExtendedPlayerFields_
 end
 
 function dll.LunaLuaGetNPCextendedFieldsStruct()
-    return [[
-typedef struct ExtendedNPCFields_
-{
-    bool noblockcollision;
-    bool nonpccollision;
-    short fullyInsideSection;
-    unsigned int collisionGroup;
-} ExtendedNPCFields;]]
+    return objectStruct("ExtendedNPCFields", NPC_FIELDS, extLayout.npc)
 end
 
 function dll.LunaLuaGetBlockExtendedFieldsStruct()
-    return [[
-typedef struct ExtendedBlockFields_
-{
-    double layerSpeedX;
-    double layerSpeedY;
-    double extraSpeedX;
-    double extraSpeedY;
-    unsigned int collisionGroup;
-} ExtendedBlockFields;]]
+    return objectStruct("ExtendedBlockFields", BLOCK_FIELDS, extLayout.block)
 end
 
--- Each array lives as long as this Lua state; upvalues keep them from being collected
-local playerExtended, npcExtended, blockExtended
 function dll.LunaLuaGetPlayerExtendedFieldsArray()
-    playerExtended = playerExtended or ffi.new("ExtendedPlayerFields[?]", PLAYER_SLOTS)
-    return playerExtended
+    return ffi.cast("ExtendedPlayerFields*", extLayout.player)
 end
 function dll.LunaLuaGetNPCExtendedFieldsArray()
-    npcExtended = npcExtended or ffi.new("ExtendedNPCFields[?]", MAX_NPCS + 1)
-    return npcExtended
+    checkLayout("ExtendedNPCFields", "noblockcollision", extLayout.npc)
+    return ffi.cast("ExtendedNPCFields*", extLayout.npc.base)
 end
 function dll.LunaLuaGetBlockExtendedFieldsArray()
-    blockExtended = blockExtended or ffi.new("ExtendedBlockFields[?]", MAX_BLOCKS + 1)
-    return blockExtended
+    checkLayout("ExtendedBlockFields", "layerSpeedX", extLayout.block)
+    return ffi.cast("ExtendedBlockFields*", extLayout.block.base)
 end
 
 
@@ -702,7 +709,11 @@ end
 -- fields; index 0 is the unnamed default group. By default two objects collide
 -- unless they share a named group; Misc.groupsCollide flips single pairs.
 -- An index is freed once no object and no flipped pair refers to it.
--- TODO: the engine's own collisions don't consult this yet; only scripts do.
+-- The engine's collisions read objects' indices and a copy of the flipped
+-- pairs (src/main/smbx2_collision.h); this keeps the names.
+
+-- Each level starts with a new Lua state and no groups; so does the engine's copy
+xtech_collision_clear()
 
 local groupNames = { [0] = "" } -- index -> name
 local groupIndices = { [""] = 0 } -- name -> index
@@ -798,11 +809,13 @@ function dll.LunaLuaCollisionMatrixSetGroupsCollide(a, b, collide)
     if wantFlip and not flipped[key] then
         flipped[key] = true
         flippedCount = flippedCount + 1
+        xtech_collision_setFlipped(i, j, true)
         addRef(i, 1)
         addRef(j, 1)
     elseif not wantFlip and flipped[key] then
         flipped[key] = nil
         flippedCount = flippedCount - 1
+        xtech_collision_setFlipped(i, j, false)
         addRef(i, -1)
         addRef(j, -1)
     else
