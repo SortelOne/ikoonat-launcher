@@ -231,9 +231,14 @@ end
 -- Graphics.sprites: images by sprite name. Built-in names ("npc-1") live in
 -- graphics/<prefix>/, extra ones registered by libraries in graphics/<folder>/;
 -- the level and episode folders override both (ImageLoader::GetByName).
--- Overrides set by scripts are kept here; Phase 4 makes the engine draw them.
+-- Overrides set by scripts are kept here, and the engine draws its own sprites
+-- ("block-760" -> category "block", ID 760) with them (SpriteOverride_Set).
 local extraSprites = {}
 local spriteOverrides = {}
+local engineSprites = {
+    block = true, npc = true, effect = true, background = true, background2 = true,
+    yoshib = true, yoshit = true, mario = true, luigi = true, peach = true, toad = true, link = true,
+}
 
 function dll.FFI_RegisterExtraSprite(folderName, name)
     if extraSprites[name] == nil then
@@ -242,8 +247,20 @@ function dll.FFI_RegisterExtraSprite(folderName, name)
 end
 
 function dll.FFI_SetSpriteOverride(name, img)
-    core.missingAPI("sprite overrides (kept, not drawn)")
-    spriteOverrides[name] = img ~= nil and imageAt(img) or nil
+    local image = img ~= nil and imageAt(img) or nil
+    spriteOverrides[name] = image
+
+    if extraSprites[name] then
+        return -- drawn by scripts only, which ask FFI_GetSpriteOverride
+    end
+    local category, id = string.match(name, "^(.-)%-(%d+)$")
+    if not engineSprites[category] then
+        if image then
+            core.missingAPI("sprite overrides of " .. string.match(name, "^%a*") .. " (kept, not drawn)")
+        end
+    elseif not xtech_gfx_setSpriteOverride(category, tonumber(id), image and image.path) and image then
+        core.missingAPI("sprite overrides past the engine's IDs (kept, not drawn)")
+    end
 end
 
 function dll.FFI_GetSpriteOverride(name, sizeOut)

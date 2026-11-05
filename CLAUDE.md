@@ -121,10 +121,14 @@ of Jake's way, stops after N seconds and prints the log path):
 `smbx2compat/run-level.sh <level.lvlx> [seconds]`. Prefer it over launching by hand.
 With sound off (`-s`) there is no mixer at all; `XTECH_AUDIO=dummy` keeps sound
 on but sends it to SDL's silent dummy device, so audio code really runs.
+`XTECH_AUDIO=on` plays it at the test userdir's low volumes
+(`settings/thextech.ini` `[audio]`, music/SFX 15); only when Jake asks.
 
 Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
-level script) and `errtest.lvlx` (raises Lua errors every frame, through the
-shim and directly from the engine; the game must keep running and log each once).
+level script), `errtest.lvlx` (raises Lua errors every frame, through the
+shim and directly from the engine; the game must keep running and log each once)
+and `spritetest.lvlx` (sets, clears and re-sets sprite overrides, then kills the
+player so the level reloads and the overrides are restored at unload).
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -186,6 +190,12 @@ How it works (details in `core/boot.lua`'s header):
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
   top-down rows like the game buffer. `redirectCameraFB` and clip planes
   aren't done.
+- Sprite overrides (`Graphics.sprites.block[id].img = ...`): lunadll.lua's
+  `FFI_SetSpriteOverride` -> `xtech_gfx_setSpriteOverride` ->
+  `SpriteOverride_Set` (`src/load_gfx.cpp`), which swaps the engine's texture
+  for a straight-alpha load of the same file and keeps a backup, like the
+  per-level custom graphics; `UnloadCustomGFX` restores them. IDs past the
+  engine's limits and `hardcoded-*` are kept for scripts only.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
@@ -257,10 +267,11 @@ How it works (details in `core/boot.lua`'s header):
 ## Known issues
 
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
-  addresses (bonus1 has its old ones). Audio works (not yet checked by ear).
-  Drawing works (shaders and capture buffers too) except sprite overrides
-  and `redirectCameraFB`, and SMBX2-only IDs load, spawn and get set (via
-  `mem()`) as ID 1. See ROADMAP.md Phase 1 "Next round".
+  addresses (bonus1 has its old ones). Audio works (checked by ear).
+  Drawing works (shaders, capture buffers and sprite overrides too) except
+  `redirectCameraFB`, and SMBX2-only IDs load, spawn and get set (via
+  `mem()`) as ID 1. `Level.exit()` does nothing yet (its mode flags aren't
+  in `mem()`). See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

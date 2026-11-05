@@ -364,7 +364,8 @@ engine's objects where SMBX2 puts them:
   screenshot folder out of reach of a shell).
 Not drawn after this round: sprite overrides (`Graphics.sprites.block[id].img
 = ...`; SMATRS's camera zoom and block 760 use them). Shaders, capture
-buffers, points and lines came in the shader round.
+buffers, points and lines came in the shader round, sprite overrides in the
+sprite override round.
 
 *Shader round (2026-11-04).* SMBX2's shaders and capture buffers work:
 - **Translation** (`core/glsl.lua`): SMBX2 writes GLSL 1.20 for LunaLua's
@@ -416,12 +417,43 @@ effects and music box at 960x540.
 Other logged gaps: window (`LunaLuaSetWindowTitle`/`Icon`, `IsFullscreen`),
 `LunaLuaBlocksTestCollision`, `Misc.loadCharacterHitBoxes`/
 `registerCharacterId`, rumble, controller power level.
-Untested by ear: run a level with sound to confirm it sounds right.
+Checked by ear 2026-11-04 (Jake): SMATRS 1-1's sound works.
+
+*Sprite override round (2026-11-04).* `Graphics.sprites.<category>[id].img =
+image` now changes what the engine draws, as LunaLua's
+`ImageLoader::OverrideByName` does:
+- `SpriteOverride_Set` (`src/load_gfx.cpp`) works like the per-level custom
+  graphics loader: the slot's texture (`GFXBlockBMP[id]`, `GFXNPCBMP`,
+  `GFXEffectBMP`, `GFXBackgroundBMP`, `GFXBackground2BMP`, Yoshi and the five
+  characters' power-up sheets) moves into a backup, and the override's file
+  loads in its place. `nil` restores it; `ClearLevel` -> `UnloadCustomGFX`
+  restores every one before the engine's own custom graphics unwind. Effects
+  also get their frame size from the new image, as `loadCGFX` computes it.
+- The engine loads its own copy of the file, straight alpha like its other
+  sprites, so the premultiplied copy scripts draw with stays as it is.
+- lunadll.lua's `FFI_SetSpriteOverride` splits `block-760` into category and
+  ID. Overrides of IDs past the engine's limits (Phase 3) and of categories
+  the engine has no sprite for (`hardcoded-*`) are kept for scripts and
+  logged once.
+- In 1-1: `animationPal` hides the engine's Mario and Peach sheets (it draws
+  the player itself, so before this the engine drew a second Mario under
+  it); `customCamera` hides its camera-zone block (694). Block 760's lock
+  image and the badge effect's flipped image use the same path.
+- Also: `player:harm()` / `player:kill()` (`Misc._playerHarm`/`_playerKill`)
+  call the engine's `PlayerHurt`/`KillPlayer`, as LunaLua calls SMBX's; they
+  were stubs, so SMATRS's custom enemies couldn't hurt Mario.
+- Found while testing: `Level.exit()` does nothing yet. It writes SMBX's
+  mode flags (`0xB2C5B4` episode mode, `0xB2C620` level mode, `0xB2C5D4` win
+  type), which `mem()` doesn't emulate (logged as `MemEmu: Unknown ...`).
+  Other `Misc` stubs that change the game: `npcToCoins`, `doPOW`,
+  `doPSwitch`/`doPSwitchRaw`, `doBombExplosion`, `_npcHarmCombo*`,
+  `_npcCollect`.
 
 *Next round, in order:*
-1. **Sprite overrides** onto the engine's textures (`GFXBlockBMP` etc.).
-2. Phase 3 IDs (block 756 and friends now become 1); engine collisions
-   honouring collision groups.
+1. Phase 3 IDs (block 756 and friends now become 1, and their sprite
+   overrides wait for them); engine collisions honouring collision groups.
+2. Level flow and game actions: `Level.exit`/`Level.finish` flags in
+   `mem()`, and the `Misc` stubs above.
 3. `Graphics.redirectCameraFB` (glowing background layers).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
@@ -457,7 +489,8 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 ### Phase 5 — Events, input, audio, saves
 - Cancellable events (`eventObj.cancelled`): fire `onNPCHarm` / `onPlayerHarm` /
   `onBlockHit` *before* the engine acts, and respect cancel.
-- `onEvent`, `onInputUpdate`, alt-jump/alt-run, `player:harm()` / `kill()`.
+- `onEvent`, `onInputUpdate`, alt-jump/alt-run, `player:harm()` / `kill()`
+  (harm/kill done 2026-11-04).
 - `SaveData` / `GameData` persisted per episode. `Audio.*` is done (Phase 1,
   "Audio round"); audio sources (`SFX.create`) are SMBX2 Lua on top of it.
 - Done when: Chapter 1 levels are completable.
@@ -523,6 +556,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | Audio round (all `onDraw` handlers run) | 6.7-6.8 | 5.0-5.1 | dummy audio; 7.1 / 5.3 with sound off |
 | Drawing round (Lua draws backgrounds, BGOs, sizables, HUD) | 7.8-7.9 | 6.2 | sound off, frames 200-900; engine ~1.6 |
 | Shader round (shaders and capture buffers drawn) | 9.7-11.4 | 6.6-7.4 | same; engine 3.1-4.0; runs vary ~1 ms |
+| Sprite override round | 8.9 | 6.1 | frames 300-900, real sound (low volume); engine 2.8 |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms

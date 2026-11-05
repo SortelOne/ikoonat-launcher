@@ -46,6 +46,14 @@ void UnloadPlayerPreviewGFX();
 // Public Sub UnloadWorldCustomGFX()
 void UnloadWorldCustomGFX();
 
+// smbx2compat: replace an engine sprite with an image file (SMBX2's
+// Graphics.sprites overrides). category: LunaLua's name ("block", "npc",
+// "effect", "background", "background2", "yoshib", "yoshit", "mario", ...);
+// an empty path restores the sprite. False if the engine has no such sprite.
+bool SpriteOverride_Set(const std::string &category, int index, const std::string &path);
+// Restores every overridden sprite (level unload)
+void SpriteOverride_Reset();
+
 // Private Sub cBlockGFX(A As Integer)
 // Private Sub cNPCGFX(A As Integer)
 // Private Sub cBackgroundGFX(A As Integer)

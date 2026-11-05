@@ -252,6 +252,19 @@ static int count()
     return numPlayers;
 }
 
+// smbx2compat: LunaLua's Misc._playerHarm / _playerKill (SMBX's own routines)
+static void harm(int index)
+{
+    if(index >= 1 && index <= numPlayers)
+        PlayerHurt(index);
+}
+
+static void kill(int index)
+{
+    if(index >= 1 && index <= numPlayers)
+        KillPlayer(index);
+}
+
 static void filterToBig(Player_t *p)
 {
     if(p) PlayerF::FilterToBig(p);
@@ -3873,6 +3886,8 @@ void xtech_lua_register_bindings(lua_State *L)
         // ================================================================
         def("xtech_player_get", &LuaPlayer::get),
         def("xtech_player_count", &LuaPlayer::count),
+        def("xtech_player_harm", &LuaPlayer::harm),
+        def("xtech_player_kill", &LuaPlayer::kill),
         def("xtech_player_filterToBig", &LuaPlayer::filterToBig),
         def("xtech_player_filterToSmall", &LuaPlayer::filterToSmall),
         def("xtech_player_filterToFire", &LuaPlayer::filterToFire),

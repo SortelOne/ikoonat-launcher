@@ -170,8 +170,8 @@ Misc = hostTable("Misc", {
     _npcHarmCombo = stub("Misc._npcHarmCombo"),
     _npcHarmComboWithDamage = stub("Misc._npcHarmComboWithDamage"),
     _npcCollect = stub("Misc._npcCollect"),
-    _playerHarm = stub("Misc._playerHarm"),
-    _playerKill = stub("Misc._playerKill"),
+    _playerHarm = function(idx) xtech_player_harm(idx) end,
+    _playerKill = function(idx) xtech_player_kill(idx) end,
 })
 
 

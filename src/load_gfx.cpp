@@ -62,6 +62,7 @@
 #endif
 
 #include <set>
+#include <map>
 
 bool gfxLoaderTestMode = false;
 bool gfxLoaderThreadingMode = false;
@@ -817,6 +818,124 @@ static void restoreWorldBackupTextures()
     g_defaultWorldGfxBackup.clear();
 }
 
+// smbx2compat: SMBX2's sprite overrides (Graphics.sprites.<category>[id].img =
+// image; LunaLua's ImageLoader::OverrideByName). The slot's texture moves into
+// a backup, like loadCGFX does, and a plain (not premultiplied) load of the
+// override's file takes its place, so the engine draws it as its own.
+struct SpriteOverride_t
+{
+    vbint_t *remote_width = nullptr;
+    vbint_t *remote_height = nullptr;
+    vbint_t width = 0;
+    vbint_t height = 0;
+    StdPicture_Sub texture_backup;
+};
+
+static std::map<StdPicture*, SpriteOverride_t> s_spriteOverrides;
+
+static StdPicture *s_spriteSlot(const std::string &category, int index, vbint_t **width, vbint_t **height)
+{
+    *width = *height = nullptr;
+
+    if(category == "block" && index >= 1 && index <= maxBlockType)
+        return &GFXBlockBMP[index];
+    if(category == "npc" && index >= 1 && index <= maxNPCType)
+        return &GFXNPCBMP[index];
+    if(category == "background" && index >= 1 && index <= maxBackgroundType)
+        return &GFXBackgroundBMP[index];
+    if(category == "background2" && index >= 1 && index <= numBackground2)
+        return &GFXBackground2BMP[index];
+    if(category == "yoshib" && index >= 1 && index <= maxYoshiGfx)
+        return &GFXYoshiBBMP[index];
+    if(category == "yoshit" && index >= 1 && index <= maxYoshiGfx)
+        return &GFXYoshiTBMP[index];
+
+    if(category == "effect" && index >= 1 && index <= maxEffectType)
+    {
+        *width = &EffectWidth[index];
+        *height = &EffectHeight[index];
+        return &GFXEffectBMP[index];
+    }
+
+    for(int c = 0; c < numCharacters; ++c)
+    {
+        if(category == GFXPlayerNames[c] && index >= 1 && index <= numStates)
+            return &GFXCharacterBMP[c][index];
+    }
+
+    return nullptr;
+}
+
+bool SpriteOverride_Set(const std::string &category, int index, const std::string &path)
+{
+    vbint_t *width, *height;
+    StdPicture *texture = s_spriteSlot(category, index, &width, &height);
+    if(!texture)
+        return false;
+
+    auto it = s_spriteOverrides.find(texture);
+
+    if(path.empty())
+    {
+        if(it == s_spriteOverrides.end())
+            return true;
+
+        if(width)
+            *width = it->second.width;
+        if(height)
+            *height = it->second.height;
+        XRender::unloadTexture(*texture);
+        static_cast<StdPicture_Sub&>(*texture) = std::move(it->second.texture_backup);
+        s_spriteOverrides.erase(it);
+        return true;
+    }
+
+    StdPicture_Sub newTexture;
+    XRender::lazyLoadPicture(newTexture, path);
+    if(!newTexture.inited)
+        return false;
+
+    XRender::unloadTexture(*texture);
+
+    if(it == s_spriteOverrides.end())
+    {
+        SpriteOverride_t &o = s_spriteOverrides[texture];
+        o.remote_width = width;
+        o.remote_height = height;
+        if(width)
+            o.width = *width;
+        if(height)
+            o.height = *height;
+        o.texture_backup = std::move(static_cast<StdPicture_Sub&>(*texture));
+    }
+
+    static_cast<StdPicture_Sub&>(*texture) = std::move(newTexture);
+    pLogDebug("Sprite override %s-%d: %s", category.c_str(), index, path.c_str());
+
+    // as loadCGFX computes a custom effect's frame size
+    if(width)
+        *width = texture->w;
+    if(height && EffectDefaults.EffectFrames[index] > 0)
+        *height = texture->h / EffectDefaults.EffectFrames[index];
+
+    return true;
+}
+
+void SpriteOverride_Reset()
+{
+    for(auto &it : s_spriteOverrides)
+    {
+        SpriteOverride_t &o = it.second;
+        if(o.remote_width)
+            *o.remote_width = o.width;
+        if(o.remote_height)
+            *o.remote_height = o.height;
+        XRender::unloadTexture(*it.first);
+        static_cast<StdPicture_Sub&>(*it.first) = std::move(o.texture_backup);
+    }
+    s_spriteOverrides.clear();
+}
+
 
 static inline void s_find_image(std::string& dest, DirListCI& CurDir, std::string baseName)
 {
@@ -1490,6 +1609,9 @@ void UnloadCustomGFX()
             *t.remote_info = t.info_backup;
     }
     g_defaultBorderInfoBackup.clear();
+
+    // smbx2compat: overrides hold the textures restoreLevelBackupTextures restores
+    SpriteOverride_Reset();
 
     restoreLevelBackupTextures();
 

@@ -62,6 +62,7 @@ extern "C"
 #include "graphics.h"
 #include "screen.h"
 #include "core/render.h"
+#include "load_gfx.h"
 #include "script/luna/luna.h"
 
 #include "xtech_lua_draw.h"
@@ -804,6 +805,17 @@ int lua_imageFree(lua_State *L)
     return 0;
 }
 
+// xtech_gfx_setSpriteOverride(category, index, path | nil) -> true if the
+// engine has that sprite (SpriteOverride_Set); nil restores it
+int lua_setSpriteOverride(lua_State *L)
+{
+    std::string category = luaL_checkstring(L, 1);
+    int index = (int)luaL_checkinteger(L, 2);
+    const char *path = lua_isnoneornil(L, 3) ? "" : luaL_checkstring(L, 3);
+    lua_pushboolean(L, SpriteOverride_Set(category, index, path));
+    return 1;
+}
+
 // xtech_gfx_setVanilla(what, draw): what = XTechLuaVanillaDraw
 int lua_setVanilla(lua_State *L)
 {
@@ -1106,6 +1118,7 @@ void xtech_lua_drawReset()
 
     xtech_lua_drawFrameEnd();
     freePictures();
+    SpriteOverride_Reset();
     for(bool &v : s_vanilla)
         v = true;
     if(s_hudSkipped)
@@ -1119,6 +1132,7 @@ void xtech_lua_register_draw(lua_State *L)
 {
     lua_register(L, "xtech_gfx_imageLoad", lua_imageLoad);
     lua_register(L, "xtech_gfx_imageFree", lua_imageFree);
+    lua_register(L, "xtech_gfx_setSpriteOverride", lua_setSpriteOverride);
     lua_register(L, "xtech_gfx_setVanilla", lua_setVanilla);
     lua_register(L, "xtech_gfx_getVanilla", lua_getVanilla);
     lua_register(L, "xtech_gfx_screenshot", lua_screenshot);
