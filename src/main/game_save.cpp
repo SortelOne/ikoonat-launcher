@@ -46,6 +46,9 @@
 #include "menu_main.h"
 #include "saved_layers.h"
 #include "main/smbx2_ids.h" // smbx2compat
+#ifdef ENABLE_XTECH_LUA
+#include "xtech_lua_events.h" // smbx2compat
+#endif
 
 std::string makeGameSavePath(std::string epPath, std::string saveFile)
 {
@@ -278,6 +281,11 @@ void SaveGame()
 
     if(Cheater || !selSave)
         return;
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: LunaLua sends onSaveGame before SMBX writes its save
+    xtech_lua_event_smbx2SaveGame();
+#endif
 
     for(A = numPlayers; A >= 1; A--)
         SavedChar[Player[A].Character] = Player[A];

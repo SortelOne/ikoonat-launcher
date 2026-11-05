@@ -109,6 +109,7 @@
 #include "main/game_loop_interrupt.h"
 
 #include "main/level_medals.h"
+#include "main/smbx2_ids.h" // smbx2compat
 
 #include "main/trees.h"
 
@@ -752,6 +753,9 @@ int GameMain(const CmdLineSetup_t &setup)
                 }
 
                 QuickReconnectScreen::g_active = true;
+
+                // smbx2compat: StartEpisode() takes the players from the session, as the menu sets it
+                XMessage::g_session.init_char_select = l_screen->charSelect;
 
                 StartEpisode();
             }
@@ -1536,7 +1540,9 @@ int GameMain(const CmdLineSetup_t &setup)
                 startError = true;
                 Player[1].Warp = 0;
             }
-            else if(!hasPlayerPoint && !hasValidStartWarp)
+            // smbx2compat: SMBX never checked this; with SMBX2 the player starts at
+            // (0,0) and scripts place them (SMATRS's World Map.lvlx has no start point)
+            else if(!hasPlayerPoint && !hasValidStartWarp && !g_smbx2Ids)
             {
                 g_MessageType = MESSAGE_TYPE_SYS_ERROR;
                 MessageText = fmt::format_ne(g_gameStrings.errorNoStartPoint, FullFileName);

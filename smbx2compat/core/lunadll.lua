@@ -18,11 +18,21 @@ local dll = {}
 -- ffi_misc.lua     --
 ----------------------
 
--- Misc.GetKeyState reads this array directly (Windows virtual-key codes).
--- TODO: fill from the engine's keyboard state.
-local keyStates = ffi.new("unsigned char[256]")
-function dll.LunaLuaGetKeyStateArray()
+-- Misc.GetKeyState reads this array directly (Windows virtual-key codes; 0x80
+-- while held, as GetKeyboardState gives LunaLua). boot.lua's __xtech_onKey
+-- sets it from the engine's key events.
+local keyStates
+local function getKeyStates()
+    keyStates = keyStates or ffi.new("unsigned char[256]")
     return keyStates
+end
+function dll.LunaLuaGetKeyStateArray()
+    return getKeyStates()
+end
+function core.setKeyState(vk, down)
+    if vk >= 0 and vk <= 255 then
+        getKeyStates()[vk] = down and 0x80 or 0
+    end
 end
 
 -- Milliseconds per engine tick. TheXTech runs SMBX's 64.1 fps, like LunaLua's default.
@@ -885,12 +895,35 @@ function dll.LunaLuaCollisionMatrixGetGroupFromIndex(idx)
     return s
 end
 
--- LunaLua's gRawKeymap[4]: this frame's keys for players 1-2, then last frame's.
--- TODO: fill from the engine's controls each frame.
+-- LunaLua's gRawKeymap[4]: the keys SMBX read for players 1-2 this frame, then
+-- last frame's (runtimeHookCheckInput). player.rawKeys reads them, so menus see
+-- what was pressed even when scripts change player.keys. boot.lua calls
+-- core.updateRawKeys each time the engine reads input, before onInputUpdate.
 local rawKeymap
-function dll.LunaLuaGetRawKeymapArray()
+local function getRawKeymap()
     rawKeymap = rawKeymap or ffi.new("LunaLuaKeyMap[4]")
     return rawKeymap
+end
+function dll.LunaLuaGetRawKeymapArray()
+    return getRawKeymap()
+end
+
+-- A player's keys in SMBX's Player_t, in LunaLuaKeyMap's order
+local rawKeyFields = { "up", "down", "left", "right", "jump", "altJump", "run", "altRun", "dropItem", "pause" }
+local memGet
+function core.updateRawKeys()
+    local keymap = getRawKeymap()
+    memGet = memGet or ffi.cast("double (*)(uint32_t, int32_t)", __xtech_ffiMemGet)
+    local players = memGet(0x00B25A20, FIELD_DWORD)
+    local count = memGet(0x00B2595E, FIELD_WORD)
+    for i = 0, 1 do
+        keymap[i + 2] = keymap[i]
+        local keys = keymap[i]
+        local addr = players + (i + 1) * 0x184 + 0xF2
+        for k = 1, 10 do
+            keys[rawKeyFields[k]] = (i < count) and memGet(addr + (k - 1) * 2, FIELD_WORD) or 0
+        end
+    end
 end
 
 -- Player(1000 + id): the stored state of a character not in play. These live in

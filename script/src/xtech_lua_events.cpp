@@ -441,6 +441,11 @@ void xtech_lua_event_smbx2NPCGenerated(int generatorIdx, int npcIdx)
     s_coreEvent("__xtech_onNPCGenerated", generatorIdx, npcIdx);
 }
 
+void xtech_lua_event_smbx2SaveGame()
+{
+    s_coreEvent("__xtech_onSaveGame");
+}
+
 // LunaLua passes a copy of the explosion's Momentum as a table
 static void s_pushArg(lua_State *L, const Location_t *loc)
 {

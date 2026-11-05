@@ -797,19 +797,64 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     (`SMBX2COMPAT_DEBUG`). Launched directly the map counts as "in the
     editor": no main menu, and with no save the player stays at (0,0) over
     open sea.
-- *Next: episode flow*, so the game starts as on Windows:
-  1. `Misc.inEditor()` false when the episode is played (true for `-l` tests):
-     SMATRS then sets `GameData.menuMode` and shows its main menu over the map,
-     and a new save is sent to `_prologue.lvlx` (`generalStuff.lua`
-     `getForcedLevel`).
-  2. `Level.load(filename)` (map -> level, level -> map; `levelEnterMenu`,
-     `levelEnd`), `Level.exit` back to the hub.
-  3. `Misc.saveGame` + `onSaveGame`: SMBX2's `savedata.lua` writes `SaveData`
-     to `<episode>/save<slot>-ext.dat` (slot from `mem(0xB2C62A)`); `GameData`
-     already passes between levels (`LunaLuaSet/GetGameData`).
-  4. Starting the episode from TheXTech's menu (hub world `World.wld`).
-  5. Then: NPC `mem()` 0xB8/0xC0 (removed DefaultLocation fields) the map
-     reads, the 11 missing APIs it logs, `loadscreen.lua`, performance.
+- *Episode flow round (2026-11-05):* `World.wld` now plays as on Windows.
+  New game: the map level loads, SMATRS sends a new save to `_prologue.lvlx`
+  (its "How many players?" menu, the storybook, the playable part), whose
+  ending `Level.load`s 1-1; beating 1-1 saves and `Level.load`s the map, which
+  starts Mario at 1-1 with the world intro flyover; jump on the map opens the
+  level-enter menu and enters 1-1. Booting with a save shows SMATRS's start
+  menu over the map instead. No script errors in any of them. What it took:
+  - `Misc.inEditor()` is SMBX2's `saveSlot == 0`: level tests (`-l`) are slot
+    0 ("the editor"); a world started with `--save-slot N`, like the menu
+    does, is played. `run-level.sh` starts a `.wld` in slot 3 (1-2 are left
+    for playing).
+  - TheXTech's command-line world start never copied the chosen characters
+    into the session (`init_char_select`), so the episode had 0 players
+    (`game_main.cpp`; the menu does it).
+  - The map level has no player start (SMATRS places Mario). SMBX never
+    checked; TheXTech refused to start it. Skipped with SMBX2 data
+    (`g_smbx2Ids`), so the player starts at (0,0) as in SMBX.
+  - `Level.load` already worked: SMBX2 writes `GoToLevel` (0xB25720) and
+    leaves the level, and TheXTech's hub code loads that level next.
+  - `Misc.saveGame` calls the engine's `SaveGame`, which sends `onSaveGame`
+    first as LunaLua does (SMBX2's `savedata.lua` then writes
+    `<episode>/save<slot>-ext.dat`). The hub's own save on entering a level
+    comes after the level's scripts close, in LunaLua too (SMBX clears the
+    level first), so scripts don't get it there.
+  - `player.rawKeys` (SMATRS's menus read them) were never filled: now each
+    player's keys as the engine read them, and last frame's, copied before
+    `onInputUpdate` (LunaLua's `runtimeHookCheckInput`). `Misc.GetKeyState`
+    is filled from the key events too.
+  - SMBX2's `data/config/` (effect, background and character defaults) was
+    never extracted from the bundle; `bettereffects.lua` builds
+    `Effect.config` from it, and SMATRS's `effectReplacer.lua` failed
+    without it. Extracted next to `scripts/` (plain text files).
+  - Episode menu: SMATRS lives in `userdir/worlds/smbx/` (the data folder's
+    `smatrs/` has a symlink to it). A symlinked episode folder isn't listed on
+    macOS: DirManager's `fstatat` path is compiled out there
+    (`MAC_OS_X_VERSION_MAX_ALLOWED` is never defined in dirman_posix.cpp, so
+    it reads as 0), and the `d_type` fallback skips links.
+    `smbx2compat/play.sh` opens the game at the menu with sound on.
+  - Testing it: `XTECH_ARGS=-x` runs without the frame limit (the prologue is
+    ~20,000 frames). A debug file presses keys by setting the player's
+    controls before `core.updateRawKeys` copies them (scratchpad `flow2.lua`:
+    finishes the prologue with its own ending code, beats 1-1 with
+    `levelEnd.doLevelBeatStuff` + `finishLevel`, presses jump on the map).
+- *Next:*
+  - Jake plays from the menu (`play.sh`): the prologue and 1-1 by hand.
+  - NPC `mem()` 0xB8/0xC0 (removed DefaultLocation fields) the map reads,
+    and the other MemEmu warnings (0xb25130, Float writes at 0xb2c6f0/
+    0xb2c6ec, Player 0x124 as a Double, 0xb250e8/0xb250fc the episode list
+    `Level.load` reads, 0xb250b4); the 11 missing APIs (`registerCharacterId`
+    and `loadCharacterHitBoxes` may now have their `character_defaults`).
+  - Level changes take ~3 s of script loading each, with no loading screen:
+    `loadscreen.lua` (LunaLua runs it on its own thread while loading).
+  - The prologue's storybook: the right page shows a shifted rectangle over
+    its top half, and Jake saw artifacts on the table under the book as the
+    camera pans down after the story is read (3D scene, `bookSceneSetup.lua`
+    / `_prologue/bookIntroScene.lua`; depth or capture-buffer clearing?).
+    Check against Windows.
+  - Map performance (unmeasured).
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until

@@ -109,6 +109,9 @@ bool xtech_lua_event_smbx2Pause(int playerIdx);
 void xtech_lua_event_smbx2ColorSwitch(int color);
 // A generator made an NPC
 void xtech_lua_event_smbx2NPCGenerated(int generatorIdx, int npcIdx);
+// The game is about to be saved (SaveGame); SMBX2's savedata.lua writes
+// save<slot>-ext.dat on it
+void xtech_lua_event_smbx2SaveGame();
 // onExplosionInternal: SMBX2's explosion.lua cancels it and makes its own
 struct Location_t;
 bool xtech_lua_event_smbx2Explosion(const Location_t &loc, int kind, int playerIdx);

@@ -160,7 +160,6 @@ Misc = hostTable("Misc", {
         end
     end,
     openPauseMenu = stub("Misc.openPauseMenu"),
-    saveGame = stub("Misc.saveGame"),
     exitGame = stub("Misc.exitGame"),
     exitEngine = stub("Misc.exitEngine"),
     loadEpisode = stub("Misc.loadEpisode"),
@@ -181,6 +180,8 @@ Misc = hostTable("Misc", {
         return xtech_mem_propertyTableAddress("block", name)
     end,
     -- SMBX's game actions, done by the engine (xtech_lua_bindings.cpp LuaMisc)
+    -- The engine's save; it sends onSaveGame first (SMBX2's save<slot>-ext.dat)
+    saveGame = function() xtech_misc_saveGame() end,
     npcToCoins = function() xtech_misc_npcToCoins() end,
     doPOW = function() xtech_misc_doPOW() end,
     doPSwitchRaw = function(activate) xtech_misc_doPSwitchRaw(activate and true or false) end,

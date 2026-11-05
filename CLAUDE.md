@@ -128,6 +128,14 @@ With sound off (`-s`) there is no mixer at all; `XTECH_AUDIO=dummy` keeps sound
 on but sends it to SDL's silent dummy device, so audio code really runs.
 `XTECH_AUDIO=on` plays it at the test userdir's low volumes
 (`settings/thextech.ini` `[audio]`, music/SFX 15); only when Jake asks.
+Given a `.wld`, `run-level.sh` plays the episode as from the menu, in save
+slot 3 (`XTECH_SAVE_SLOT`; slots 1-2 are Jake's). `XTECH_ARGS=-x` turns off
+the frame limit, for long cutscenes. Test runs write SMBX2's
+`<episode>/save3-ext.dat` and TheXTech's `userdir/settings/gamesaves/`.
+`smbx2compat/play.sh` opens the game at its main menu with sound on, for
+playing. SMATRS lives in `userdir/worlds/smbx/` so the menu lists it
+(`$D/smatrs/SMATRS Chapter 1+2` is a symlink to it). The menu skips
+symlinked episode folders on macOS (DirManager falls back to `d_type`).
 
 Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
 level script), `errtest.lvlx` (raises Lua errors every frame, through the
@@ -252,6 +260,20 @@ How it works (details in `core/boot.lua`'s header):
   (`xtech_lua_smbx2LuaPauseFrame`). Key presses are queued from SDL's
   events (`keyboard.cpp`, as Windows virtual-key codes) and sent at the
   start of the next frame (`__xtech_onKey`), never from the event loop.
+  `core.updateRawKeys` (lunadll.lua) copies players 1-2's keys as the
+  engine read them into LunaLua's raw keymap (`player.rawKeys`, which
+  SMATRS's menus read) before onInputUpdate; `__xtech_onKey` keeps
+  `Misc.GetKeyState`'s array. A debug file can press keys by setting the
+  player's controls (`player:mem(0xFA, FIELD_BOOL, true)`) in a wrapper
+  around `core.updateRawKeys`.
+- Episodes: `Misc.inEditor()` is SMBX2's `save slot == 0`, so `-l` level
+  tests count as the editor and a world started with `--save-slot N` (as
+  the menu does) is played. `Level.load` writes `GoToLevel` and leaves the
+  level; TheXTech's hub code loads it next. `Misc.saveGame` ->
+  `SaveGame()` (`src/main/game_save.cpp`), which sends `onSaveGame` first
+  (`__xtech_onSaveGame`), as LunaLua does; SMBX2's `savedata.lua` then
+  writes `<episode>/save<slot>-ext.dat`. With SMBX2's data a level without
+  a player start starts anyway, at (0,0), as in SMBX (`game_main.cpp`).
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -287,10 +309,12 @@ How it works (details in `core/boot.lua`'s header):
   as its argument; `Misc.getCustomEnvironment()._G.require(...)` reaches the
   episode's modules and `SaveData`. Keep such files in the scratchpad.
 - SMATRS's 3D world map is the level `World Map.lvlx` (hub of `World.wld`),
-  drawn by the episode's `map.lua`/`lib3d.lua`. Launched with `-l` it counts
-  as in the editor (no main menu) and, with no save, leaves the player at
-  (0,0) over open sea; set `SaveData.lastEnteredMapLevel` (debug file) to
-  start at a level's spot. See ROADMAP.md Phase 6.
+  drawn by the episode's `map.lua`/`lib3d.lua`. Played as an episode, a new
+  save goes to `_prologue.lvlx` and a save boots to SMATRS's start menu over
+  the map. Launched with `-l` it counts as in the editor (no main menu) and,
+  with no save, leaves the player at (0,0) over open sea; set
+  `SaveData.lastEnteredMapLevel` (debug file) to start at a level's spot.
+  See ROADMAP.md Phase 6.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
@@ -378,7 +402,8 @@ How it works (details in `core/boot.lua`'s header):
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
-  overrides too) except clip planes. 2-1 runs with no errors too.
+  overrides too) except clip planes. 2-1 runs with no errors too. The
+  episode plays from `World.wld`: prologue, 1-1, the map and back.
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.
@@ -388,9 +413,10 @@ How it works (details in `core/boot.lua`'s header):
 Assets and episodes live outside the repo in `../TheXTech-data/`:
 - TheXTech SMBX 1.3 asset pack (`thextech-smbx13-assets-full-v1.7.4.1.7z`).
 - SMATRS episode zip (Nintendo-derived fan content; never commit it).
-- `smbx2/SMBX2 + SMATRS/data/{scripts,graphics,sound,music,costumes}`: SMBX2's
-  built-in Lua libraries and media, extracted from the SMATRS "Download All"
-  bundle (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
+- `smbx2/SMBX2 + SMATRS/data/{scripts,graphics,sound,music,costumes,config}`:
+  SMBX2's built-in Lua libraries, media and configs (`config/effects/` gives
+  `Effect.config`), extracted from the SMATRS "Download All" bundle
+  (`downloads/smatrs-smbx2-full.zip`). Never run anything from that bundle.
 - `reference/LunaLua`: LunaLua's C++ source (WohlSoft/LunaLua, shallow clone), the
   reference for what SMBX2's scripts expect from the host. Read only; never build
   or run it. Pointers to the key files are in ROADMAP.md, Phase 1 plan item 5.

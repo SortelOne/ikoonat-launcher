@@ -3341,6 +3341,12 @@ static double npcProperty(const char *name, int id)
     return 0;
 }
 
+// Misc.saveGame: SMBX's SaveGame, which sends onSaveGame first
+static void saveGame()
+{
+    SaveGame();
+}
+
 // Misc.npcToCoins: LunaLua's reconstruction of SMBX's, which SMBX2 configures
 // with the notcointransformable property instead of SMBX's list of NPC IDs
 static void npcToCoins()
@@ -4470,6 +4476,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_mem_templateAddress", &LuaMisc::mem_templateAddress), // smbx2compat
         def("xtech_mem_propertyTableAddress", &LuaMisc::mem_propertyTableAddress), // smbx2compat
         def("xtech_misc_npcToCoins", &LuaMisc::npcToCoins), // smbx2compat
+        def("xtech_misc_saveGame", &LuaMisc::saveGame), // smbx2compat
         def("xtech_misc_doPOW", &LuaMisc::doPOW), // smbx2compat
         def("xtech_misc_doPSwitchRaw", &LuaMisc::doPSwitchRaw), // smbx2compat
         def("xtech_misc_doPSwitch", &LuaMisc::doPSwitch), // smbx2compat

@@ -518,6 +518,7 @@ end
 -- Right after the engine reads input (LunaLua's hookInputUpdate), so scripts
 -- see this frame's keys and can change them before the players move
 function __xtech_onInputUpdate()
+    core.updateRawKeys()
     sendEvent("onInputUpdate", false)
     sendEvent("onTick", false)
     tickEndReady = true
@@ -670,6 +671,7 @@ local function keyEvent(name, ...)
 end
 
 function __xtech_onKey(vk, down, repeated, ch)
+    core.setKeyState(vk, down)
     if not repeated then
         local mapped = ((vk >= 0x30 and vk <= 0x39) or (vk >= 0x41 and vk <= 0x5A) or vk == 0x20)
             and string.char(vk) or nil
@@ -692,7 +694,14 @@ end
 -- A frame while a script holds the game paused (Misc.pause): LunaLua's
 -- runPause reads input, which sends onInputUpdate, then draws
 function __xtech_onPausedFrame()
+    core.updateRawKeys()
     sendEvent("onInputUpdate", false)
+    return false
+end
+
+-- The engine is about to save (SaveGame, also from Misc.saveGame)
+function __xtech_onSaveGame()
+    sendEvent("onSaveGame", false)
     return false
 end
 
