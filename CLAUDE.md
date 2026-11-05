@@ -136,7 +136,8 @@ shim and directly from the engine; the game must keep running and log each once)
 player so the level reloads and the overrides are restored at unload) and
 `collisiontest.lvlx` (goombas in collision groups against floor blocks; it
 logs `collisiontest: ... -> OK` or `WRONG` for each) and `actiontest.lvlx`
-(`npc:harm`, `npcToCoins`, P-switches, `npc:collect`, then `Level.exit()`;
+(`npc:harm`, `npcToCoins`, P-switches and the Block object of a block they
+turn into a coin, `npc:collect`, then `Level.exit()`;
 `actiontest: ... -> OK`/`WRONG`, then `actiontest: onExit`).
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
@@ -208,8 +209,13 @@ How it works (details in `core/boot.lua`'s header):
 - SMBX2 keeps one Lua object per NPC/block index (with its `data` and
   `_settings`) and relies on LunaLua's internal events to follow the
   engine's moves: `KillNPC` calls `xtech_lua_event_npcRearrange` ->
-  `__xtech_onNPCRearrange` -> `onPostNPCRearrangeInternal`. Any new engine
-  code that moves or drops objects in the arrays needs the same.
+  `__xtech_onNPCRearrange` -> `onPostNPCRearrangeInternal`. P-switches
+  (`PSwitch` in `src/blocks.cpp`) keep a block's slot when it becomes a coin
+  (id 0, hidden, `smbx2PSwitchFree`) instead of compacting, put returning
+  blocks back into those slots (`xtech_lua_event_blockReuse` ->
+  `onBlockInvalidateForReuseInternal`) and skip the classic-order re-sort,
+  as LunaLua does. Any new engine code that moves or drops objects in the
+  arrays needs the same.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -325,10 +331,7 @@ How it works (details in `core/boot.lua`'s header):
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
-  overrides too) except clip planes. 2-1 runs with no errors too. After a
-  P-switch, SMBX2's Block objects can belong to other blocks (TheXTech
-  compacts the block array; LunaLua keeps the slots). See ROADMAP.md
-  Phase 1 "Next round".
+  overrides too) except clip planes. 2-1 runs with no errors too.
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

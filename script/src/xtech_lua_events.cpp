@@ -232,6 +232,12 @@ void xtech_lua_event_blockDestroy(int blockId, int blockType, int destroyerId)
     s_safeCall("onBlockDestroy", blockId, blockType, destroyerId);
 }
 
+// smbx2compat: SMBX2 core mode (boot.lua) drops its Block object for the old block
+void xtech_lua_event_blockReuse(int idx)
+{
+    s_safeCall("__xtech_onBlockReuse", idx);
+}
+
 
 // ============================================================================
 // Level / Game Event dispatch

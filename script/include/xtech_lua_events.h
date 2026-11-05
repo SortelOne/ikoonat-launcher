@@ -60,6 +60,10 @@ void xtech_lua_event_playerRespawn(int playerId);
 void xtech_lua_event_blockHit(int blockId, int blockType, int hitterId, int hitStyle);
 void xtech_lua_event_blockDestroy(int blockId, int blockType, int destroyerId);
 
+// smbx2compat: a P-switch puts a new block into a slot it freed (1-based index,
+// like LunaLua's onBlockInvalidateForReuseInternal)
+void xtech_lua_event_blockReuse(int idx);
+
 // --- Level / Game Events ---
 
 void xtech_lua_event_levelComplete();

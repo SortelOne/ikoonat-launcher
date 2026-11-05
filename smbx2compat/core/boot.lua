@@ -498,6 +498,12 @@ function __xtech_onNPCRearrange(newIdx, oldIdx)
     sendEvent("onPostNPCRearrangeInternal", false, newIdx, oldIdx)
 end
 
+-- A P-switch puts a new block into a slot it freed (1-based, as SMBX2's
+-- BlockCache); ffi_block.lua drops its Block object for the old block
+function __xtech_onBlockReuse(idx)
+    sendEvent("onBlockInvalidateForReuseInternal", false, idx)
+end
+
 function __xtech_onExit()
     -- TODO: the real exit type (LunaLua passes GM_LEVEL_EXIT_TYPE)
     sendEvent("onExitLevel", false, 0)

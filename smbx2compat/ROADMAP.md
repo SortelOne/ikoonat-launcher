@@ -581,15 +581,35 @@ frame instead of on every read.
   drop its Block object and free-list entry). Here, after a P-switch,
   SMBX2's Block objects (and block `data`/`_settings`) can belong to other
   blocks. Fix: keep the slots in core mode, as LunaLua does, or send
-  something that moves the objects like the NPC event.
+  something that moves the objects like the NPC event. Done in the next
+  round.
+
+*P-switch block slots round (2026-11-05)*:
+- In core mode `PSwitch` (`src/blocks.cpp`) now does what LunaLua's patches
+  do. A block that turns into a coin keeps its slot: id 0, hidden, no
+  layer, `Block_t::smbx2PSwitchFree` set (LunaLua's "Destroyed PSwitch
+  Blocks" layer; nothing in SMBX2 reads that name). Switching off puts each
+  returning block into the first such slot (`s_pswitchReuseSlot`, one
+  forward pass per switch instead of LunaLua's scan per block), clears it,
+  and sends `xtech_lua_event_blockReuse` -> boot.lua `__xtech_onBlockReuse`
+  -> `onBlockInvalidateForReuseInternal(idx)` (1-based, as `BlockCache`).
+  Only the switch-off direction reuses slots, as in LunaLua (patch at
+  `0x9E3E54`). The classic-order re-sort at the end is skipped (LunaLua
+  only marks blocks unsorted; `BlocksSorted` is unused since the
+  quadtree). A script setting the block's layer (`Block:delete`,
+  `Block.spawn`) clears the flag (`s_blockStringFields`), as a new layer
+  name does in LunaLua. Outside core mode TheXTech still compacts.
+- `smoke/actiontest` has a type-89 block and checks its Block object: kept
+  (id 0, hidden, `data` intact) after switching on, invalid after switching
+  off, and `Block(idx)` is the same block back at its place. 12 of 12 OK in
+  3 runs; 1-1, 2-1, collisiontest unchanged.
 
 *Next round, in order:*
-1. P-switch block slots (above).
-2. Cancellable engine events (`onNPCHarm`, `onNPCKill`, `onNPCCollect`,
+1. Cancellable engine events (`onNPCHarm`, `onNPCKill`, `onNPCCollect`,
    ...; Phase 5). Core mode sends SMBX2 no per-object engine events yet;
    LunaLua's senders are in `RuntimeHookHooks.cpp` (`NPCKillHook` sends
    `onNPCKill` before the kill, cancellable via `killFlag = 0`).
-3. More speed, if needed: the Performance track's candidates (struct views
+2. More speed, if needed: the Performance track's candidates (struct views
    for SMBX2's field reads, luabind writes).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 

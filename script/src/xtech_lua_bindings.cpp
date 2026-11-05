@@ -2312,7 +2312,8 @@ static const MemField s_blockStringFields[] =
     MF_EVENT(0x0C, Block[i].TriggerHit),
     MF_EVENT(0x10, Block[i].TriggerDeath),
     MF_EVENT(0x14, Block[i].TriggerLast),
-    MF_LAYER(0x18, Block[i].Layer, syncLayersTrees_Block(i)),
+    // a new layer ends a P-switch's hold on the slot, as in LunaLua (blocks.cpp)
+    MF_LAYER(0x18, Block[i].Layer, (Block[i].smbx2PSwitchFree = false, syncLayersTrees_Block(i))),
 };
 
 static const MemField s_bgoStringFields[] =

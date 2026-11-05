@@ -26,6 +26,11 @@
 #include "globals.h"
 #ifdef ENABLE_XTECH_LUA
 #   include "../script/include/xtech_lua_events.h"
+#   include "../script/include/xtech_lua_main.h" // smbx2compat
+// smbx2compat: SMBX2's own scripts run this level (core mode)
+#   define SMBX2_CORE() (!LevelEditor && xtech_lua_isSmbx2Core())
+#else
+#   define SMBX2_CORE() false
 #endif
 #include "frame_timer.h"
 #include "blocks.h"
@@ -1736,12 +1741,36 @@ void SwitchEndResumeMusic()
 #endif
 }
 
+#ifdef ENABLE_XTECH_LUA
+// smbx2compat: the first slot from `from` on that a P-switch freed, cleared for a new
+// block (0 = none). Like LunaLua's runtimeHookPSwitchGetNewBlockAtEnd, it tells SMBX2,
+// which drops its Block object for the old block.
+static int s_pswitchReuseSlot(int &from)
+{
+    for(; from <= numBlock; from++)
+    {
+        if(Block[from].smbx2PSwitchFree)
+        {
+            int B = from++;
+            Block[B] = Block_t();
+            xtech_lua_event_blockReuse(B);
+            return B;
+        }
+    }
+
+    return 0;
+}
+#endif
+
 bool PSwitch(bool enabled)
 {
     int A = 0;
     // int B = 0;
     Block_t blankBlock;
     eventindex_t resume_index = EVENT_NONE;
+#ifdef ENABLE_XTECH_LUA
+    int freeSlot = 1; // smbx2compat: where s_pswitchReuseSlot looks next
+#endif
 
     switch(g_gameLoopInterrupt.site)
     {
@@ -1873,6 +1902,20 @@ bool PSwitch(bool enabled)
                     syncLayers_NPC(numNPCs);
                     CheckSectionNPC(numNPCs);
 
+#ifdef ENABLE_XTECH_LUA
+                    if(SMBX2_CORE())
+                    {
+                        // smbx2compat: keep the slot, as LunaLua does, so SMBX2's Block objects
+                        // stay with their blocks; switching off puts a block back into it
+                        Block[A].Type = 0;
+                        Block[A].Hidden = true;
+                        Block[A].Layer = LAYER_NONE;
+                        Block[A].smbx2PSwitchFree = true;
+                        syncLayersTrees_Block(A);
+                        continue;
+                    }
+#endif
+
                     Block[A] = Block[numBlock];
                     Block[numBlock] = blankBlock;
                     numBlock--;
@@ -1900,10 +1943,17 @@ bool PSwitch(bool enabled)
         {
             if(NPC[A].coinSwitchBlockType() > 0)
             {
-                if(numBlock < maxBlocks)
+                int nbi = 0;
+#ifdef ENABLE_XTECH_LUA
+                if(SMBX2_CORE())
+                    nbi = s_pswitchReuseSlot(freeSlot);
+#endif
+                if(nbi == 0 && numBlock < maxBlocks)
+                    nbi = ++numBlock;
+
+                if(nbi != 0)
                 {
-                    numBlock++;
-                    auto &nb = Block[numBlock];
+                    auto &nb = Block[nbi];
                     nb.Layer = NPC[A].Layer;
                     nb.TriggerDeath = NPC[A].TriggerDeath;
                     nb.TriggerLast = NPC[A].TriggerLast;
@@ -1928,7 +1978,7 @@ bool PSwitch(bool enabled)
                         nb.tempBlockVehicleYOffset = 0;
                     }
 
-                    syncLayersTrees_Block(numBlock);
+                    syncLayersTrees_Block(nbi);
                 }
                 NPC[A].Killed = 9;
                 NPCQueues::Killed.push_back(A);
@@ -2037,7 +2087,8 @@ resume_ProcEvent:
     // SO expensive, can't wait to get rid of this.
     // syncLayersTrees_AllBlocks();
 
-    if(g_config.emulate_classic_block_order)
+    // smbx2compat: not in core mode; LunaLua skips SMBX's re-sort too, so blocks keep their indices
+    if(g_config.emulate_classic_block_order && !SMBX2_CORE())
     {
         // Doing this just to replicate some unusual, unpredictable glitches
         // that sometimes occur when blocks' relative order is changing during the level

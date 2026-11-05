@@ -997,6 +997,8 @@ struct Block_t
     uint32_t CustomParams = 0;
     //! smbx2compat: LunaLua's extended fields (see SMBX2NPCExt_t)
     SMBX2BlockExt_t smbx2Ext;
+    //! smbx2compat: slot a P-switch freed in core mode (LunaLua's "Destroyed PSwitch Blocks" layer)
+    bool smbx2PSwitchFree = false;
 //    NPC As Integer 'when a coin is turned into a block after the p switch is hit
     NPCID coinSwitchNpcType = NPCID(0);
 //    Type As Integer 'the block's type
