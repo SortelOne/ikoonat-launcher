@@ -289,6 +289,23 @@ void main()
 }
 )RAW";
 
+// smbx2compat: SMBX2's images are premultiplied, and so is the tint of their
+// draws; the engine blends straight alpha
+const char* const RenderGL::s_es2_premultiplied_frag_src =
+R"RAW(#version 100
+precision mediump float;
+varying   vec2      v_texcoord;
+uniform   sampler2D u_texture;
+varying   vec4      v_tint;
+const     float     c_alpha_test_thresh = (8.0 / 255.0);
+void main()
+{
+  vec4 l_color = v_tint * texture2D(u_texture, v_texcoord);
+  if(l_color.a < c_alpha_test_thresh) discard;
+  gl_FragColor = vec4(min(l_color.rgb / l_color.a, 1.0), l_color.a);
+}
+)RAW";
+
 const char* const RenderGL::s_es2_rect_filled_frag_src =
 R"RAW(#version 100
 precision mediump float;

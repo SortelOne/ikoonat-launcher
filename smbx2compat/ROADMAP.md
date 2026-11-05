@@ -274,10 +274,10 @@ the order they surfaced:
   the newer name layer SMBX2 expects (`...AssignGroup`, `...GetGroupFromIndex`,
   `...GetGroupsCollide`, ...). Only scripts see it; the engine's own
   collisions don't consult it yet.
-- **Shaders compile** as far as scripts can tell: `FFI_ShaderCompile` succeeds
-  and uniforms/attributes are read from the GLSL declarations, shaped like
-  GL's reflection (`name[0]` with the element count). `darkness.lua` errors
-  without a uniform list. Nothing is drawn (Phase 4 replaces this).
+- **Shaders** compile in the engine since the shader round (below). One that
+  doesn't compile here still reports success, with uniforms/attributes read
+  from its GLSL declarations (`darkness.lua` errors without a uniform list),
+  and is drawn without.
 - **`inputConfig1`/`inputConfig2`** (`core/classes.lua`): keyboard, SMBX's
   default keys. TODO: from TheXTech's control profiles.
 - **`NPC.spawn`**: SMBX2 builds it on the C++ class it finds as `NPC`
@@ -362,37 +362,67 @@ engine's objects where SMBX2 puts them:
 - **Testing**: `SMBX2COMPAT_SHOTS=300,900` saves those frames as
   `smbx2shot-N.png` in the log folder (macOS keeps the engine's own
   screenshot folder out of reach of a shell).
-Not drawn yet (each logged once): shaders (draws are made without them, so
-SMATRS's palette-swapped Mario has the wrong colours), capture buffers
-(draws into or from one are skipped: SMATRS renders its music-name text and
-some screen effects through them), clip planes, points and lines, and sprite
-overrides (`Graphics.sprites.block[id].img = ...`; SMATRS's camera zoom and
-block 760 use them).
+Not drawn after this round: sprite overrides (`Graphics.sprites.block[id].img
+= ...`; SMATRS's camera zoom and block 760 use them). Shaders, capture
+buffers, points and lines came in the shader round.
+
+*Shader round (2026-11-04).* SMBX2's shaders and capture buffers work:
+- **Translation** (`core/glsl.lua`): SMBX2 writes GLSL 1.20 for LunaLua's
+  OpenGL 2.1 compatibility context, using fixed-function built-ins the
+  engine's context lacks (macOS: OpenGL 4.1 core; Android: ES). They become
+  `xt_*` attributes/uniforms the engine sets (`gl_Vertex` -> `xt_Vertex`,
+  `gl_TexCoord[0]` -> `xt_TexCoord0`, `gl_ModelViewProjectionMatrix` ->
+  `xt_MVP`, ...), plus `attribute`/`varying` -> `in`/`out`, `texture2D` ->
+  `texture`, `gl_FragColor` -> an output. Names later GLSL reserves get an
+  `xt_r_` prefix (SMATRS's backgrounds have a uniform called `textureSize`);
+  lunadll.lua reports them by their own names. The engine picks the dialect
+  (`xtech_gfx_shaderHeader`): `#version 330` on desktop, `300 es` or `100` on
+  ES. Every shader SMATRS 1-1 uses compiles on the Mac.
+- **Variables** come from GL (`glGetActiveUniform`/`Attrib`), shaped like
+  LunaLua's `GLShaderVariableInfo` (id = location, `name[0]` for arrays).
+- **Script draws** (`src/core/render_script.h`, `render_gl_script.cpp`): a
+  draw with a shader, into or from a capture buffer, or of points/lines runs
+  as its own GL draw, like LunaLua's `GLEngineCmd_LuaDraw`: the engine's
+  queued draws are drawn first, then this one, with LunaLua's premultiplied
+  blending and no depth test. Extra samplers (`silhouetteImage`, a capture
+  buffer as a uniform) get texture units 6+ (the engine's use 0-5). Draws
+  without a shader that need this path use SMBX2's `standard.vert/frag`.
+  Everything else still joins the engine's batches.
+- **Premultiplied alpha**: SMBX2's images load premultiplied
+  (`StdPictureLoad::premultiply`), as LunaLua's do, so shaders see what they
+  expect. Batched draws of them use a program that converts back to the
+  engine's straight alpha (`m_program_premultiplied`).
+- **Capture buffers** are framebuffers with top-down rows like the game
+  buffer, so `gl_FragCoord` and texture coordinates match LunaLua.
+  `captureAt` copies the camera's view at its priority, `clear` clears at
+  its priority, `glDraw{target = ...}` draws into one. A buffer stays bound
+  across consecutive draws into it.
+- 1-1 now shows the shaded sunset sky, sand and water layers, Mario in his
+  palette colours, the foreground water and the music-name box text.
+- Not done: `Graphics.redirectCameraFB` (SMATRS's `dynamicBackgrounds.lua`
+  sends the engine's own drawing of a priority range into a buffer for its
+  "glowing layer" on some backgrounds; needs the engine to draw into a
+  capture buffer), depth buffers as samplers, clip planes, double-precision
+  uniforms. On ES, SMBX2's shaders will also need int -> float conversions
+  added (desktop GLSL converts implicitly, ES doesn't): Phase 7.
 
 *Where bonus1 and SMATRS 1-1 stand now:* no script errors in SMATRS 1-1 (sound
 on, dummy or off); bonus1 has its two old ones, `ffi_graphics.lua:1598`
 (`img` type) and `npc-21.lua:42`, plus `HUDOverride.lua:733`, which follows
 from the first (bonus1's own `onDraw` error skips HUDOverride's `onDraw`, as
-it would in LunaLua). No unknown `mem()` addresses. 1-1 shows SMATRS's HUD,
-parallax backgrounds, BGOs, sloped ground and player effects at 960x540.
+it would in LunaLua). No unknown `mem()` addresses. 1-1 draws its HUD,
+shaded parallax backgrounds, BGOs, sloped ground, player palettes, screen
+effects and music box at 960x540.
 Other logged gaps: window (`LunaLuaSetWindowTitle`/`Icon`, `IsFullscreen`),
 `LunaLuaBlocksTestCollision`, `Misc.loadCharacterHitBoxes`/
 `registerCharacterId`, rumble, controller power level.
 Untested by ear: run a level with sound to confirm it sounds right.
 
 *Next round, in order:*
-1. **Shaders and capture buffers** (rest of Phase 4). SMBX2's shaders are
-   GLSL 1.20 (`gl_TexCoord`, `gl_Color`, `gl_FragColor`, `texture2D`,
-   sampler `iChannel0`); 133 in SMATRS alone. Translate them to the GLSL ES
-   the GL renderer compiles (its translator then targets desktop GL), give
-   `renderTriangles` a program plus uniforms (and extra samplers, e.g.
-   `silhouetteImage`), and add capture buffers as framebuffers
-   (`CaptureAt`, `Clear`, draws into/from them, `RedirectCameraFB`).
-   Watch premultiplied alpha: SMBX2's shaders assume it, the engine blends
-   straight.
-2. **Sprite overrides** onto the engine's textures (`GFXBlockBMP` etc.).
-3. Phase 3 IDs (block 756 and friends now become 1); engine collisions
+1. **Sprite overrides** onto the engine's textures (`GFXBlockBMP` etc.).
+2. Phase 3 IDs (block 756 and friends now become 1); engine collisions
    honouring collision groups.
+3. `Graphics.redirectCameraFB` (glowing background layers).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -417,11 +447,10 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 ### Phase 4 — Rendering
 - `Graphics.drawImage*` with priority, opacity, source rects, `Graphics.glDraw`
   (vertex arrays), capture buffers, `Graphics.drawBox` / `drawScreen`.
-  Done 2026-11-04 except capture buffers (see Phase 1 "Drawing round").
-- `Shader` — TheXTech's GL renderer already compiles GLSL and has the ANGLE
-  translator; map SMBX2's shader API onto it. Until then `core/lunadll.lua`
-  reports every shader compiled, with uniforms read from its source, and
-  draws that use one are made without it.
+  Done 2026-11-04 (Phase 1 "Drawing round" and "Shader round"), except
+  `redirectCameraFB` and clip planes.
+- `Shader` — done 2026-11-04: translated by `core/lunadll.lua`'s `glsl.lua`,
+  compiled and drawn by the engine (Phase 1 "Shader round").
 - `Darkness`, `particles`, `textplus` fonts, `paralx2` backgrounds.
 - Done when: 1-1 looks right.
 
@@ -493,6 +522,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | FileFormats round (more SMATRS runs) | 5.2-5.5 | 3.4-3.6 | 33,700 reads a frame |
 | Audio round (all `onDraw` handlers run) | 6.7-6.8 | 5.0-5.1 | dummy audio; 7.1 / 5.3 with sound off |
 | Drawing round (Lua draws backgrounds, BGOs, sizables, HUD) | 7.8-7.9 | 6.2 | sound off, frames 200-900; engine ~1.6 |
+| Shader round (shaders and capture buffers drawn) | 9.7-11.4 | 6.6-7.4 | same; engine 3.1-4.0; runs vary ~1 ms |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
@@ -514,6 +544,18 @@ SMBX2 draws backgrounds, BGOs and sizables itself (~1.3 ms of `onCameraDraw`:
 listener is still `sizable.lua:onDraw` (1.32 ms). One frame per run spiked to
 17-20 ms with ~11.5 ms in `onCameraDraw` (frame 831 both times; probably first
 use of some picture or code path; not looked at yet).
+
+The shader round draws what was skipped before: per frame in 1-1, ~45 script
+draws with shaders (~20 into capture buffers), 5 captures and 6 clears. Each
+screen capture is followed by a full-screen shader pass that reads it (three
+in a row at priority 0), so they can't be merged. A CPU sample (macOS
+`sample`) puts most of the engine's extra ~1.5 ms in Apple's OpenGL-on-Metal
+starting render passes: every framebuffer switch or copy of the current
+target begins a new one (~0.1 ms per capture; `glBlitFramebuffer` costs the
+same). Keeping a capture buffer bound across consecutive draws into it is in;
+it didn't measurably help here. Lua grew ~0.4 ms (SMBX2 packing uniforms in
+`validateAndConvertVariableTable`). Android's drivers will behave differently;
+measure there (Phase 7).
 
 bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
 

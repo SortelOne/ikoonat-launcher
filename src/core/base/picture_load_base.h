@@ -68,6 +68,9 @@ struct StdPictureLoad
 #endif
 
 
+    //! smbx2compat: premultiply the colours by alpha when loading (SMBX2's images)
+    bool premultiply = false;
+
     // Transparent color for BMP and JPEG
     bool     colorKey = false;
     uint8_t  keyRgb[3] = {0 /*R*/, 0 /*G*/, 0 /*B*/};

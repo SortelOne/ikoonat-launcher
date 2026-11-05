@@ -27,6 +27,7 @@
 
 #include "std_picture.h"
 #include "render_types.h"
+#include "core/render_script.h"
 
 #ifdef USE_SCREENSHOTS_AND_RECS
 struct GifRecorder;
@@ -327,11 +328,35 @@ public:
 
     // smbx2compat: textured triangles for SMBX2's Graphics.glDraw. xy: 2 floats per
     // vertex (viewport coordinates); uv: 2 floats per vertex in 0..1 of the picture,
-    // or nullptr; rgba: 4 floats per vertex (straight alpha), or nullptr; count: a
-    // multiple of 3. tx nullptr draws flat colour. No-op where unsupported.
+    // or nullptr; rgba: 4 floats per vertex, or nullptr; count: a multiple of 3.
+    // tx nullptr draws flat colour. premultiplied: tx was loaded with
+    // StdPictureLoad::premultiply, and rgba and color are premultiplied too (else
+    // straight alpha). No-op where unsupported.
     virtual void renderTriangles(StdPicture *tx,
                                  const float *xy, const float *uv, const float *rgba,
-                                 int count, XTColor color = XTColor());
+                                 int count, XTColor color = XTColor(),
+                                 bool premultiplied = false);
+
+    // smbx2compat: SMBX2's shaders and capture buffers (core/render_script.h).
+    // Ids are > 0. Unsupported (0 / no-op) by default.
+
+    //! First line(s) for script shader sources ("#version ..."), nullptr if unsupported
+    virtual const char *scriptShaderHeader();
+    //! Compiles a program; 0 on failure (error says why)
+    virtual int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error);
+    virtual void scriptShaderFree(int shader);
+    //! The program's active uniforms (or attributes)
+    virtual void scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out);
+    //! A w x h render target, cleared to transparent
+    virtual int scriptBufferCreate(int w, int h);
+    virtual void scriptBufferFree(int buffer);
+    virtual void scriptBufferClear(int buffer);
+    //! Copies the current view (top-left w x h) into the buffer
+    virtual void scriptBufferCapture(int buffer);
+    //! Draws now, after the draws queued so far
+    virtual void scriptDraw(const ScriptDraw_t &draw);
+    //! After script draws (before the engine draws anything): puts back the engine's render target
+    virtual void scriptDrawEnd();
 
 
 

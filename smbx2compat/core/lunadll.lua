@@ -104,7 +104,8 @@ end
 ----------------------
 -- Drawing goes to the engine's draw queue (script/src/xtech_lua_draw.cpp), which
 -- draws each script draw where its render priority falls among the engine's
--- objects. Shaders, capture buffers and clip planes aren't drawn yet.
+-- objects. Shaders are translated by glsl.lua and compiled by the engine;
+-- capture buffers are the engine's render targets. Clip planes aren't drawn yet.
 
 -- The engine's C functions, called through the FFI so LuaJIT can compile the
 -- calls. Cast on first call: ffi_graphics.lua declares their argument types
@@ -275,12 +276,14 @@ local function handleKey(h)
     return tonumber(ffi.cast("uintptr_t", h))
 end
 
--- Shaders: nothing is compiled yet (Phase 4), but scripts such as darkness.lua
--- need a compiled shader and its variable list right away, and an error there
--- stops every later onStart handler. So compiling always succeeds, and the
--- uniforms and attributes come from the declarations in the source, shaped
--- like GL's reflection: arrays as "name[0]" with the element count.
+-- Shaders: compiled by the engine from glsl.lua's translation; their variable
+-- lists come from GL, as in LunaLua. Scripts such as darkness.lua need a
+-- compiled shader and its variables right away, and an error there stops every
+-- later onStart handler, so a shader that doesn't compile here (a gap in the
+-- translation, or no shader support) still reports success, with the
+-- variables read from its source, and draws without it.
 local shaders = {}
+local glslHeader = xtech_gfx_shaderHeader()
 
 -- GLSL type -> GL type enum
 local glslTypes = {
@@ -376,10 +379,7 @@ local function parseVariables(source, keywords, varInfoType, out)
     return out
 end
 
-function dll.FFI_ShaderFromStrings(vertexSource, fragmentSource)
-    core.missingAPI("shaders (variables read from source; nothing is drawn)")
-    local h = newHandle("FFI_ShaderObjRef*")
-    vertexSource, fragmentSource = vertexSource or "", fragmentSource or ""
+local function sourceVariables(vertexSource, fragmentSource)
     local uniforms = parseVariables(vertexSource, { uniform = true }, 1, {})
     local seen = {}
     for _, u in ipairs(uniforms) do
@@ -391,19 +391,87 @@ function dll.FFI_ShaderFromStrings(vertexSource, fragmentSource)
             uniforms[#uniforms + 1] = u
         end
     end
-    shaders[handleKey(h)] = {
-        uniforms = uniforms,
-        attributes = parseVariables(vertexSource, { attribute = true, ["in"] = true }, 0, {}),
-    }
+    return uniforms, parseVariables(vertexSource, { attribute = true, ["in"] = true }, 0, {})
+end
+
+-- GL's active variables, shaped like LunaLua's GLShaderVariableInfo
+local function engineVariables(key, attributes)
+    local out = {}
+    for _, v in ipairs(xtech_gfx_shaderVariables(key, attributes) or {}) do
+        local name = core.glsl.scriptName(v.name)
+        if name then
+            local _, depth = string.gsub(name, "%[%d*%]", "")
+            out[#out + 1] = {
+                varInfoType = attributes and 0 or 1,
+                id = v.location,
+                arrayCount = v.size,
+                type = v.type,
+                name = name,
+                rawName = string.match(name, "^[^%[]*"),
+                arrayDepth = depth,
+            }
+        end
+    end
+    return out
+end
+
+-- First lines of a shader, to say which one failed
+local function shaderLabel(source)
+    local lines = {}
+    for line in string.gmatch(source, "[^\n]+") do
+        line = string.match(line, "^%s*(.-)%s*$")
+        if line ~= "" and not string.find(line, "^#") then
+            lines[#lines + 1] = line
+            if #lines == 3 then
+                break
+            end
+        end
+    end
+    return table.concat(lines, " | ")
+end
+
+function dll.FFI_ShaderFromStrings(vertexSource, fragmentSource)
+    local h = newHandle("FFI_ShaderObjRef*")
+    shaders[handleKey(h)] = { vertex = vertexSource or "", fragment = fragmentSource or "" }
     return h
 end
 
 function dll.FFI_ShaderFree(obj)
-    shaders[handleKey(obj)] = nil
+    local key = handleKey(obj)
+    shaders[key] = nil
+    xtech_gfx_shaderFree(key)
+end
+
+local function compileShader(key)
+    local s = shaders[key]
+
+    local ok, err = false, "this renderer has no shaders"
+    if glslHeader then
+        local vs, fs = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+        ok, err = xtech_gfx_shaderCompile(key, vs, fs)
+    end
+
+    if ok then
+        s.uniforms = engineVariables(key, false)
+        s.attributes = engineVariables(key, true)
+    else
+        core.warn("shader didn't compile here (drawn without it): " ..
+                  shaderLabel(s.fragment) .. "\n" .. tostring(err))
+        s.uniforms, s.attributes = sourceVariables(s.vertex, s.fragment)
+    end
+    return ok
 end
 
 function dll.FFI_ShaderCompile(obj)
-    return shaders[handleKey(obj)] ~= nil
+    local key = handleKey(obj)
+    local s = shaders[key]
+    if s == nil then
+        return false
+    end
+    if not s.uniforms then
+        compileShader(key)
+    end
+    return true
 end
 
 function dll.FFI_ShaderError(obj)
@@ -413,21 +481,48 @@ end
 -- ffi_graphics reads these with ffi.string, which takes a Lua string as well
 function dll.FFI_GetUniformInfo(obj, idx)
     local s = shaders[handleKey(obj)]
-    return s and s.uniforms[tonumber(idx) + 1]
+    return s and s.uniforms and s.uniforms[tonumber(idx) + 1]
 end
 
 function dll.FFI_GetAttributeInfo(obj, idx)
     local s = shaders[handleKey(obj)]
-    return s and s.attributes[tonumber(idx) + 1]
+    return s and s.attributes and s.attributes[tonumber(idx) + 1]
 end
 
--- Capture buffers (render targets): handles only; draws into or from them are
--- skipped, and nothing is captured yet
+-- Draws without a shader that the engine's own queue can't make (into or from
+-- capture buffers, lines) use SMBX2's standard shader. A plain handle number:
+-- FFI_ShaderObjRef isn't declared yet while this file loads.
+do
+    local key = nextHandle
+    nextHandle = nextHandle + 1
+    shaders[key] = {
+        vertex = core.readFile(core.smbxPath .. "/scripts/shaders/standard.vert") or "",
+        fragment = core.readFile(core.smbxPath .. "/scripts/shaders/standard.frag") or "",
+    }
+    if compileShader(key) then
+        xtech_gfx_setStandardShader(key)
+    end
+end
+
+-- Capture buffers: the engine's render targets
 function dll.FFI_CaptureBuffer(w, h, nonskippable)
-    return newHandle("CaptureBufferRef*")
+    local handle = newHandle("CaptureBufferRef*")
+    if not xtech_gfx_bufferCreate(handleKey(handle), tonumber(w), tonumber(h)) then
+        core.missingAPI("capture buffers (this renderer has none; draws with them are skipped)")
+    end
+    return handle
 end
 
 function dll.FFI_CaptureBufferFree(buf)
+    xtech_gfx_bufferFree(handleKey(buf))
+end
+
+function dll.FFI_CaptureBufferCaptureAt(buf, priority)
+    xtech_gfx_bufferCapture(handleKey(buf), tonumber(priority))
+end
+
+function dll.FFI_CaptureBufferClear(buf, priority)
+    xtech_gfx_bufferClear(handleKey(buf), tonumber(priority))
 end
 
 -- The engine's screen size (SMATRS asks for 960x540)

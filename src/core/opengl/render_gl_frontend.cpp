@@ -374,6 +374,7 @@ bool RenderGL::initRender(SDL_Window *window)
 void RenderGL::close()
 {
     RenderGL::clearAllTextures();
+    scriptCleanup(); // smbx2compat
     AbstractRender_t::close();
 
     XTechShaderTranslator::EnsureQuit();
@@ -386,6 +387,7 @@ void RenderGL::close()
     m_program_circle_hole.reset();
     m_program_rect_filled.reset();
     m_program_rect_unfilled.reset();
+    m_program_premultiplied.reset(); // smbx2compat
     m_lighting_calc_program.reset();
     m_lighting_apply_program.reset();
     m_distance_field_1_program.reset();
@@ -1793,7 +1795,7 @@ void RenderGL::renderParticleSystem(StdPicture &tx,
 // smbx2compat: SMBX2's Graphics.glDraw (script/src/xtech_lua_draw.cpp)
 void RenderGL::renderTriangles(StdPicture *tx,
                                const float *xy, const float *uv, const float *rgba,
-                               int count, XTColor color)
+                               int count, XTColor color, bool premultiplied)
 {
 #ifdef USE_RENDER_BLOCKING
     SDL_assert(!m_blockRender);
@@ -1814,7 +1816,8 @@ void RenderGL::renderTriangles(StdPicture *tx,
     int16_t cur_depth = m_render_planes.next();
 
     // always ordered: scripts' draws are often translucent, and their order matters
-    DrawContext_t context = tx ? DrawContext_t(m_standard_program, tx) : DrawContext_t(m_program_rect_filled);
+    GLProgramObject &textured = (premultiplied && m_program_premultiplied.inited()) ? m_program_premultiplied : m_standard_program;
+    DrawContext_t context = tx ? DrawContext_t(textured, tx) : DrawContext_t(m_program_rect_filled);
     auto& vertex_list = getOrderedDrawVertexList(context, cur_depth);
 
     // 0..1 across the picture -> GL texture coordinates (pictures may be padded)

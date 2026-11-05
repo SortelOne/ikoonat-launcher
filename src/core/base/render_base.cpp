@@ -694,6 +694,10 @@ void AbstractRender_t::lazyLoad(StdPicture &target)
         GraphicsHelps::closeImage(maskImage);
     }
 
+    // smbx2compat: SMBX2's images are premultiplied (LunaLua blends that way)
+    if(target.l.premultiply)
+        FreeImage_PreMultiplyWithAlpha(sourceImage);
+
     uint8_t *textura = reinterpret_cast<uint8_t *>(FreeImage_GetBits(sourceImage));
 
     g_render->loadTextureInternal(target, w, h, textura, pitch, w_mask, h_mask);
@@ -871,7 +875,7 @@ void AbstractRender_t::renderParticleSystem(StdPicture &tx, double camX, double 
 }
 
 // smbx2compat
-void AbstractRender_t::renderTriangles(StdPicture *tx, const float *xy, const float *uv, const float *rgba, int count, XTColor color)
+void AbstractRender_t::renderTriangles(StdPicture *tx, const float *xy, const float *uv, const float *rgba, int count, XTColor color, bool premultiplied)
 {
     // no-op
 
@@ -881,6 +885,64 @@ void AbstractRender_t::renderTriangles(StdPicture *tx, const float *xy, const fl
     UNUSED(rgba);
     UNUSED(count);
     UNUSED(color);
+    UNUSED(premultiplied);
+}
+
+// smbx2compat: script shaders and capture buffers are unsupported by default
+const char *AbstractRender_t::scriptShaderHeader()
+{
+    return nullptr;
+}
+
+int AbstractRender_t::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
+{
+    UNUSED(vertex);
+    UNUSED(fragment);
+    error = "shaders aren't supported by this renderer";
+    return 0;
+}
+
+void AbstractRender_t::scriptShaderFree(int shader)
+{
+    UNUSED(shader);
+}
+
+void AbstractRender_t::scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out)
+{
+    UNUSED(shader);
+    UNUSED(attributes);
+    out.clear();
+}
+
+int AbstractRender_t::scriptBufferCreate(int w, int h)
+{
+    UNUSED(w);
+    UNUSED(h);
+    return 0;
+}
+
+void AbstractRender_t::scriptBufferFree(int buffer)
+{
+    UNUSED(buffer);
+}
+
+void AbstractRender_t::scriptBufferClear(int buffer)
+{
+    UNUSED(buffer);
+}
+
+void AbstractRender_t::scriptBufferCapture(int buffer)
+{
+    UNUSED(buffer);
+}
+
+void AbstractRender_t::scriptDraw(const ScriptDraw_t &draw)
+{
+    UNUSED(draw);
+}
+
+void AbstractRender_t::scriptDrawEnd()
+{
 }
 
 

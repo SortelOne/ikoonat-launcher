@@ -752,17 +752,20 @@ E_INLINE void renderParticleSystem(StdPicture &tx,
  * \param tx picture, or nullptr for flat colour
  * \param xy 2 floats per vertex, in viewport coordinates
  * \param uv 2 floats per vertex, 0..1 across the picture (or nullptr)
- * \param rgba 4 floats per vertex, straight alpha (or nullptr)
+ * \param rgba 4 floats per vertex (or nullptr)
  * \param count number of vertices, a multiple of 3
+ * \param premultiplied tx was loaded premultiplied, and rgba and color are
+ *        premultiplied too (else straight alpha)
  *
  * No-op if the renderer doesn't support it (only the OpenGL renderer does).
  */
 E_INLINE void renderTriangles(StdPicture *tx,
                               const float *xy, const float *uv, const float *rgba,
-                              int count, XTColor color = XTColor()) TAIL
+                              int count, XTColor color = XTColor(),
+                              bool premultiplied = false) TAIL
 #ifndef RENDER_CUSTOM
 {
-    g_render->renderTriangles(tx, xy, uv, rgba, count, color);
+    g_render->renderTriangles(tx, xy, uv, rgba, count, color, premultiplied);
 }
 #endif
 

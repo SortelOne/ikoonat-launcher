@@ -369,6 +369,8 @@ private:
     GLProgramObject m_program_rect_unfilled;
     GLProgramObject m_program_circle;
     GLProgramObject m_program_circle_hole;
+    // smbx2compat: SMBX2's premultiplied images, drawn with straight-alpha blending
+    GLProgramObject m_program_premultiplied;
 
 
 
@@ -418,6 +420,7 @@ private:
     static const char* const s_es2_rect_unfilled_frag_src;
     static const char* const s_es2_circle_frag_src;
     static const char* const s_es2_circle_hole_frag_src;
+    static const char* const s_es2_premultiplied_frag_src; // smbx2compat
 
     static const char* const s_es2_lighting_apply_frag_src;
 
@@ -427,6 +430,44 @@ private:
 
 #endif // #ifdef RENDERGL_HAS_SHADERS
 
+
+    // smbx2compat: SMBX2's shader programs and capture buffers (render_gl_script.cpp)
+    struct ScriptProgram_t
+    {
+        GLuint program = 0;
+        GLint u_mvp = -1;
+        GLint u_mv = -1;
+        GLint u_p = -1;
+        GLint u_texmat = -1;
+    };
+
+    struct ScriptBuffer_t
+    {
+        GLuint fb = 0;
+        GLuint texture = 0;
+        int w = 0;
+        int h = 0;
+    };
+
+    std::unordered_map<int, ScriptProgram_t> m_script_programs;
+    std::unordered_map<int, ScriptBuffer_t> m_script_buffers;
+    int m_script_next_id = 0;
+    // vertex arrays of the script draw being made
+    GLuint m_script_vbo = 0;
+    std::vector<GLfloat> m_script_vertex_data;
+    // iChannel0 for draws without a texture
+    GLuint m_script_white_texture = 0;
+    // first texture unit for extra samplers (the engine's own use the first few)
+    int m_script_first_unit = 0;
+    int m_script_num_units = 0;
+    // capture buffer left bound by script draws (0: the engine's framebuffer)
+    int m_script_bound_buffer = 0;
+    GLint m_script_saved_viewport[4] = {0, 0, 0, 0};
+
+    //! framebuffer the engine is drawing to
+    GLuint scriptCurrentFB() const;
+    void scriptBindBuffer(int id, const ScriptBuffer_t &b);
+    void scriptCleanup();
 
     /***********************************************************\
     || Initialization functions, defined at render_gl_init.cpp ||
@@ -780,7 +821,20 @@ public:
     // smbx2compat
     void renderTriangles(StdPicture *tx,
                          const float *xy, const float *uv, const float *rgba,
-                         int count, XTColor color = XTColor()) override;
+                         int count, XTColor color = XTColor(),
+                         bool premultiplied = false) override;
+
+    // smbx2compat: SMBX2's shaders and capture buffers, render_gl_script.cpp
+    const char *scriptShaderHeader() override;
+    int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error) override;
+    void scriptShaderFree(int shader) override;
+    void scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out) override;
+    int scriptBufferCreate(int w, int h) override;
+    void scriptBufferFree(int buffer) override;
+    void scriptBufferClear(int buffer) override;
+    void scriptBufferCapture(int buffer) override;
+    void scriptDraw(const ScriptDraw_t &draw) override;
+    void scriptDrawEnd() override;
 
 
 

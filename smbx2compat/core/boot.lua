@@ -303,6 +303,7 @@ runCoreFile("constants.lua")
 runCoreFile("host.lua")
 runCoreFile("classes.lua")
 core.extraSettings = runCoreFile("extrasettings.lua")
+core.glsl = runCoreFile("glsl.lua")
 
 do
     local ffi = require("ffi")

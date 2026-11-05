@@ -28,7 +28,14 @@
 // reaches that priority (xtech_lua_drawBelow). The queue empties every frame.
 //
 // A LunaImageRef* is a number here: an entry in s_images, whose picture is
-// shared by everything that loaded the same file.
+// shared by everything that loaded the same file. Pictures load premultiplied,
+// as LunaLua's do.
+//
+// Draws with a shader, into or from a capture buffer, or of points and lines
+// go to the renderer's script draws (core/render_script.h), which run their own
+// GL program with LunaLua's blending; the rest join the engine's draw queue.
+// FFI_ShaderObjRef* and CaptureBufferRef* are handle numbers from lunadll.lua,
+// mapped to the renderer's programs and buffers here.
 
 #include <algorithm>
 #include <cmath>
@@ -102,6 +109,37 @@ enum GLPrimitive
     GL_PRIM_TRIANGLE_FAN = 6,
 };
 
+// GL types of shader variables, as ffi_graphics packs them
+enum GLVarType : unsigned
+{
+    GLT_FLOAT = 0x1406, GLT_VEC2 = 0x8B50, GLT_VEC3 = 0x8B51, GLT_VEC4 = 0x8B52,
+    GLT_INT = 0x1404, GLT_IVEC2 = 0x8B53, GLT_IVEC3 = 0x8B54, GLT_IVEC4 = 0x8B55,
+    GLT_UINT = 0x1405, GLT_UVEC2 = 0x8DC6, GLT_UVEC3 = 0x8DC7, GLT_UVEC4 = 0x8DC8,
+    GLT_MAT2 = 0x8B5A, GLT_MAT3 = 0x8B5B, GLT_MAT4 = 0x8B5C,
+    GLT_MAT2x3 = 0x8B65, GLT_MAT2x4 = 0x8B66, GLT_MAT3x2 = 0x8B67,
+    GLT_MAT3x4 = 0x8B68, GLT_MAT4x2 = 0x8B69, GLT_MAT4x3 = 0x8B6A,
+    GLT_SAMPLER_2D = 0x8B5E,
+};
+
+// 4-byte values per element of a type (floats, ints); 0: not supported
+int varWords(unsigned type)
+{
+    switch(type)
+    {
+    case GLT_FLOAT: case GLT_INT: case GLT_UINT:     return 1;
+    case GLT_VEC2: case GLT_IVEC2: case GLT_UVEC2:   return 2;
+    case GLT_VEC3: case GLT_IVEC3: case GLT_UVEC3:   return 3;
+    case GLT_VEC4: case GLT_IVEC4: case GLT_UVEC4:   return 4;
+    case GLT_MAT2:                                   return 4;
+    case GLT_MAT3:                                   return 9;
+    case GLT_MAT4:                                   return 16;
+    case GLT_MAT2x3: case GLT_MAT3x2:                return 6;
+    case GLT_MAT2x4: case GLT_MAT4x2:                return 8;
+    case GLT_MAT3x4: case GLT_MAT4x3:                return 12;
+    default:                                         return 0;
+    }
+}
+
 // Pictures by file, kept until the level's Lua state closes
 std::unordered_map<std::string, std::unique_ptr<StdPicture>> s_pictures;
 // LunaImageRef numbers -> pictures
@@ -111,11 +149,26 @@ uintptr_t s_nextImage = 1;
 bool s_vanilla[XTECH_LUA_DRAW_COUNT] = {true, true, true, true};
 bool s_hudSkipped = false;
 
+// Handle numbers from lunadll.lua -> the renderer's programs and capture buffers
+std::unordered_map<uintptr_t, int> s_shaders;
+std::unordered_map<uintptr_t, int> s_buffers;
+// SMBX2's standard.vert/frag, for script draws without a shader (0: the
+// renderer has no script draws)
+int s_standardShader = 0;
+// freed after this frame's draws, which may still use them
+std::vector<int> s_freedShaders, s_freedBuffers;
+
+// FFI_GraphicsSetMainFramebufferSize's size, which the engine applies later
+int s_fbW = 0, s_fbH = 0;
+
 enum OpKind : uint8_t
 {
     OP_TRIANGLES,
     OP_IMAGE,
     OP_TEXT,
+    OP_SCRIPT,   // first = index into s_scriptOps
+    OP_CAPTURE,  // first = capture buffer (renderer id)
+    OP_CLEAR,    // first = capture buffer (renderer id)
 };
 
 struct DrawOp
@@ -130,6 +183,7 @@ struct DrawOp
     // OP_TRIANGLES: vertices [first, first + count) of s_vertices
     // OP_IMAGE: x, y = position; u, v = source position; count/first = source size
     // OP_TEXT: x, y = position; first = index into s_texts, count = font
+    // OP_SCRIPT, OP_CAPTURE, OP_CLEAR: see OpKind
     double x, y;
     int u, v;
     uint32_t first, count;
@@ -145,6 +199,37 @@ struct DrawVertex
 std::vector<DrawOp> s_ops;
 std::vector<DrawVertex> s_vertices;
 std::vector<std::string> s_texts;
+
+// A draw for the renderer's script draws (ScriptDraw_t, with offsets for pointers)
+constexpr uint32_t c_none = UINT32_MAX;
+
+struct ScriptOp
+{
+    int target;
+    ScriptTexture_t texture;
+    int shader;
+    uint32_t primitive;
+    uint32_t count;
+    uint32_t xy, uv, rgba;  // offsets into s_floats (c_none: absent)
+    float color[4];
+    bool linear;
+    uint32_t varFirst;      // s_vars: attributes, then uniforms
+    uint32_t attrCount, unifCount;
+};
+
+struct QueuedVar
+{
+    int location;
+    unsigned type;
+    int count;
+    size_t offset;          // into s_varData, in bytes
+};
+
+std::vector<ScriptOp> s_scriptOps;
+std::vector<float> s_floats;
+std::vector<QueuedVar> s_vars;
+std::vector<uint64_t> s_varData;   // 8-byte aligned (samplers hold pointers)
+std::vector<ScriptDrawVar_t> s_drawVars;
 
 // drawing order: indices into s_ops sorted by priority (queue order on ties)
 std::vector<uint32_t> s_order;
@@ -186,7 +271,8 @@ constexpr size_t c_maxQueuedVertices = 4u << 20;
 
 void makeRoom()
 {
-    if(s_ops.size() >= c_maxQueuedOps || s_vertices.size() >= c_maxQueuedVertices)
+    if(s_ops.size() >= c_maxQueuedOps || s_vertices.size() >= c_maxQueuedVertices
+       || s_floats.size() >= 8 * c_maxQueuedVertices || s_varData.size() >= c_maxQueuedVertices)
     {
         static bool warned = false;
         warnOnce(warned, "SMBX2 draw queue overflowed without a rendered frame (dropped)");
@@ -216,7 +302,7 @@ inline uint8_t toByte(float f)
     return (uint8_t)(f <= 0.0f ? 0 : f >= 1.0f ? 255 : f * 255.0f + 0.5f);
 }
 
-void pushVertex(const FFI_GL_Draw_Cmd &cmd, uint32_t i)
+void pushVertex(const FFI_GL_Draw_Cmd &cmd, uint32_t i, bool premultiplied)
 {
     DrawVertex v;
     v.x = cmd.mVert[2 * i];
@@ -224,9 +310,17 @@ void pushVertex(const FFI_GL_Draw_Cmd &cmd, uint32_t i)
     v.u = cmd.mTex ? cmd.mTex[2 * i] : 0.0f;
     v.v = cmd.mTex ? cmd.mTex[2 * i + 1] : 0.0f;
 
-    if(cmd.mVertColor)
+    if(cmd.mVertColor && premultiplied)
     {
-        // SMBX2's vertex colours are premultiplied; the engine blends straight alpha
+        const float *c = cmd.mVertColor + 4 * i;
+        v.r = c[0];
+        v.g = c[1];
+        v.b = c[2];
+        v.a = c[3];
+    }
+    else if(cmd.mVertColor)
+    {
+        // SMBX2's vertex colours are premultiplied; flat colour blends straight alpha
         // (additive colour, with zero alpha, has no straight-alpha equivalent)
         const float *c = cmd.mVertColor + 4 * i;
         v.a = c[3];
@@ -251,10 +345,125 @@ void *ffi_alloc(size_t size)
     return std::malloc(size);
 }
 
+int shaderFor(const void *ref)
+{
+    auto it = s_shaders.find(reinterpret_cast<uintptr_t>(ref));
+    return it != s_shaders.end() ? it->second : 0;
+}
+
+int bufferFor(const void *ref)
+{
+    if(!ref)
+        return 0;
+
+    auto it = s_buffers.find(reinterpret_cast<uintptr_t>(ref));
+    return it != s_buffers.end() ? it->second : 0;
+}
+
+// Copies a shader variable's value for a script draw; false if it can't be used
+bool queueVar(const FFI_GL_Draw_Var &var)
+{
+    static bool warnedType = false, warnedDepth = false;
+
+    if(!var.mData || var.mCount == 0)
+        return false;
+
+    QueuedVar q;
+    q.location = (int)var.mId;
+    q.type = var.mType;
+    q.count = (int)var.mCount;
+    q.offset = s_varData.size() * sizeof(uint64_t);
+
+    if(var.mType == GLT_SAMPLER_2D)
+    {
+        // pairs of (kind, ref): 1 = image, 2 = capture buffer, 3 = depth buffer
+        size_t words = (sizeof(ScriptTexture_t) * var.mCount + sizeof(uint64_t) - 1) / sizeof(uint64_t);
+        s_varData.resize(s_varData.size() + words);
+        ScriptTexture_t *t = reinterpret_cast<ScriptTexture_t *>(s_varData.data() + q.offset / sizeof(uint64_t));
+        void *const *pairs = static_cast<void *const *>(var.mData);
+        for(unsigned i = 0; i < var.mCount; i++)
+        {
+            uintptr_t kind = reinterpret_cast<uintptr_t>(pairs[2 * i]);
+            t[i] = ScriptTexture_t();
+            if(kind == 1)
+                t[i].picture = pictureFor(pairs[2 * i + 1]);
+            else if(kind == 2)
+                t[i].buffer = bufferFor(pairs[2 * i + 1]);
+            else if(kind == 3)
+                warnOnce(warnedDepth, "shader depth buffers aren't supported yet (sampled as white)");
+        }
+    }
+    else
+    {
+        int w = varWords(var.mType);
+        if(!w)
+        {
+            warnOnce(warnedType, "a shader variable type isn't supported yet (doubles?) (not set)");
+            return false;
+        }
+
+        size_t bytes = (size_t)w * 4 * var.mCount;
+        size_t words = (bytes + sizeof(uint64_t) - 1) / sizeof(uint64_t);
+        s_varData.resize(s_varData.size() + words);
+        std::memcpy(s_varData.data() + q.offset / sizeof(uint64_t), var.mData, bytes);
+    }
+
+    s_vars.push_back(q);
+    return true;
+}
+
+// Graphics.glDraw for the renderer's script draws
+void queueScriptDraw(const FFI_GL_Draw_Cmd &cmd, int shader)
+{
+    makeRoom();
+
+    ScriptOp so;
+    so.target = bufferFor(cmd.mTarget);
+    so.texture.picture = pictureFor(cmd.mImg);
+    so.texture.buffer = bufferFor(cmd.mCap);
+    so.shader = shader ? shader : s_standardShader;
+    so.primitive = cmd.mType;
+    so.count = cmd.mCount;
+    so.color[0] = cmd.mColor[0];
+    so.color[1] = cmd.mColor[1];
+    so.color[2] = cmd.mColor[2];
+    so.color[3] = cmd.mColor[3];
+    so.linear = cmd.mLinearFiltered;
+
+    so.xy = (uint32_t)s_floats.size();
+    s_floats.insert(s_floats.end(), cmd.mVert, cmd.mVert + 2 * cmd.mCount);
+    so.uv = c_none;
+    if(cmd.mTex)
+    {
+        so.uv = (uint32_t)s_floats.size();
+        s_floats.insert(s_floats.end(), cmd.mTex, cmd.mTex + 2 * cmd.mCount);
+    }
+    so.rgba = c_none;
+    if(cmd.mVertColor)
+    {
+        so.rgba = (uint32_t)s_floats.size();
+        s_floats.insert(s_floats.end(), cmd.mVertColor, cmd.mVertColor + 4 * cmd.mCount);
+    }
+
+    so.varFirst = (uint32_t)s_vars.size();
+    so.attrCount = so.unifCount = 0;
+    if(shader)
+    {
+        for(unsigned i = 0; cmd.mAttrs && i < cmd.mAttrCount; i++)
+            so.attrCount += queueVar(cmd.mAttrs[i]) ? 1 : 0;
+        for(unsigned i = 0; cmd.mUnifs && i < cmd.mUnifCount; i++)
+            so.unifCount += queueVar(cmd.mUnifs[i]) ? 1 : 0;
+    }
+
+    DrawOp &op = newOp(OP_SCRIPT, cmd.mPriority, cmd.mSceneCoords);
+    op.first = (uint32_t)s_scriptOps.size();
+    s_scriptOps.push_back(so);
+}
+
 void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
 {
-    static bool warnedTarget = false, warnedCapture = false, warnedShader = false,
-                warnedClip = false, warnedPrimitive = false;
+    static bool warnedTarget = false, warnedShader = false, warnedClip = false,
+                warnedPrimitive = false, warnedCompile = false;
 
     if(!cmd)
         return;
@@ -275,39 +484,55 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
         }
     } owned{cmd};
 
-    if(cmd->mTarget)
-    {
-        warnOnce(warnedTarget, "Graphics.glDraw into a capture buffer isn't supported yet (skipped)");
-        return;
-    }
-
-    if(cmd->mCap)
-    {
-        warnOnce(warnedCapture, "Graphics.glDraw from a capture buffer isn't supported yet (skipped)");
-        return;
-    }
-
-    if(cmd->mShader)
-        warnOnce(warnedShader, "Graphics.glDraw shaders aren't supported yet (drawn without)");
-
     if(cmd->mNumClipPlane)
         warnOnce(warnedClip, "Graphics.glDraw clip planes aren't supported yet (ignored)");
 
-    if(!cmd->mVert || cmd->mCount < 3)
+    if(!cmd->mVert || cmd->mCount == 0)
+        return;
+
+    // a shader that didn't compile here (lunadll.lua logged why) draws as without one
+    int shader = cmd->mShader ? shaderFor(cmd->mShader) : 0;
+    if(cmd->mShader && !shader)
+        warnOnce(warnedCompile, "Graphics.glDraw with a shader that didn't compile here (drawn without)");
+
+    bool lines = cmd->mType < GL_PRIM_TRIANGLES;
+    if(shader || cmd->mTarget || cmd->mCap || lines)
+    {
+        if(s_standardShader)
+        {
+            queueScriptDraw(*cmd, shader);
+            return;
+        }
+
+        // the renderer can't: draw what the engine can
+        if(cmd->mTarget || cmd->mCap)
+        {
+            warnOnce(warnedTarget, "Graphics.glDraw with capture buffers needs OpenGL 3.3 or ES (skipped)");
+            return;
+        }
+        if(cmd->mShader)
+            warnOnce(warnedShader, "Graphics.glDraw shaders need OpenGL 3.3 or ES (drawn without)");
+    }
+
+    if(cmd->mCount < 3)
         return;
 
     makeRoom();
     uint32_t first = (uint32_t)s_vertices.size();
     uint32_t n = cmd->mCount;
 
+    // textured draws keep LunaLua's premultiplied colours (pictures are premultiplied)
+    StdPicture *picture = pictureFor(cmd->mImg);
+    bool pm = picture != nullptr;
+
     switch(cmd->mType)
     {
     case GL_PRIM_TRIANGLES:
         for(uint32_t i = 0; i + 2 < n; i += 3)
         {
-            pushVertex(*cmd, i);
-            pushVertex(*cmd, i + 1);
-            pushVertex(*cmd, i + 2);
+            pushVertex(*cmd, i, pm);
+            pushVertex(*cmd, i + 1, pm);
+            pushVertex(*cmd, i + 2, pm);
         }
         break;
 
@@ -315,30 +540,42 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
         for(uint32_t i = 0; i + 2 < n; i++)
         {
             // keep the winding of every other triangle
-            pushVertex(*cmd, (i & 1) ? i + 1 : i);
-            pushVertex(*cmd, (i & 1) ? i : i + 1);
-            pushVertex(*cmd, i + 2);
+            pushVertex(*cmd, (i & 1) ? i + 1 : i, pm);
+            pushVertex(*cmd, (i & 1) ? i : i + 1, pm);
+            pushVertex(*cmd, i + 2, pm);
         }
         break;
 
     case GL_PRIM_TRIANGLE_FAN:
         for(uint32_t i = 1; i + 1 < n; i++)
         {
-            pushVertex(*cmd, 0);
-            pushVertex(*cmd, i);
-            pushVertex(*cmd, i + 1);
+            pushVertex(*cmd, 0, pm);
+            pushVertex(*cmd, i, pm);
+            pushVertex(*cmd, i + 1, pm);
         }
         break;
 
     default:
-        warnOnce(warnedPrimitive, "Graphics.glDraw points and lines aren't supported yet (skipped)");
+        warnOnce(warnedPrimitive, "Graphics.glDraw points and lines need OpenGL 3.3 or ES (skipped)");
         return;
     }
 
     DrawOp &op = newOp(OP_TRIANGLES, cmd->mPriority, cmd->mSceneCoords);
-    op.picture = pictureFor(cmd->mImg);
-    op.color = XTColor(toByte(cmd->mColor[0]), toByte(cmd->mColor[1]),
-                       toByte(cmd->mColor[2]), toByte(cmd->mColor[3]));
+    op.picture = picture;
+    // LunaLua: vertex colours replace the draw's colour
+    if(cmd->mVertColor)
+        op.color = XTColor();
+    else if(pm)
+    {
+        float a = cmd->mColor[3];
+        op.color = XTColor(toByte(cmd->mColor[0] * a), toByte(cmd->mColor[1] * a),
+                           toByte(cmd->mColor[2] * a), toByte(a));
+    }
+    else
+    {
+        op.color = XTColor(toByte(cmd->mColor[0]), toByte(cmd->mColor[1]),
+                           toByte(cmd->mColor[2]), toByte(cmd->mColor[3]));
+    }
     op.first = first;
     op.count = (uint32_t)s_vertices.size() - first;
 }
@@ -353,7 +590,8 @@ void ffi_imageDraw(void *img, double x, double y, double sx, double sy, double s
     makeRoom();
     DrawOp &op = newOp(OP_IMAGE, priority, sceneCoords);
     op.picture = picture;
-    op.color = XTColor(255, 255, 255, toByte(opacity));
+    // premultiplied white
+    op.color = XTColor(toByte(opacity), toByte(opacity), toByte(opacity), toByte(opacity));
     op.x = x;
     op.y = y;
     op.u = (int)std::lround(sx);
@@ -387,6 +625,42 @@ void ffi_textDraw(const char *text, int type, int x, int y, double priority, boo
     s_texts.push_back(std::move(s));
 }
 
+void drawScriptOp(const ScriptOp &so, double offX, double offY)
+{
+    ScriptDraw_t d;
+    d.target = so.target;
+    d.texture = so.texture;
+    d.shader = so.shader;
+    d.primitive = so.primitive;
+    d.count = (int)so.count;
+    d.xy = &s_floats[so.xy];
+    d.uv = so.uv != c_none ? &s_floats[so.uv] : nullptr;
+    d.rgba = so.rgba != c_none ? &s_floats[so.rgba] : nullptr;
+    std::memcpy(d.color, so.color, sizeof(d.color));
+    d.offsetX = (float)offX;
+    d.offsetY = (float)offY;
+    d.linearFiltered = so.linear;
+
+    s_drawVars.clear();
+    for(uint32_t i = 0; i < so.attrCount + so.unifCount; i++)
+    {
+        const QueuedVar &q = s_vars[so.varFirst + i];
+        ScriptDrawVar_t v;
+        v.location = q.location;
+        v.type = q.type;
+        v.count = q.count;
+        v.data = reinterpret_cast<const uint8_t *>(s_varData.data()) + q.offset;
+        s_drawVars.push_back(v);
+    }
+
+    d.attributes = s_drawVars.data();
+    d.attributeCount = (int)so.attrCount;
+    d.uniforms = s_drawVars.data() + so.attrCount;
+    d.uniformCount = (int)so.unifCount;
+
+    g_render->scriptDraw(d);
+}
+
 void drawOp(const DrawOp &op, double camX, double camY)
 {
     double offX = op.scene ? camX : 0.0;
@@ -411,7 +685,8 @@ void drawOp(const DrawOp &op, double camX, double camY)
             s_rgba[4 * i + 2] = v.b;
             s_rgba[4 * i + 3] = v.a;
         }
-        XRender::renderTriangles(op.picture, s_xy.data(), s_uv.data(), s_rgba.data(), (int)op.count, op.color);
+        XRender::renderTriangles(op.picture, s_xy.data(), s_uv.data(), s_rgba.data(), (int)op.count,
+                                 op.color, op.picture != nullptr);
         break;
     }
 
@@ -422,14 +697,32 @@ void drawOp(const DrawOp &op, double camX, double camY)
         int h = std::min((int)op.count, pic.h - op.v);
         if(w <= 0 || h <= 0)
             return;
-        XRender::renderTextureBasic((int)std::lround(op.x + offX), (int)std::lround(op.y + offY),
-                                    w, h, pic, op.u, op.v, op.color);
+
+        float x0 = (float)std::lround(op.x + offX), y0 = (float)std::lround(op.y + offY);
+        float x1 = x0 + w, y1 = y0 + h;
+        float u0 = (float)op.u / pic.w, v0 = (float)op.v / pic.h;
+        float u1 = (float)(op.u + w) / pic.w, v1 = (float)(op.v + h) / pic.h;
+        const float xy[12] = {x0, y0, x1, y0, x0, y1, x1, y0, x1, y1, x0, y1};
+        const float uv[12] = {u0, v0, u1, v0, u0, v1, u1, v0, u1, v1, u0, v1};
+        XRender::renderTriangles(op.picture, xy, uv, nullptr, 6, op.color, true);
         break;
     }
 
     case OP_TEXT:
         SuperPrint(s_texts[op.first].c_str(), (int)op.count,
                    (int)std::lround(op.x + offX), (int)std::lround(op.y + offY));
+        break;
+
+    case OP_SCRIPT:
+        drawScriptOp(s_scriptOps[op.first], offX, offY);
+        break;
+
+    case OP_CAPTURE:
+        g_render->scriptBufferCapture((int)op.first);
+        break;
+
+    case OP_CLEAR:
+        g_render->scriptBufferClear((int)op.first);
         break;
     }
 }
@@ -493,6 +786,7 @@ int lua_imageLoad(lua_State *L)
         XRender::lazyLoadPicture(*pic, path);
         if(!pic->inited)
             return 0;
+        pic->l.premultiply = true;
         it = s_pictures.emplace(path, std::move(pic)).first;
     }
 
@@ -547,13 +841,16 @@ int lua_setFramebufferSize(lua_State *L)
 
     ConfigChangeSentinel sent(ConfigSetLevel::script);
     g_config.internal_res = {w, h};
+    s_fbW = w;
+    s_fbH = h;
     return 0;
 }
 
+// The size asked for, before the engine applies it (scripts make capture buffers that size)
 int lua_getFramebufferSize(lua_State *L)
 {
-    lua_pushinteger(L, XRender::TargetW);
-    lua_pushinteger(L, XRender::TargetH);
+    lua_pushinteger(L, s_fbW ? s_fbW : XRender::TargetW);
+    lua_pushinteger(L, s_fbH ? s_fbH : XRender::TargetH);
     return 2;
 }
 
@@ -562,6 +859,137 @@ int lua_screenshot(lua_State *)
 {
     s_shotDue = true;
     return 0;
+}
+
+// xtech_gfx_shaderHeader() -> the "#version" line(s) glsl.lua translates for, or nil
+int lua_shaderHeader(lua_State *L)
+{
+    const char *header = g_render->scriptShaderHeader();
+    if(!header)
+        return 0;
+    lua_pushstring(L, header);
+    return 1;
+}
+
+// xtech_gfx_shaderCompile(handle, vertexSource, fragmentSource) -> true | false, error
+int lua_shaderCompile(lua_State *L)
+{
+    uintptr_t key = (uintptr_t)luaL_checknumber(L, 1);
+    const char *vs = luaL_checkstring(L, 2);
+    const char *fs = luaL_checkstring(L, 3);
+
+    std::string error;
+    int id = g_render->scriptShaderCreate(vs, fs, error);
+    if(!id)
+    {
+        lua_pushboolean(L, 0);
+        lua_pushstring(L, error.c_str());
+        return 2;
+    }
+
+    auto it = s_shaders.find(key);
+    if(it != s_shaders.end())
+        s_freedShaders.push_back(it->second);
+    s_shaders[key] = id;
+    lua_pushboolean(L, 1);
+    return 1;
+}
+
+// xtech_gfx_shaderVariables(handle, attributes) -> {{name=, location=, type=, size=}, ...}
+int lua_shaderVariables(lua_State *L)
+{
+    uintptr_t key = (uintptr_t)luaL_checknumber(L, 1);
+    bool attributes = lua_toboolean(L, 2) != 0;
+
+    auto it = s_shaders.find(key);
+    if(it == s_shaders.end())
+        return 0;
+
+    std::vector<ScriptShaderVar_t> vars;
+    g_render->scriptShaderVariables(it->second, attributes, vars);
+
+    lua_createtable(L, (int)vars.size(), 0);
+    for(size_t i = 0; i < vars.size(); i++)
+    {
+        lua_createtable(L, 0, 4);
+        lua_pushstring(L, vars[i].name.c_str());
+        lua_setfield(L, -2, "name");
+        lua_pushinteger(L, vars[i].location);
+        lua_setfield(L, -2, "location");
+        lua_pushnumber(L, (lua_Number)vars[i].type);
+        lua_setfield(L, -2, "type");
+        lua_pushinteger(L, vars[i].size);
+        lua_setfield(L, -2, "size");
+        lua_rawseti(L, -2, (int)i + 1);
+    }
+    return 1;
+}
+
+int lua_shaderFree(lua_State *L)
+{
+    auto it = s_shaders.find((uintptr_t)luaL_checknumber(L, 1));
+    if(it != s_shaders.end())
+    {
+        s_freedShaders.push_back(it->second);
+        s_shaders.erase(it);
+    }
+    return 0;
+}
+
+// xtech_gfx_setStandardShader(handle): draws without a shader use it
+int lua_setStandardShader(lua_State *L)
+{
+    s_standardShader = shaderFor(reinterpret_cast<void *>((uintptr_t)luaL_checknumber(L, 1)));
+    return 0;
+}
+
+// xtech_gfx_bufferCreate(handle, w, h) -> true if the renderer made it
+int lua_bufferCreate(lua_State *L)
+{
+    uintptr_t key = (uintptr_t)luaL_checknumber(L, 1);
+    int w = (int)luaL_checkinteger(L, 2);
+    int h = (int)luaL_checkinteger(L, 3);
+
+    int id = g_render->scriptBufferCreate(w, h);
+    if(id)
+        s_buffers[key] = id;
+    lua_pushboolean(L, id != 0);
+    return 1;
+}
+
+int lua_bufferFree(lua_State *L)
+{
+    auto it = s_buffers.find((uintptr_t)luaL_checknumber(L, 1));
+    if(it != s_buffers.end())
+    {
+        s_freedBuffers.push_back(it->second);
+        s_buffers.erase(it);
+    }
+    return 0;
+}
+
+// xtech_gfx_bufferCapture(handle, priority) / xtech_gfx_bufferClear(handle, priority)
+int queueBufferOp(lua_State *L, OpKind kind)
+{
+    int id = bufferFor(reinterpret_cast<void *>((uintptr_t)luaL_checknumber(L, 1)));
+    double priority = luaL_checknumber(L, 2);
+    if(!id)
+        return 0;
+
+    makeRoom();
+    DrawOp &op = newOp(kind, priority, false);
+    op.first = (uint32_t)id;
+    return 0;
+}
+
+int lua_bufferCapture(lua_State *L)
+{
+    return queueBufferOp(L, OP_CAPTURE);
+}
+
+int lua_bufferClear(lua_State *L)
+{
+    return queueBufferOp(L, OP_CLEAR);
 }
 
 // Frees the pictures when the level's Lua state closes
@@ -615,6 +1043,7 @@ void xtech_lua_drawBelow(double maxPriority)
     while(s_orderCursor < s_order.size() && s_ops[s_order[s_orderCursor]].drawnPass == s_pass)
         s_orderCursor++;
 
+    bool scriptDrawn = false;
     for(size_t i = s_orderCursor; i < s_order.size(); i++)
     {
         DrawOp &op = s_ops[s_order[i]];
@@ -625,8 +1054,15 @@ void xtech_lua_drawBelow(double maxPriority)
 
         op.drawnPass = s_pass;
         if(op.camera == 0 || op.camera == s_drawScreen)
+        {
             drawOp(op, camX, camY);
+            scriptDrawn |= op.kind >= OP_SCRIPT;
+        }
     }
+
+    // the engine draws next
+    if(scriptDrawn)
+        g_render->scriptDrawEnd();
 }
 
 void xtech_lua_drawFrameEnd()
@@ -640,14 +1076,34 @@ void xtech_lua_drawFrameEnd()
     s_ops.clear();
     s_vertices.clear();
     s_texts.clear();
+    s_scriptOps.clear();
+    s_floats.clear();
+    s_vars.clear();
+    s_varData.clear();
     s_order.clear();
     s_orderCursor = 0;
     s_curCamera = 0;
     s_drawScreen = 0;
+
+    for(int id : s_freedShaders)
+        g_render->scriptShaderFree(id);
+    s_freedShaders.clear();
+    for(int id : s_freedBuffers)
+        g_render->scriptBufferFree(id);
+    s_freedBuffers.clear();
 }
 
 void xtech_lua_drawReset()
 {
+    for(auto &it : s_shaders)
+        s_freedShaders.push_back(it.second);
+    s_shaders.clear();
+    for(auto &it : s_buffers)
+        s_freedBuffers.push_back(it.second);
+    s_buffers.clear();
+    s_standardShader = 0;
+    s_fbW = s_fbH = 0;
+
     xtech_lua_drawFrameEnd();
     freePictures();
     for(bool &v : s_vanilla)
@@ -668,6 +1124,15 @@ void xtech_lua_register_draw(lua_State *L)
     lua_register(L, "xtech_gfx_screenshot", lua_screenshot);
     lua_register(L, "xtech_gfx_setFramebufferSize", lua_setFramebufferSize);
     lua_register(L, "xtech_gfx_getFramebufferSize", lua_getFramebufferSize);
+    lua_register(L, "xtech_gfx_shaderHeader", lua_shaderHeader);
+    lua_register(L, "xtech_gfx_shaderCompile", lua_shaderCompile);
+    lua_register(L, "xtech_gfx_shaderVariables", lua_shaderVariables);
+    lua_register(L, "xtech_gfx_shaderFree", lua_shaderFree);
+    lua_register(L, "xtech_gfx_setStandardShader", lua_setStandardShader);
+    lua_register(L, "xtech_gfx_bufferCreate", lua_bufferCreate);
+    lua_register(L, "xtech_gfx_bufferFree", lua_bufferFree);
+    lua_register(L, "xtech_gfx_bufferCapture", lua_bufferCapture);
+    lua_register(L, "xtech_gfx_bufferClear", lua_bufferClear);
 
     lua_pushlightuserdata(L, reinterpret_cast<void *>(&ffi_glDraw));
     lua_setglobal(L, "__xtech_ffiGLDraw");

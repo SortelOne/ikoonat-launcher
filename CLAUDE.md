@@ -25,7 +25,9 @@ project, so never prepare anything from this repo as an upstream PR.
   - `xtech_lua_draw.cpp` — **ours**. SMBX2's draw queue (`Graphics.glDraw`,
     `drawImage`, `Text.print`), drawn by priority between the engine's objects.
     The engine side (`gfx_update.cpp` calls, priorities, take-over switches) is
-    declared in `script/include/xtech_lua_draw.h`.
+    declared in `script/include/xtech_lua_draw.h`. Shader and capture-buffer
+    draws go to the renderer's script draws: `src/core/render_script.h`,
+    `src/core/opengl/render_gl_script.cpp` (**ours**).
   - `luabind_num_t.h` — **ours**. luabind converter for `num_t` (fixed-point
     type). Without it any Lua read/write of `Location.X`, `SpeedX`, etc. fails with
     "Trying to use unregistered class: num_t".
@@ -172,10 +174,18 @@ How it works (details in `core/boot.lua`'s header):
   sends `onCameraUpdate`, `onDraw`, `onCameraDraw`, `onHUDUpdate`/`onHUDDraw`
   from its render loop (LunaLua's order). SMBX2's `paralx2`/`betterbgo`/
   `sizable` turn the engine's backgrounds/BGOs/sizables off and draw them.
-- Shaders: `core/lunadll.lua` reports them compiled and reads uniforms from
-  the GLSL source (scripts like `darkness.lua` need the list); draws that use
-  one are made without it. Capture buffers are handles only (draws into or
-  from them are skipped).
+- Shaders: `core/glsl.lua` translates SMBX2's GLSL 1.20 (fixed-function
+  built-ins -> `xt_*` names the engine sets; `#version 330` on desktop, ES on
+  Android) and `xtech_gfx_shaderCompile` compiles it; uniforms come from GL.
+  A shader that fails here (logged with its error and first lines) still
+  reports compiled, with uniforms read from its source, and draws without.
+  Draws with a shader, into/from a capture buffer, or of points/lines are
+  immediate GL draws (`RenderGL::scriptDraw`): the engine's queue is flushed
+  first, blending is LunaLua's premultiplied one. SMBX2's images load
+  premultiplied (`StdPictureLoad::premultiply`), as in LunaLua; batched draws
+  of them use `m_program_premultiplied`. Capture buffers are framebuffers with
+  top-down rows like the game buffer. `redirectCameraFB` and clip planes
+  aren't done.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
@@ -248,9 +258,9 @@ How it works (details in `core/boot.lua`'s header):
 
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (not yet checked by ear).
-  Drawing works except shaders, capture buffers and sprite overrides, and
-  SMBX2-only IDs load, spawn and get set (via `mem()`) as ID 1. See
-  ROADMAP.md Phase 1 "Next round".
+  Drawing works (shaders and capture buffers too) except sprite overrides
+  and `redirectCameraFB`, and SMBX2-only IDs load, spawn and get set (via
+  `mem()`) as ID 1. See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

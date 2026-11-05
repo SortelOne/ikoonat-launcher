@@ -477,6 +477,12 @@ bool RenderGL::initShaders()
         s_es2_rect_unfilled_frag_src
     );
 
+    // smbx2compat
+    m_program_premultiplied = GLProgramObject(
+        s_es2_standard_vert_src,
+        s_es2_premultiplied_frag_src
+    );
+
     m_program_circle = GLProgramObject(
         s_es2_standard_vert_src,
         s_es2_circle_frag_src

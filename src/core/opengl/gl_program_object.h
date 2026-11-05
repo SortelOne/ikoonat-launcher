@@ -287,6 +287,14 @@ public:
     }
 
     /*!
+     * \brief smbx2compat: forget which program is active (after glUseProgram outside this class)
+     */
+    static inline void s_forget_active_program()
+    {
+        s_last_program = 0;
+    }
+
+    /*!
      * \brief Resets information about which versions of ESSL are supported by the native OpenGL driver
      */
     static void s_reset_supported_versions();
