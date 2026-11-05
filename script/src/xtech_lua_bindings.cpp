@@ -28,6 +28,12 @@
 #include <chrono>
 #include <algorithm> // smbx2compat: std::remove
 #include <cmath> // smbx2compat: std::lround
+#include <unordered_map> // smbx2compat: misc_pathKind
+#include <cstdio> // smbx2compat: misc_readFileCached
+#ifndef _WIN32
+#   include <dirent.h> // smbx2compat: misc_pathKind
+#   include <sys/stat.h>
+#endif
 
 extern "C"
 {
@@ -65,6 +71,9 @@ extern "C"
 #include "effect.h"
 #include "main/cheat_code.h"
 #include "main/level_medals.h"
+#include "main/menu_main.h" // smbx2compat: mem() episode list
+#include "core/window.h" // smbx2compat: Misc.setWindowTitle
+#include "controls.h" // smbx2compat: Misc.RumbleSelectedController
 #include "main/level_save_info.h"
 #include "main/level_file.h"
 #include "main/trees.h" // smbx2compat: block quadtree queries
@@ -1976,6 +1985,117 @@ static std::string misc_resolveFileCI(const std::string &baseDir, const std::str
     return dir->resolveFileCaseExistsAbs(relPath);
 }
 
+// smbx2compat: whether a path is a file (1), a folder (2) or neither (0), from
+// a listing of its folder kept for the level (-1: can't list here). SMBX2's
+// libraries probe for hundreds of optional files per level (npc-N.png in each
+// search folder, ...); opening each took ~1 s of a level's start on macOS.
+// Scripts writing a file clear its folder's listing (misc_pathChanged).
+#ifndef _WIN32
+static std::unordered_map<std::string, std::unordered_map<std::string, int>> s_pathDirs;
+
+static int misc_pathKind(const std::string &path)
+{
+    size_t slash = path.find_last_of('/');
+    if(slash == std::string::npos)
+        return -1;
+
+    std::string dir = path.substr(0, slash + 1);
+    auto it = s_pathDirs.find(dir);
+    if(it == s_pathDirs.end())
+    {
+        std::unordered_map<std::string, int> names;
+        if(DIR *d = opendir(dir.c_str()))
+        {
+            while(struct dirent *e = readdir(d))
+            {
+                int kind = (e->d_type == DT_DIR) ? 2 : (e->d_type == DT_REG) ? 1 : 0;
+                if(kind == 0) // links (our data folders use them) and the unknown
+                {
+                    struct stat st;
+                    if(stat((dir + e->d_name).c_str(), &st) == 0)
+                        kind = S_ISDIR(st.st_mode) ? 2 : S_ISREG(st.st_mode) ? 1 : 0;
+                }
+                if(kind != 0)
+                    names[e->d_name] = kind;
+            }
+            closedir(d);
+        }
+        it = s_pathDirs.emplace(dir, std::move(names)).first;
+    }
+
+    auto f = it->second.find(path.substr(slash + 1));
+    return (f != it->second.end()) ? f->second : 0;
+}
+
+static void misc_pathChanged(const std::string &path)
+{
+    size_t slash = path.find_last_of('/');
+    if(slash != std::string::npos)
+        s_pathDirs.erase(path.substr(0, slash + 1));
+}
+#else
+static int misc_pathKind(const std::string &) { return -1; }
+static void misc_pathChanged(const std::string &) {}
+#endif
+
+// smbx2compat: a file's contents, kept across levels while its size and time
+// stay the same, or nil. LunaLua reads scripts this way (LunaLuaCachedReadFile);
+// each level start reads ~1000 of SMBX2's .lua files.
+#ifndef _WIN32
+struct CachedFile
+{
+    off_t size = 0;
+    struct timespec mtime = {};
+    std::string data;
+};
+
+static std::unordered_map<std::string, CachedFile> s_fileCache;
+
+static const struct timespec &fileTime(const struct stat &st)
+{
+#ifdef __APPLE__
+    return st.st_mtimespec;
+#else
+    return st.st_mtim;
+#endif
+}
+
+static luabind::object misc_readFileCached(const std::string &path)
+{
+    lua_State* L = xtech_lua_getState();
+    struct stat st;
+    if(stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+        return luabind::object(); // nil
+
+    CachedFile &c = s_fileCache[path];
+    const struct timespec &mtime = fileTime(st);
+    if(c.size != st.st_size || c.mtime.tv_sec != mtime.tv_sec
+       || c.mtime.tv_nsec != mtime.tv_nsec || c.data.size() != (size_t)st.st_size)
+    {
+        std::string data((size_t)st.st_size, '\0');
+        FILE *f = std::fopen(path.c_str(), "rb");
+        bool ok = f && std::fread(&data[0], 1, data.size(), f) == data.size();
+        if(f)
+            std::fclose(f);
+        if(!ok)
+        {
+            s_fileCache.erase(path);
+            return luabind::object();
+        }
+        c.size = st.st_size;
+        c.mtime = mtime;
+        c.data = std::move(data);
+    }
+
+    return luabind::object(L, c.data);
+}
+#else
+static luabind::object misc_readFileCached(const std::string &)
+{
+    return luabind::object(); // nil: read as before
+}
+#endif
+
 // smbx2compat: {w, h} of an image file, or nil. SMBX2's Graphics.loadImage
 // needs sizes when it loads; drawing the images comes later.
 static luabind::object misc_imageSize(const std::string &path)
@@ -2097,6 +2217,24 @@ static double misc_clock()
 {
     using namespace std::chrono;
     return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+// smbx2compat: LunaLua's window and controller functions (Misc.setWindowTitle,
+// Misc.isFullscreen, Misc.RumbleSelectedController)
+static void misc_setWindowTitle(const std::string &title)
+{
+    XWindow::setTitle(title.c_str());
+}
+
+static bool misc_isFullscreen()
+{
+    return XWindow::isFullScreen();
+}
+
+static void misc_rumble(int player, int ms, double strength)
+{
+    if(player >= 1 && player <= numPlayers && ms > 0)
+        Controls::Rumble(player, ms, (float)strength);
 }
 
 // smbx2compat: SMBX2's mem(), through TheXTech's memory emulator (mememu).
@@ -2442,6 +2580,54 @@ static const MemField s_sectionMusicFields[] =
         [](int i, int, const std::string &v) { CustomMusic[i] = v; }},
 };
 
+// SelectWorld(1 To 100): the episode list; SMBX2 finds the current episode's
+// folder there (main.lua's sounds.ini)
+static bool selectWorldOk(int i)
+{
+    return i >= 1 && i < (int)SelectWorld.size();
+}
+
+// a folder or file path as scripts see it (a virtual C: in front, see boot.lua)
+static std::string scriptPath(const std::string &p)
+{
+    return (!p.empty() && p[0] == '/') ? "C:" + p : p;
+}
+
+static const MemField s_selectWorldFields[] =
+{
+    {0x00, FT_DWORD, 1, 0, nullptr, nullptr,
+        [](int i, int) -> std::string { return selectWorldOk(i) ? SelectWorld[i].WorldName : std::string(); }, nullptr},
+    {0x04, FT_DWORD, 1, 0, nullptr, nullptr, // WorldPath, with the separator at the end
+        [](int i, int) -> std::string
+        {
+            if(!selectWorldOk(i))
+                return std::string();
+            const std::string &f = SelectWorld[i].WorldFilePath;
+            return scriptPath(f.substr(0, f.find_last_of('/') + 1));
+        }, nullptr},
+    {0x08, FT_DWORD, 1, 0, nullptr, nullptr, // WorldFile
+        [](int i, int) -> std::string
+        {
+            if(!selectWorldOk(i))
+                return std::string();
+            const std::string &f = SelectWorld[i].WorldFilePath;
+            return f.substr(f.find_last_of('/') + 1);
+        }, nullptr},
+    {0x0C, FT_WORD, 5, 2, // blockChar(1 To 5)
+        [](int i, int k) -> double { return (selectWorldOk(i) && SelectWorld[i].blockChar[k + 1]) ? -1 : 0; },
+        nullptr, nullptr, nullptr},
+};
+
+// Star(1 To 1000): the stars collected in the episode (SMATRS's respawnRooms)
+static const MemField s_starFields[] =
+{
+    {0x00, FT_DWORD, 1, 0, nullptr, nullptr,
+        [](int i, int) -> std::string { return (i >= 1 && i <= (int)Star.size()) ? Star[i - 1].level : std::string(); }, nullptr},
+    {0x04, FT_WORD, 1, 0,
+        [](int i, int) -> double { return (i >= 1 && i <= (int)Star.size()) ? Star[i - 1].Section : 0; },
+        nullptr, nullptr, nullptr},
+};
+
 #undef MF_FLAG
 #undef MF_INT
 #undef MF_FLOAT
@@ -2492,6 +2678,10 @@ static const ObjMemArray s_objMemArrays[] =
     {0x00B2D6E8, OBJMEM_FIELDS,   0x19000000, 0x4,   1,    maxEvents, MEM_FIELDS(s_newEventFields)},
     {0x00B257B8, OBJMEM_FIELDS,   0x19100000, 0x4,   0,    maxSections, MEM_FIELDS(s_sectionMusicFields)},
     {0x00B25124, OBJMEM_FIELDS,   0x19200000, 0x38,  0,    c_vScreenCount, MEM_FIELDS(s_cameraFields)},
+    {0x00B250FC, OBJMEM_FIELDS,   0x19300000, 0x18,  1,    100, MEM_FIELDS(s_selectWorldFields)},
+    {0x00B25714, OBJMEM_FIELDS,   0x19400000, 0x8,   1,    1000, MEM_FIELDS(s_starFields)},
+    // Effect(1 To 1000): only its address so far (SMBX2's savestate.lua)
+    {0x00B259CC, OBJMEM_FIELDS,   0x19500000, 0x44,  1,    maxEffects, nullptr, 0},
 };
 
 #undef MEM_FIELDS
@@ -3557,6 +3747,9 @@ void xtech_lua_memNewLevel()
 {
     for(auto &s : LuaMisc::s_memTypeStores)
         s.clear();
+#ifndef _WIN32
+    LuaMisc::s_pathDirs.clear(); // files may have come or gone between levels
+#endif
     xtech_lua_memNewFrame();
 }
 
@@ -4465,7 +4658,13 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_logWarn", &LuaMisc::logWarn),
         def("xtech_misc_logDebug", &LuaMisc::logDebug),
         def("xtech_misc_resolveFileCI", &LuaMisc::misc_resolveFileCI), // smbx2compat
+        def("xtech_misc_pathKind", &LuaMisc::misc_pathKind), // smbx2compat
+        def("xtech_misc_pathChanged", &LuaMisc::misc_pathChanged), // smbx2compat
+        def("xtech_misc_readFileCached", &LuaMisc::misc_readFileCached), // smbx2compat
         def("xtech_misc_clock", &LuaMisc::misc_clock), // smbx2compat
+        def("xtech_misc_setWindowTitle", &LuaMisc::misc_setWindowTitle), // smbx2compat
+        def("xtech_misc_isFullscreen", &LuaMisc::misc_isFullscreen), // smbx2compat
+        def("xtech_misc_rumble", &LuaMisc::misc_rumble), // smbx2compat
         def("xtech_misc_listDir", &LuaMisc::misc_listDir), // smbx2compat
         def("xtech_misc_setGameData", &LuaMisc::misc_setGameData), // smbx2compat
         def("xtech_misc_getGameData", &LuaMisc::misc_getGameData), // smbx2compat

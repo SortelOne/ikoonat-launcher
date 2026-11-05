@@ -46,6 +46,9 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#ifndef _WIN32
+#   include <sys/stat.h> // file stamps of cached pictures
+#endif
 
 extern "C"
 {
@@ -141,8 +144,16 @@ int varWords(unsigned type)
     }
 }
 
-// Pictures by file, kept until the level's Lua state closes
-std::unordered_map<std::string, std::unique_ptr<StdPicture>> s_pictures;
+// Pictures by file. Like LunaLua's image cache they outlive the level, while the
+// file's size and time stay the same, so SMBX2's ~1000 images per level start
+// aren't read again (two opens each); levels end by freeing their textures.
+struct ScriptPicture
+{
+    std::unique_ptr<StdPicture> pic;
+    long long size = -1;
+    long long mtime = 0;
+};
+std::unordered_map<std::string, ScriptPicture> s_pictures;
 // LunaImageRef numbers -> pictures
 std::unordered_map<uintptr_t, StdPicture *> s_images;
 uintptr_t s_nextImage = 1;
@@ -831,7 +842,33 @@ void saveShot()
 void freePictures()
 {
     s_images.clear();
-    s_pictures.clear();
+    for(auto &it : s_pictures)
+    {
+        if(it.second.pic->d.hasTexture())
+            XRender::unloadTexture(*it.second.pic); // keeps the file's data to load again
+    }
+}
+
+// size and modification time of a file, or false
+static bool fileStamp(const std::string &path, long long &size, long long &mtime)
+{
+#ifndef _WIN32
+    struct stat st;
+    if(stat(path.c_str(), &st) != 0)
+        return false;
+    size = (long long)st.st_size;
+#   ifdef __APPLE__
+    mtime = (long long)st.st_mtimespec.tv_sec * 1000000000LL + st.st_mtimespec.tv_nsec;
+#   else
+    mtime = (long long)st.st_mtim.tv_sec * 1000000000LL + st.st_mtim.tv_nsec;
+#   endif
+    return true;
+#else
+    (void)path;
+    size = -2; // never matches: reloaded each time
+    mtime = 0;
+    return true;
+#endif
 }
 
 
@@ -842,22 +879,40 @@ int lua_imageLoad(lua_State *L)
 {
     std::string path = luaL_checkstring(L, 1);
 
+    long long size, mtime;
+    if(!fileStamp(path, size, mtime))
+        return 0;
+
     auto it = s_pictures.find(path);
-    if(it == s_pictures.end())
+    if(it == s_pictures.end() || it->second.size != size || it->second.mtime != mtime)
     {
         std::unique_ptr<StdPicture> pic(new StdPicture());
         XRender::lazyLoadPicture(*pic, path);
         if(!pic->inited)
             return 0;
         pic->l.premultiply = true;
-        it = s_pictures.emplace(path, std::move(pic)).first;
+
+        // a changed file: drop images of this level that still show the old one
+        if(it != s_pictures.end())
+        {
+            for(auto i = s_images.begin(); i != s_images.end();)
+                i = (i->second == it->second.pic.get()) ? s_images.erase(i) : std::next(i);
+            s_pictures.erase(it);
+        }
+
+        ScriptPicture entry;
+        entry.pic = std::move(pic);
+        entry.size = size;
+        entry.mtime = mtime;
+        it = s_pictures.emplace(path, std::move(entry)).first;
     }
 
+    StdPicture *pic = it->second.pic.get();
     uintptr_t id = s_nextImage++;
-    s_images[id] = it->second.get();
+    s_images[id] = pic;
     lua_pushnumber(L, (lua_Number)id);
-    lua_pushinteger(L, it->second->w);
-    lua_pushinteger(L, it->second->h);
+    lua_pushinteger(L, pic->w);
+    lua_pushinteger(L, pic->h);
     return 3;
 }
 

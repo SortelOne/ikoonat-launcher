@@ -53,6 +53,9 @@ do
         end
         local real = logsRedirect(path) or core.resolve(path) or core.normalize(path)
         local f, err, errno = nativeIO.open(real, mode or "r")
+        if mode and string.find(mode, "[wa+]") then
+            xtech_misc_pathChanged(real) -- core.resolve's folder listing
+        end
         if not f then
             return nil, "Couldn't open " .. tostring(path) .. ": " .. tostring(err), errno
         end

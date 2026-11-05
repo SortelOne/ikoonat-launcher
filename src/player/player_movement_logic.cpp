@@ -248,10 +248,10 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
         int dir = (Player[A].Controls.Left) ? -1 : 1;
         Player[A].Bumped = false;
 
-        if(Player[A].Controls.Run || dir * Player[A].Location.SpeedX < Physics.PlayerWalkSpeed * (num_t)speedVar || Player[A].Character == 5)
+        if(Player[A].Controls.Run || dir * Player[A].Location.SpeedX < Physics.PlayerWalkSpeed.times((num_t)speedVar) || Player[A].Character == 5)
         {
             // turning around or not yet walking
-            if(dir * Player[A].Location.SpeedX < Physics.PlayerWalkSpeed * (num_t)speedVar * local_C)
+            if(dir * Player[A].Location.SpeedX < Physics.PlayerWalkSpeed.times((num_t)speedVar) * local_C)
             {
                 if(Player[A].Character == 2) // LUIGI
                     Player[A].Location.SpeedX += dir * num_t::from_double(-0.1 * 0.175);
@@ -335,8 +335,8 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
         Player[A].Location.SpeedX = 16;
 
     if(Player[A].WarpShooted &&
-       Player[A].Location.SpeedX < Physics.PlayerRunSpeed * (num_t)speedVar &&
-       Player[A].Location.SpeedX > -Physics.PlayerRunSpeed * (num_t)speedVar)
+       Player[A].Location.SpeedX < Physics.PlayerRunSpeed.times((num_t)speedVar) &&
+       Player[A].Location.SpeedX > -Physics.PlayerRunSpeed.times((num_t)speedVar))
     {
         Player[A].WarpShooted = false;
     }
@@ -344,15 +344,15 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
     // soft speed cap
     if(!Player[A].WarpShooted && (Player[A].Controls.Run || Player[A].Character == 5))
     {
-        if(Player[A].Location.SpeedX >= Physics.PlayerRunSpeed * (num_t)speedVar)
+        if(Player[A].Location.SpeedX >= Physics.PlayerRunSpeed.times((num_t)speedVar))
         {
             if(!SuperSpeed)
-                Player[A].Location.SpeedX = Physics.PlayerRunSpeed * (num_t)speedVar;
+                Player[A].Location.SpeedX = Physics.PlayerRunSpeed.times((num_t)speedVar);
         }
-        else if(Player[A].Location.SpeedX <= -Physics.PlayerRunSpeed * (num_t)speedVar)
+        else if(Player[A].Location.SpeedX <= -Physics.PlayerRunSpeed.times((num_t)speedVar))
         {
             if(!SuperSpeed)
-                Player[A].Location.SpeedX = -Physics.PlayerRunSpeed * (num_t)speedVar;
+                Player[A].Location.SpeedX = -Physics.PlayerRunSpeed.times((num_t)speedVar);
         }
 //                        else  // REDURANT GARBAGE
 //                        {
@@ -366,12 +366,12 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
             Player[A].Location.SpeedX -= 0.1_n;
         else if(Player[A].Location.SpeedX < -Physics.PlayerWalkSpeed - (num_t)speedVar / 10)
             Player[A].Location.SpeedX += 0.1_n;
-        else if(num_t::abs(Player[A].Location.SpeedX) > Physics.PlayerWalkSpeed * (num_t)speedVar)
+        else if(num_t::abs(Player[A].Location.SpeedX) > Physics.PlayerWalkSpeed.times((num_t)speedVar))
         {
             if(Player[A].Location.SpeedX > 0)
-                Player[A].Location.SpeedX = Physics.PlayerWalkSpeed * (num_t)speedVar;
+                Player[A].Location.SpeedX = Physics.PlayerWalkSpeed.times((num_t)speedVar);
             else
-                Player[A].Location.SpeedX = -Physics.PlayerWalkSpeed * (num_t)speedVar;
+                Player[A].Location.SpeedX = -Physics.PlayerWalkSpeed.times((num_t)speedVar);
         }
     }
 

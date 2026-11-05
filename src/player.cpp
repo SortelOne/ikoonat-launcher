@@ -5765,7 +5765,7 @@ void LinkFrame(Player_t &p)
         else if(p.Frame >= 5)
             p.Frame = 1;
 
-        if(p.Location.SpeedX >= Physics.PlayerRunSpeed * 0.9_n || p.Location.SpeedX <= -Physics.PlayerRunSpeed * 0.9_n)
+        if(p.Location.SpeedX >= Physics.PlayerRunSpeed.times(0.9_n) || p.Location.SpeedX <= -Physics.PlayerRunSpeed.times(0.9_n))
         {
             if(p.SlideCounter <= 0)
             {

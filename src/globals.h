@@ -417,6 +417,10 @@ struct NPC_t
     uint32_t CustomParams = 0;
     //! smbx2compat: LunaLua's extended fields (see SMBX2NPCExt_t)
     SMBX2NPCExt_t smbx2Ext;
+    //! smbx2compat: SMBX's DefaultLocation size, which TheXTech takes from the
+    //! NPC's type; kept once a script sets it (0: not set)
+    num_t smbx2SpawnWidth = 0_n;
+    num_t smbx2SpawnHeight = 0_n;
 
 //    Projectile As Boolean 'If the NPC is a projectile
     bool Projectile = false;
@@ -2210,9 +2214,10 @@ struct Physics_t
 //    PlayerJumpVelocity As Single
     num_t PlayerJumpVelocity = 0_n;
 //    PlayerRunSpeed As Single
-    int PlayerRunSpeed = 0;
+    // smbx2compat: num_t, not int: SMBX2's Defines set fractions (SMATRS runs at 6.5)
+    num_t PlayerRunSpeed = 0_n;
 //    PlayerWalkSpeed As Single
-    int PlayerWalkSpeed = 0;
+    num_t PlayerWalkSpeed = 0_n;
 //    PlayerTerminalVelocity As Integer
     int PlayerTerminalVelocity = 0;
 //    PlayerGravity As Single

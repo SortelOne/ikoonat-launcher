@@ -107,6 +107,67 @@ local function searchDirs()
     return { core.customPath, core.episodePath, core.smbxPath .. "/scripts/", core.smbxPath .. "/" }
 end
 
+-- Misc.loadCharacterHitBoxes (LuaProxy::loadHitboxes): a PGE calibrator .ini
+-- (hitbox size, grab spot, per-frame sprite offsets) for a character's
+-- powerup; SMBX2's playermanager loads the character_defaults ones at start.
+-- Only the five built-in characters (the engine has no others).
+local function loadCharacterHitBoxes(character, powerup, iniFile)
+    if type(powerup) ~= "number" or powerup < 1 or powerup > 10 then
+        error("Powerup ID must be from 1 to 10.", 3)
+    end
+    if type(character) ~= "number" or character < 1 or character > 5 then
+        error("Invalid character ID.", 3)
+    end
+    local data = core.readFile(tostring(iniFile))
+    if not data then
+        error("Failed to read an INI file: " .. tostring(iniFile), 3)
+    end
+
+    local groups, group = {}, nil
+    for line in string.gmatch(data, "[^\r\n]+") do
+        local name = string.match(line, "^%s*%[(.-)%]%s*$")
+        if name then
+            group = {}
+            groups[name] = group
+        elseif group then
+            local k, v = string.match(line, "^%s*([^=;]-)%s*=%s*(.-)%s*$")
+            if k then
+                group[k] = v
+            end
+        end
+    end
+
+    -- frames used in the file, as offsets toward the hitbox (LunaLua negates them)
+    for x = 0, 9 do
+        for y = 0, 9 do
+            local f = groups["frame-" .. x .. "-" .. y]
+            if f and f.used == "true" then
+                local ox, oy = tonumber(f.offsetX), tonumber(f.offsetY)
+                if ox and oy then
+                    xtech_playerSettings_setSpriteOffset(character, powerup, false, x, y, -ox)
+                    xtech_playerSettings_setSpriteOffset(character, powerup, true, x, y, -oy)
+                end
+            end
+        end
+    end
+
+    local common = groups.common or {}
+    local function set(key, field)
+        local v = tonumber(common[key])
+        if v then
+            xtech_playerSettings_set(character, powerup, field, math.floor(v))
+        end
+    end
+    set("width", "hitboxWidth")
+    set("height", "hitboxHeight")
+    set("height-duck", "hitboxDuckHeight")
+    set("grab-offset-x", "grabOffsetX")
+    set("grab-offset-y", "grabOffsetY")
+end
+
+local semisolidFlyTypes = { [1] = true }
+local extraCharacters = {}
+
 Misc = hostTable("Misc", {
     warning = function(msg) core.warn("Misc.warning: " .. tostring(msg)) end,
     -- The game's logic waits from the next frame on; scripts still get
@@ -163,8 +224,17 @@ Misc = hostTable("Misc", {
     exitGame = stub("Misc.exitGame"),
     exitEngine = stub("Misc.exitEngine"),
     loadEpisode = stub("Misc.loadEpisode"),
-    registerCharacterId = stub("Misc.registerCharacterId"),
-    loadCharacterHitBoxes = stub("Misc.loadCharacterHitBoxes"),
+    -- SMBX2's extra characters (Wario, Bowser, ...), each on one of the five
+    -- built-in ones; playermanager registers them all at every start. The
+    -- engine only plays the five, so they're only remembered.
+    registerCharacterId = function(params)
+        if type(params) == "table" and params.id then
+            extraCharacters[params.id] = params
+        end
+    end,
+    loadCharacterHitBoxes = function(character, powerup, iniFile)
+        loadCharacterHitBoxes(character, powerup, iniFile)
+    end,
     showRichDialog = stub("Misc.showRichDialog"),
     getEditorPlacedItem = stub("Misc.getEditorPlacedItem"),
     __enablePerfTracker = stub("Misc.__enablePerfTracker"),
@@ -195,7 +265,12 @@ Misc = hostTable("Misc", {
     doBombExplosion = function(x, y, bombType)
         xtech_misc_doBombExplosion(tonumber(x) or 0, tonumber(y) or 0, math.floor(tonumber(bombType) or 0))
     end,
-    _setSemisolidCollidingFlyType = stub("Misc._setSemisolidCollidingFlyType"),
+    -- Which flying modes (npc.ai1) still land on semisolids. The engine's
+    -- Paratroopas use modes 0-3, of which 1 (hopping) lands, as here by default;
+    -- SMBX2's extra modes (flyingnpcplus) fly in Lua, so this is only kept.
+    _setSemisolidCollidingFlyType = function(flyType, collides)
+        semisolidFlyTypes[tonumber(flyType) or 0] = collides and true or false
+    end,
     _npcHarmCombo = function(idx, harmType, multiplier)
         return xtech_npc_harmCombo(idx, harmType, multiplier, -1)
     end,

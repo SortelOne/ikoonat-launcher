@@ -65,8 +65,9 @@ function dll.LunaLuaFreeReturnedGameData(ptr)
 end
 
 -- Misc._getDefine: LunaLua patches these SMBX constants (coin values, grab
--- rules, ...) into the game. We remember them so reads return what was set.
--- TODO: apply them to the engine.
+-- rules, ...) into the game. The engine behaves as their defaults, which
+-- defines.lua sets first; we remember them so reads return what was set, and
+-- only a later change is reported (it doesn't reach the engine).
 local defines = {}
 local function defineAccessor(name)
     local field, kind = string.match(name, "^LunaLua_Defines__(.+)__([gs]et)$")
@@ -79,22 +80,50 @@ local function defineAccessor(name)
         end
     end
     return function(value)
-        core.missingAPI("Defines values (kept, not applied to the engine)")
+        if defines[field] ~= nil and defines[field] ~= value then
+            core.missingAPI("Defines." .. field .. " changed (kept, not applied to the engine)")
+        end
         defines[field] = value
     end
 end
 
+-- LunaLua writes whitelisted Defines addresses here once mem() is locked down;
+-- false makes defines.lua write them through mem(), which reaches the engine
 function dll.LunaLua_Defines_mem_set(address, value)
-    core.missingAPI("Defines memory writes")
     return false
 end
 
+-- Lava that hurts instead of killing; off unless a script turns it on
+local weakLava = false
 function dll.LunaLuaSetWeakLava(value)
-    core.missingAPI("weak lava setting")
+    if value then
+        core.missingAPI("weak lava")
+    end
+    weakLava = value and true or false
 end
 
 function dll.LunaLuaGetWeakLava()
-    return false
+    return weakLava
+end
+
+function dll.LunaLuaSetWindowTitle(name)
+    xtech_misc_setWindowTitle(ffi.string(name))
+end
+
+-- The engine keeps its own icon
+function dll.LunaLuaSetWindowIcon(img, iconType)
+end
+
+function dll.LunaLuaIsFullscreen()
+    return xtech_misc_isFullscreen()
+end
+
+-- LunaLua's fix for NPCs respawning in view; the engine has its own, always on
+function dll.LunaLuaSetNPCRespawnBugFix(enable)
+end
+
+function dll.LunaLuaRumbleSelectedController(playerNum, ms, strength)
+    xtech_misc_rumble(tonumber(playerNum) or 0, tonumber(ms) or 0, tonumber(strength) or 0)
 end
 
 -- Analog stick of the player's controller, -32768..32767 per axis.

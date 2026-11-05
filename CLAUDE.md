@@ -222,7 +222,11 @@ How it works (details in `core/boot.lua`'s header):
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
   top-down rows like the game buffer. `glDraw{depthTest=true}` (lib3d's 3D
   meshes) tests and writes depth (LEQUAL) in a depth buffer the capture
-  buffer gets on first use; clearing the buffer clears it. A shader over the
+  buffer gets on first use (24-bit, as LunaLua's: lib3d's flat objects fought
+  through 16); clearing the buffer clears it. A script shader's own attributes
+  are bound after ours (`xt_Vertex` 0, ...) and the program relinked, since
+  the linker gives a shader that reads no `gl_Vertex` (lib3d's) location 0
+  for one of them otherwise. A shader over the
   GPU's limits (not a translation failure) reports uncompiled with no
   variables, so scripts with smaller fallbacks retry (SMATRS's map terrain).
   `Graphics.redirectCameraFB` queues
@@ -339,6 +343,12 @@ How it works (details in `core/boot.lua`'s header):
   Block/BGO `iterate(ids)`/`iterateByFilterMap` find matches in the engine
   (`__xtech_ffiBlockNext`/`__xtech_ffiBgoNext`, FFI pointers like
   `__xtech_ffiMemGet`), and `bgoGetCount` is one FFI call.
+  Opening a file costs ~0.4 ms on Jake's Mac, so file checks use folder
+  listings kept for the level (`xtech_misc_pathKind`; `lockdown.lua`'s
+  `io.open` drops a folder's listing when a script writes there), file
+  contents stay in memory across levels while their size and time match
+  (`xtech_misc_readFileCached`, LunaLua's cached reads), and so do script
+  images (`s_pictures` in xtech_lua_draw.cpp; textures freed each level end).
 - `mem()` (`override/.../ffi_mem.lua`) sends every address to `xtech_mem_get/set`
   (strings: `xtech_mem_getString/setString`) in `xtech_lua_bindings.cpp`.
   Globals go to mememu. SMBX keeps arrays behind pointer globals; each gets a
@@ -359,6 +369,12 @@ How it works (details in `core/boot.lua`'s header):
   the engine's blocks once a frame and after SMBX2 writes it.
   Engine flags read as -1 (VB6's True) through `FIELD_WORD`, as SMBX
   stores them (`valueToMem(bool)` in mememu.cpp; it gave 65535 before).
+  Double globals also take Float reads/writes (SMBX's Singles, e.g. SMBX2's
+  `Defines`). Fields TheXTech dropped that scripts use get engine values or
+  storage: NPC spawn size 0xB8/0xC0 (`NPC_t::smbx2SpawnWidth/Height`),
+  the episode list (`SelectWorld`), `Star`, Defines without an engine value.
+  SMBX2's NPC type flags (`isflying`, `iswalker`, ...) are fixed per type in
+  TheXTech (`npc_constant_traits.h`); writes are dropped, logged once.
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
   memory`. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.

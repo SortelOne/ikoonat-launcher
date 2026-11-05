@@ -59,6 +59,12 @@ void NPC_t::ResetLocation()
 
     if(DefaultLocationHeight_Force32)
         Location.Height = 32;
+
+    // smbx2compat: a spawn size a script set (SMBX2's NPC transform, saws.lua)
+    if(smbx2SpawnWidth > 0)
+        Location.Width = smbx2SpawnWidth;
+    if(smbx2SpawnHeight > 0)
+        Location.Height = smbx2SpawnHeight;
 }
 
 // UpdateNPCs at npc/npc_update.cpp

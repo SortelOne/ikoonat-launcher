@@ -34,6 +34,8 @@
 #include "main/cheat_code.h"
 #include "graphics.h" // smbx2compat: doShakeScreen
 #include "blocks.h" // smbx2compat: BlockShakeUp/Down
+#include "npc_traits.h" // smbx2compat: NPC spawn sizes
+#include "main/menu_main.h" // smbx2compat: NumSelectWorld
 
 #include <unordered_map>
 #include <functional>
@@ -516,6 +518,11 @@ static constexpr int c_scriptLevelMacroBase = 1000;
 
 
 
+// smbx2compat: storage for the settings below that the engine doesn't have
+static int s_smbx2CameraControl = 0;
+static int s_smbx2NpcDespawnTimer = 180;
+static int s_smbx2NpcThrowFriendlyTimer = 30;
+
 /*!
  * \brief Global memory emulator
  */
@@ -611,6 +618,13 @@ public:
         insert(0x00B2B9E4, &qScreen); // smbx2compat: camera is panning between sections
         insert(0x00B2C62A, &selSave); // smbx2compat: current save slot
         insert(0x00B2C628, &selWorld); // smbx2compat: current episode
+        insert(0x00B250E8, &NumSelectWorld); // smbx2compat: episodes in the list
+        insert(0x00B250B4, &MagicHand); // smbx2compat: SMBX2 clears it to leave a level
+        // smbx2compat: settings SMBX2 and SMATRS write that the engine doesn't have
+        // (camera control, Defines.npc_despawntimer/npc_throwfriendlytimer); kept for reading back
+        insert(0x00B25130, &s_smbx2CameraControl);
+        insert(0x00B2C85A, &s_smbx2NpcDespawnTimer);
+        insert(0x00B2C85C, &s_smbx2NpcThrowFriendlyTimer);
         insert(0x00B250D4, &ClearBuffer); // smbx2compat
         insert(0x00B250B0, &Checkpoint); // smbx2compat: level of the last checkpoint
         insert(0x00B25720, &GoToLevel); // smbx2compat: level to load next
@@ -803,6 +817,10 @@ public:
             },
             [](num_t in, FIELDTYPE ftype)->void
             {
+                // smbx2compat: SMBX2 clears it whenever it moves blocks; the quadtree
+                // keeps up by itself, so that's expected
+                if(in == 0)
+                    return;
                 pLogWarning("Attempt to write the read-only field at 0x00B2C894 "
                             "(BlocksSorted) with value %d as %s", (int)in, FieldtypeToStr(ftype));
             }
@@ -887,7 +905,8 @@ public:
             auto dres = m_df.find(address);
             if(dres != m_df.end())
             {
-                if(ftype != FT_DFLOAT)
+                // smbx2compat: also Float, for SMBX's Singles TheXTech keeps as num_t (SMBX2's Defines)
+                if(ftype != FT_DFLOAT && ftype != FT_FLOAT)
                     pLogWarning("MemEmu: Read type missmatched at 0x%x (Double expected, %s actually)", static_cast<unsigned>(address), FieldtypeToStr(ftype));
 
                 return valueToMem(*dres->second, ftype);
@@ -987,7 +1006,8 @@ public:
             auto dres = m_df.find(address);
             if(dres != m_df.end())
             {
-                if(ftype != FT_DFLOAT)
+                // smbx2compat: also Float, for SMBX's Singles TheXTech keeps as num_t (SMBX2's Defines)
+                if(ftype != FT_DFLOAT && ftype != FT_FLOAT)
                     pLogWarning("MemEmu: Write type missmatched at 0x%x (Double expected, %s actually)", static_cast<unsigned>(address), FieldtypeToStr(ftype));
 
                 memToValue(*dres->second, value, ftype);
@@ -1796,7 +1816,10 @@ public:
 
         static_assert(sizeof(Player_t::Effect) == sizeof(vbint_t), "underlying type of Player_t::Effect must be vbint_t");
         insert(0x00000122, reinterpret_cast<vbint_t Player_t::*>(&Player_t::Effect));
-        insert(0x00000124, &Player_t::Effect2);
+        // smbx2compat: a Double in SMBX (SMBX2's player.forcedTimer)
+        insert(0x00000124,
+            [](const Player_t& p, FIELDTYPE ftype)->num_t { return valueToMem(p.Effect2, ftype); },
+            [](Player_t& p, num_t in, FIELDTYPE ftype)->void { memToValue(p.Effect2, in, ftype); });
         // pound state handled below
         // insert(0x0000012c, &Player_t::DuckRelease);
         insert(0x0000012e, &Player_t::Duck);
@@ -2093,8 +2116,31 @@ public:
             }
         );
         insert(0x00000046, &NPC_t::Inert);
-        // insert(0x00000048, &NPC_t::Stuck); // turned into bitfield, unused in Analogue Funk
-        // insert(0x0000004a, &NPC_t::DefaultStuck); // turned into bitfield, unused in Analogue Funk
+        // smbx2compat: SMBX2's NPC.dontMove reads and writes these
+        insert(0x00000048, // Stuck
+            [](const NPC_t& n, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(n.Stuck, ftype);
+            },
+            [](NPC_t& n, num_t in, FIELDTYPE ftype)->void
+            {
+                bool temp = n.Stuck;
+                memToValue(temp, in, ftype);
+                n.Stuck = temp;
+            }
+        );
+        insert(0x0000004a, // DefaultStuck
+            [](const NPC_t& n, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(n.DefaultStuck, ftype);
+            },
+            [](NPC_t& n, num_t in, FIELDTYPE ftype)->void
+            {
+                bool temp = n.DefaultStuck;
+                memToValue(temp, in, ftype);
+                n.DefaultStuck = temp;
+            }
+        );
         // insert(0x0000004c, &NPC_t::Text);
         insert(0x00000050, &NPC_t::oldAddBelt);
         // insert(0x00000054, &NPC_t::PinchCount); // unused since SMBX64, now removed
@@ -2311,6 +2357,20 @@ public:
     {
         if(address >= 0x78 && address < 0xA8) // Location
             return s_locMem.getValue(&obj->Location, address - 0x78, ftype);
+        else if(address == 0xB8) // smbx2compat: DefaultLocation.Height, as NPC_t::ResetLocation gives it
+        {
+            num_t h = obj->smbx2SpawnHeight;
+            if(h <= 0)
+                h = obj->DefaultLocationHeight_Force32 ? 32 : NPCTraits[obj->DefaultType].THeight;
+            return valueToMem(h, ftype);
+        }
+        else if(address == 0xC0) // smbx2compat: DefaultLocation.Width
+        {
+            num_t w = obj->smbx2SpawnWidth;
+            if(w <= 0)
+                w = NPCTraits[obj->DefaultType].TWidth;
+            return valueToMem(w, ftype);
+        }
         else if(address >= 0xB8 && address < 0xD8) // invalid part of DefaultLocation
             pLogWarning("MemEmu: Attempt to read NPC address 0x%x (removed part of DefaultLocation)", static_cast<unsigned>(address));
         else if(address == 0x126)
@@ -2347,6 +2407,16 @@ public:
 
             NPCQueues::Unchecked.push_back(obj);
             treeNPCUpdate(obj);
+            return;
+        }
+        else if(address == 0xB8) // smbx2compat: DefaultLocation.Height
+        {
+            memToValue(obj->smbx2SpawnHeight, value, ftype);
+            return;
+        }
+        else if(address == 0xC0) // smbx2compat: DefaultLocation.Width
+        {
+            memToValue(obj->smbx2SpawnWidth, value, ftype);
             return;
         }
         else if(address >= 0xB8 && address < 0xD8) // DefaultLocation, invalid part

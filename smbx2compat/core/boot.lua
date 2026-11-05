@@ -133,7 +133,15 @@ local function startsWithCI(s, prefix)
     return string.lower(string.sub(s, 1, #prefix)) == string.lower(prefix)
 end
 
+-- Folder listings kept by the engine for the level (xtech_misc_pathKind), -1
+-- where it can't list; opening files to probe them took ~1 s of each level start
+local pathKind = xtech_misc_pathKind
+
 local function isFile(path)
+    local kind = pathKind(path)
+    if kind >= 0 then
+        return kind == 1
+    end
     local f = nativeIO.open(path, "rb")
     if not f then
         return false
@@ -145,6 +153,10 @@ local function isFile(path)
 end
 
 local function isDir(path)
+    local kind = pathKind(path)
+    if kind >= 0 then
+        return kind == 2
+    end
     local f = nativeIO.open(path, "rb")
     if not f then
         return false
@@ -207,7 +219,15 @@ local function resolve(path)
 end
 core.resolve = resolve
 
+-- Kept by the engine across levels while the file stays the same (as
+-- LunaLua's cached reads); nil where it can't, then read here
+local readFileCached = xtech_misc_readFileCached
+
 local function readRaw(path)
+    local data = readFileCached(path)
+    if data then
+        return data
+    end
     local f = nativeIO.open(path, "rb")
     if not f then
         return nil

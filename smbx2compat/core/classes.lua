@@ -42,10 +42,33 @@ local fields = {
     npcID = function(e) return e.NewNpc end,
 }
 
+local setters = {
+    id = function(e, v) e.Type = v end,
+    x = function(e, v) e.Location.X = v end,
+    y = function(e, v) e.Location.Y = v end,
+    speedX = function(e, v) e.Location.SpeedX = v end,
+    speedY = function(e, v) e.Location.SpeedY = v end,
+    width = function(e, v) e.Location.Width = v end,
+    height = function(e, v) e.Location.Height = v end,
+    timer = function(e, v) e.Life = v end,
+    animationFrame = function(e, v) e.Frame = v end,
+    subTimer = function(e, v) e.FrameCount = v end,
+    npcID = function(e, v) e.NewNpc = v end,
+}
+
+-- Fields LunaLua's Animation doesn't have read as nil there, without an error
+-- (SMATRS's effectReplacer copies a direction from them)
+local absentFields = {
+    direction = true,
+}
+
 AnimationMT.__type = "Animation"
 AnimationMT.__index = function(self, key)
     if key == "isValid" then
         return effectGet(self.idx + 1) ~= nil
+    end
+    if absentFields[key] then
+        return nil
     end
     local get = fields[key]
     if get then
@@ -57,6 +80,21 @@ AnimationMT.__index = function(self, key)
         core.missingAPI("Animation." .. tostring(key))
     end
     return method
+end
+-- LunaLua's setters write the effect (SMATRS's effectReplacer removes effects
+-- by zeroing their timer)
+AnimationMT.__newindex = function(self, key, value)
+    local set = setters[key]
+    if set then
+        local e = effectGet(self.idx + 1)
+        if e then
+            set(e, value)
+        end
+    elseif key == "drawOnlyMask" then
+        core.missingAPI("Animation.drawOnlyMask")
+    else
+        rawset(self, key, value)
+    end
 end
 AnimationMT.__eq = function(a, b)
     return a.idx == b.idx

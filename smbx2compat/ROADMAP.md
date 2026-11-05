@@ -867,21 +867,58 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     check.
   - `run-level.sh` no longer deletes the user folder's logs and screenshots
     (Jake's play logs live there too); only its own `smbx2shot-*.png`.
+- *Storybook, memory warnings, missing APIs, load times (2026-11-05):*
+  - Storybook: lib3d's shaders read no `gl_Vertex`, so the linker gave
+    `_normaldata` location 0, which every draw fills with the vertex
+    coordinates (zeros). The pages' normals were NaN and `pageShader.glsl`'s
+    back-side test went its own way in each quarter of the screen (the
+    "shifted rectangle" was the left page's text on the back side). Script
+    shaders' own attributes are now bound after ours and the program relinked
+    (`scriptMoveAttributes`, render_gl_script.cpp). The table artifacts were
+    the envelopes fighting the desk through a 16-bit depth buffer; capture
+    buffers' depth is 24-bit now, as LunaLua's.
+  - Memory warnings: NPC 0x48/0x4A (`Stuck`/`DefaultStuck`, SMBX2's
+    `dontMove`) and 0xB8/0xC0 (spawn height/width: from the type's size, or
+    what a script set, kept in `NPC_t::smbx2SpawnWidth/Height` and used by
+    `ResetLocation`); Player 0x124 as a Double; Float reads and writes of
+    Double globals (SMBX's Singles: `Defines.jumpspeed`, `player_grav`, ...);
+    the episode list (`NumSelectWorld`, `SelectWorld` with the episode's
+    folder: main.lua reads the episode's `sounds.ini` from it), the stars
+    (`Star`, respawnRooms), the effects' address, camera control,
+    `MagicHand`, `Defines.npc_despawntimer`/`npc_throwfriendlytimer`
+    (stored; `yiDoor` read 0 before). `BlocksSorted` cleared quietly.
+    `Physics.PlayerRunSpeed/WalkSpeed` are `num_t` now, not `int`: SMATRS
+    sets a run speed of 6.5, which became 6.
+  - Missing APIs: `Misc.loadCharacterHitBoxes` reads the calibration .ini
+    (host.lua; SMBX2's `character_defaults` at every start);
+    `registerCharacterId` remembers SMBX2's extra characters (the engine
+    plays the five built-in ones); window title, `isFullscreen`, rumble;
+    Luna-only Defines report only a change from their default (the engine
+    behaves as the defaults); `Animation` setters (SMATRS's effectReplacer
+    removes replaced effects by zeroing their timer; the writes were lost,
+    so both effects showed). Left as known gaps: SMBX2's NPC type flags
+    `isflying`/`isshoe`/`isyoshi`/`isbot`/`iswalker`/`isvegetable`/
+    `iscollectablegoal` (TheXTech's are fixed per type, so writes are dropped
+    and logged once; no SMATRS level places an NPC that sets one).
+  - Level loads: a level change took ~4.7 s (prologue), mostly opening files:
+    ~0.4 ms per open on this Mac, 1000+ script reads and file probes, and
+    each image opened twice. Now: folder listings per level answer "does this
+    file exist" (`xtech_misc_pathKind`, cleared at level load and by
+    `io.open` writes); file contents are kept across levels while size and
+    time match (`xtech_misc_readFileCached`, as LunaLua's cached reads);
+    script images are kept across levels the same way, with their textures
+    freed at each level end (`s_pictures`, xtech_lua_draw.cpp). Prologue:
+    ~2.0 s (`__onInit` 2.9 -> 1.1 s). The first level after starting the game
+    still reads everything (~2.1 s for `__onInit`).
 - *Next:*
-  - Jake keeps playing from the menu (`play.sh`); check the window placement.
-  - NPC `mem()` 0xB8/0xC0 (removed DefaultLocation fields) the map reads,
-    and the other MemEmu warnings (0xb25130, Float writes at 0xb2c6f0/
-    0xb2c6ec, Player 0x124 as a Double, 0xb250e8/0xb250fc the episode list
-    `Level.load` reads, 0xb250b4); the 11 missing APIs (`registerCharacterId`
-    and `loadCharacterHitBoxes` may now have their `character_defaults`).
-  - Level changes take ~3 s of script loading each, with no loading screen:
-    `loadscreen.lua` (LunaLua runs it on its own thread while loading).
-  - The prologue's storybook: the right page shows a shifted rectangle over
-    its top half, and Jake saw artifacts on the table under the book as the
-    camera pans down after the story is read (3D scene, `bookSceneSetup.lua`
-    / `_prologue/bookIntroScene.lua`; depth or capture-buffer clearing?).
-    Check against Windows.
+  - Jake keeps playing from the menu (`play.sh`); check the window placement
+    and the storybook.
+  - `loadscreen.lua`: LunaLua runs it on its own thread while a level loads;
+    we show nothing for those ~2 s. Single-threaded idea: a second Lua state
+    for the load screen, drawn from a count hook in the loading state and
+    between the engine's own load steps.
   - Map performance (unmeasured).
+  - Later: SMBX2's NPC type flags above, if an episode needs them.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until

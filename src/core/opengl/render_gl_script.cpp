@@ -181,9 +181,15 @@ bool RenderGL::scriptAddDepth(ScriptBuffer_t &b)
     if(b.depth_rb)
         return true;
 
+    // 24 bits, as LunaLua's depth textures: with 16, lib3d's nearly flat
+    // objects (SMATRS's storybook pages and envelopes) fight through each other.
+    // OpenGL ES 2 may only have 16.
     glGenRenderbuffers(1, &b.depth_rb);
     glBindRenderbuffer(GL_RENDERBUFFER, b.depth_rb);
-    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, b.w, b.h);
+    while(glGetError() != GL_NO_ERROR) {}
+    glRenderbufferStorage(GL_RENDERBUFFER, 0x81A6 /* GL_DEPTH_COMPONENT24 */, b.w, b.h);
+    if(glGetError() != GL_NO_ERROR)
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, b.w, b.h);
     glBindRenderbuffer(GL_RENDERBUFFER, 0);
     glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, b.depth_rb);
     if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
@@ -307,6 +313,46 @@ const char *RenderGL::scriptShaderHeader()
     return nullptr;
 }
 
+// A shader that doesn't read one of the built-in attributes (lib3d's read no
+// gl_Vertex) leaves its location free, and the linker may give it to one of the
+// script's own attributes, which draws never fill (location 0 gets the vertex
+// coordinates). So the script's attributes are bound after ours and the program
+// relinked; true if that's needed.
+static bool scriptMoveAttributes(GLuint program)
+{
+    GLint count = 0, max_len = 0;
+    glGetProgramiv(program, GL_ACTIVE_ATTRIBUTES, &count);
+    glGetProgramiv(program, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, &max_len);
+    if(count <= 0 || max_len <= 0)
+        return false;
+
+    std::vector<std::string> names;
+    bool clash = false;
+    std::vector<char> name((size_t)max_len + 1, '\0');
+    for(GLint i = 0; i < count; i++)
+    {
+        GLsizei len = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        glGetActiveAttrib(program, (GLuint)i, (GLsizei)name.size(), &len, &size, &type, name.data());
+        std::string n(name.data(), (size_t)len);
+        if(n.compare(0, 3, "xt_") == 0 || n.compare(0, 3, "gl_") == 0)
+            continue;
+
+        names.push_back(n);
+        if(glGetAttribLocation(program, n.c_str()) <= 2)
+            clash = true;
+    }
+
+    if(!clash)
+        return false;
+
+    for(size_t i = 0; i < names.size(); i++)
+        glBindAttribLocation(program, (GLuint)(3 + i), names[i].c_str());
+
+    return true;
+}
+
 int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
 {
     if(!scriptShaderHeader())
@@ -341,13 +387,20 @@ int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::
     glBindAttribLocation(program, 1, "xt_MultiTexCoord0");
     glBindAttribLocation(program, 2, "xt_Color");
     glLinkProgram(program);
+
+    GLint status = 0;
+    glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if(status && scriptMoveAttributes(program))
+    {
+        glLinkProgram(program);
+        glGetProgramiv(program, GL_LINK_STATUS, &status);
+    }
+
     glDetachShader(program, vs);
     glDetachShader(program, fs);
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    GLint status = 0;
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
     if(!status)
     {
         error = "Shader Link Error: \n";
