@@ -6,7 +6,8 @@
 #
 # Data dir defaults to ../TheXTech-data (override with XTECH_DATA). The newest log
 # is printed at the end. Set XTECH_WORKSPACE to use another workspace, and
-# XTECH_BUILD to run another build folder (e.g. build-release).
+# XTECH_BUILD to run another build folder (e.g. build-release). XTECH_AUDIO=dummy
+# keeps sound on but sends it to SDL's silent dummy device (tests the mixer quietly).
 
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -17,7 +18,11 @@ WS=${XTECH_WORKSPACE:-1}
 BIN=$REPO/${XTECH_BUILD:-build}/bin/TheXTech.app/Contents/MacOS/TheXTech
 
 rm -f "$D"/userdir/logs/*.txt
-"$BIN" -s -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" >/dev/null 2>&1 &
+if [ "${XTECH_AUDIO:-}" = "dummy" ]; then
+    SDL_AUDIODRIVER=dummy "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" >/dev/null 2>&1 &
+else
+    "$BIN" -s -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" >/dev/null 2>&1 &
+fi
 PID=$!
 
 # Move the game window out of the way as soon as it appears.

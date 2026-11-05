@@ -47,6 +47,8 @@ extern "C"
 #include "xtech_lua_main.h"
 #include "xtech_lua_bindings.h"
 #include "xtech_lua_fileformats.h" // smbx2compat
+#include "xtech_lua_audio.h" // smbx2compat
+#include "sound_script.h" // smbx2compat
 #include "xtech_lua_data.h"
 
 
@@ -297,6 +299,7 @@ static bool createLuaState()
     // Register game bindings
     xtech_lua_register_bindings(g_L);
     xtech_lua_register_fileformats(g_L); // smbx2compat
+    xtech_lua_register_audio(g_L); // smbx2compat
     return true;
 }
 
@@ -658,13 +661,15 @@ void xtech_lua_unloadLevel()
     // Clear async delayed calls
     xtech_lua_clear_delayed_calls();
 
+    // smbx2compat: seized music, sound overrides and mutes end with the level
+    SoundScript_Reset();
+
     // Clear function references
     g_luaFunc_onLoad = luabind::object();
     g_luaFunc_onLoop = luabind::object();
     g_luaFunc_onLoopEnd = luabind::object();
     g_luaFunc_onRenderStart = luabind::object();
     g_luaFunc_onRenderEnd = luabind::object();
-    g_luaFunc_onRender = luabind::object();
     g_luaFunc_onRenderHud = luabind::object();
     g_luaWorking = false;
 

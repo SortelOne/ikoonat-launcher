@@ -2525,7 +2525,8 @@ static int memSizableBlockCount()
     s_sizableBlocks.clear();
     for(int i = 1; i <= numBlock; i++)
     {
-        if(BlockIsSizable[Block[i].Type] && !Block[i].Hidden)
+        int type = Block[i].Type;
+        if(type >= 0 && type <= maxBlockType && BlockIsSizable[type] && !Block[i].Hidden)
             s_sizableBlocks.push_back(i);
     }
     std::stable_sort(s_sizableBlocks.begin(), s_sizableBlocks.end(),
@@ -2956,6 +2957,22 @@ static double mem_get(unsigned int addr, int ftype)
     return 0;
 }
 
+// The engine indexes its per-type arrays (BlockWidth, NPCTraits, ...) with an
+// object's type, so a script giving one an SMBX2-only ID past the engine's
+// limits gets ID 1 instead, as level loading does
+static num_t memEngineType(num_t value, int maxType, const char *what)
+{
+    int type = (int)value;
+    if(type >= 0 && type <= maxType)
+        return value;
+
+    static std::set<std::string> s_logged;
+    std::string key = fmt::format_ne("{0}-{1}", what, type);
+    if(s_logged.insert(key).second)
+        pLogWarning("smbx2compat: %s is past the engine's types (max %d), using %s-1", key.c_str(), maxType, what);
+    return num_t(1);
+}
+
 static void mem_set(unsigned int addr, int ftype, num_t value)
 {
     FIELDTYPE ft = static_cast<FIELDTYPE>(ftype);
@@ -2990,12 +3007,18 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
             MemAssign(&Player[index], offset, value, OP_Assign, ft);
             return;
         case OBJMEM_NPC:
+            if(offset == 0xE2 || offset == 0xDC) // Type, DefaultType
+                value = memEngineType(value, maxNPCType, "NPC");
             MemAssign(&NPC[index], offset, value, OP_Assign, ft);
             return;
         case OBJMEM_BLOCK:
+            if(offset == 0x1E || offset == 0x06) // Type, DefaultType
+                value = memEngineType(value, maxBlockType, "Block");
             MemAssign(&Block[index], offset, value, OP_Assign, ft);
             return;
         case OBJMEM_BGO:
+            if(offset == 0x06) // Type
+                value = memEngineType(value, maxBackgroundType, "BGO");
             MemAssign(&Background[index], offset, value, OP_Assign, ft);
             return;
         case OBJMEM_TEMPLATE:

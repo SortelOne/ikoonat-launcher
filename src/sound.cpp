@@ -36,6 +36,7 @@
 
 #include "sound.h"
 #include "sound_thread.h"
+#include "sound_script.h" // smbx2compat
 
 #ifdef THEXTECH_ENABLE_AUDIO_FX
 #include "sound/fx/reverb.h"
@@ -50,6 +51,7 @@
 #include <Utils/files_ini.h>
 #include <Utils/strings.h>
 #include <unordered_map>
+#include <atomic> // smbx2compat
 #include <fmt_format_ne.h>
 
 enum class SoundScope
@@ -144,6 +146,29 @@ static bool s_musicDisableSpcEcho = false;
 #endif
 static int s_musicDefaultVolume = 64;
 
+// smbx2compat: SMBX2's Audio API (sound_script.h)
+static bool s_musicSeized[maxSections + 1] = {};
+static int s_scriptMusicVolume = -1;
+static Mix_Music *s_scriptMusic = nullptr;
+static std::string s_scriptMusicPath;
+
+// smbx2compat: a script's music volume replaces the engine's own levels
+static int musicStreamVolume(int defaultVolume)
+{
+    int volume = (s_scriptMusicVolume >= 0) ? s_scriptMusicVolume : defaultVolume;
+    return volume * g_config.audio_mus_volume / 100;
+}
+
+// smbx2compat: in a seized section the engine leaves the music to scripts
+static bool musicSeized(int A)
+{
+    if(LevelSelect || WorldEditor || GameMenu || GameOutro)
+        return false;
+
+    int section = (A >= 0 && A <= maxSections) ? A : (int)Player[1].Section;
+    return section >= 0 && section <= maxSections && s_musicSeized[section];
+}
+
 static std::string MusicRoot;
 static std::string SfxRoot;
 
@@ -206,6 +231,12 @@ static void extSfxStopCallback(int channel);
 #endif
 
 static const int maxSfxChannels = 91;
+
+// smbx2compat: SMBX2's Audio.sounds[A].sfx / .muted (read by the SFX thread)
+static const int maxScriptSfx = 92;
+static std::atomic<Mix_Chunk*> s_scriptSfxOverride[maxScriptSfx];
+static std::atomic<bool> s_scriptSfxMuted[maxScriptSfx];
+static std::atomic<unsigned> s_channelFinished[maxSfxChannels];
 
 #ifdef LOW_MEM
 static const double c_max_chunk_duration = 1.25; // max length of an in-memory chunk in seconds
@@ -506,6 +537,53 @@ static void RestoreSfx(SFX_t &u)
     }
 }
 
+static std::string resolveSfxPath(SoundScope root, const std::string &f)
+{
+    if(root == SoundScope::global)
+        return SfxRoot + f;
+    else if(root == SoundScope::episode)
+        return g_dirEpisode.resolveFileCaseAbs(f);
+    else if(root == SoundScope::custom)
+        return g_dirCustom.resolveFileCaseAbs(f);
+    return std::string();
+}
+
+// smbx2compat: SMBX2 episodes' sounds.ini may leave the extension off, and name
+// SMBX2's stock sounds by file name alone; LunaLua's MusicManager tries these
+// extensions, then its own sound folder
+static std::string findSfxFile(SoundScope root, const std::string &f)
+{
+    std::string path = resolveSfxPath(root, f);
+    if(Files::fileExists(path))
+        return path;
+
+    size_t slash = f.find_last_of("/\\");
+    if(f.find('.', slash == std::string::npos ? 0 : slash + 1) != std::string::npos)
+        return std::string();
+
+    static const char *const extensions[] = {".ogg", ".mp3", ".wav", ".voc", ".flac", ".spc"};
+    for(const char *ext : extensions)
+    {
+        path = resolveSfxPath(root, f + ext);
+        if(Files::fileExists(path))
+            return path;
+    }
+
+    return std::string();
+}
+
+static std::string resolveSfxFile(SoundScope root, const std::string &f)
+{
+    if(f.empty())
+        return resolveSfxPath(root, f);
+
+    std::string path = findSfxFile(root, f);
+    if(path.empty() && root != SoundScope::global)
+        path = findSfxFile(SoundScope::global, f);
+
+    return path.empty() ? resolveSfxPath(root, f) : path;
+}
+
 static void AddSfx(SoundScope root,
                    IniProcessing &ini,
                    int alias,
@@ -531,18 +609,18 @@ static void AddSfx(SoundScope root,
             {
                 auto &m = s->second;
 
-                std::string newPath;
-                if(root == SoundScope::global)
-                    newPath = SfxRoot + f;
-                else if(root == SoundScope::episode)
-                    newPath = g_dirEpisode.resolveFileCaseAbs(f);
-                else if(root == SoundScope::custom)
-                    newPath = g_dirCustom.resolveFileCaseAbs(f);
+                std::string newPath = resolveSfxFile(root, f); // smbx2compat
 
                 if(!isSilent && m.isCustom && newPath == m.customPath)
                 {
                     ini.endGroup();
                     return;  // Don't load the same file twice!
+                }
+
+                if(!isSilent && !m.isCustom && newPath == m.path) // smbx2compat: the stock sound again
+                {
+                    ini.endGroup();
+                    return;
                 }
 
                 Mix_Chunk *backup_chunk = m.chunk;
@@ -607,12 +685,7 @@ static void AddSfx(SoundScope root,
         {
             SFX_t m;
 
-            if(root == SoundScope::global)
-                m.path = SfxRoot + f;
-            else if(root == SoundScope::episode)
-                m.path = g_dirEpisode.resolveFileCaseAbs(f);
-            else if(root == SoundScope::custom)
-                m.path = g_dirCustom.resolveFileCaseAbs(f);
+            m.path = resolveSfxFile(root, f); // smbx2compat
 
             m.isSilent = isSilent;
             pLogDebug("Adding SFX [sound%d] '%s'", alias, isSilent ? "<silence>" : m.path.c_str());
@@ -755,7 +828,7 @@ void PlayMusic(const std::string &Alias, int fadeInMs)
         {
             int ret;
 
-            Mix_VolumeMusicStream(g_curMusic, m.volume * g_config.audio_mus_volume / 100);
+            Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(m.volume)); // smbx2compat
             s_musicYoshiTrackNumber = m.yoshiModeTrack;
             s_musicHasYoshiMode = (s_musicYoshiTrackNumber >= 0 && (Mix_GetMusicTracks(g_curMusic) > s_musicYoshiTrackNumber));
             s_musicDefaultVolume = m.volume;
@@ -790,12 +863,28 @@ void PlaySfx_Blocking(int Alias, int loops, int volume, uint8_t left, uint8_t ri
     if(!g_mixerLoaded || (int)g_config.audio_sfx_volume == 0 || XMessage::GetStatus() == XMessage::Status::replay)
         return;
 
+    // smbx2compat: a script muted or replaced this sound
+    Mix_Chunk *scriptChunk = nullptr;
+    if(Alias > 0 && Alias < maxScriptSfx)
+    {
+        if(s_scriptSfxMuted[Alias])
+            return;
+        scriptChunk = s_scriptSfxOverride[Alias];
+    }
+
     auto sfx = sound.find(Alias);
 
     if(sfx == sound.end() || (!sfx->second.chunk && !sfx->second.music && !sfx->second.isSilent))
         sfx = sound.find(getFallbackSfx(Alias));
 
-    if(sfx != sound.end())
+    if(scriptChunk) // smbx2compat
+    {
+        int channel = Mix_PlayChannelVol(sfx != sound.end() ? sfx->second.channel : -1,
+                                         scriptChunk, loops, volume * g_config.audio_sfx_volume / 100);
+        if(channel >= 0)
+            Mix_SetPanning(channel, left, right);
+    }
+    else if(sfx != sound.end())
     {
         auto &s = sfx->second;
         if(s.chunk)
@@ -879,6 +968,10 @@ void StartMusic(int A, int fadeInMs)
 
     D_pLogDebug("Start music A=%d", A);
 
+    // smbx2compat: a script has taken this section's music over (Audio.SeizeStream)
+    if(musicSeized(A))
+        return;
+
     if(!g_mixerLoaded || (int)g_config.audio_mus_volume == 0 || XMessage::GetStatus() == XMessage::Status::replay)
     {
         if(g_mixerLoaded && g_curMusic)
@@ -909,7 +1002,7 @@ void StartMusic(int A, int fadeInMs)
             g_curMusic = Mix_LoadMUS(p.c_str());
             s_musicHasYoshiMode = false;
             s_musicYoshiTrackNumber = -1;
-            Mix_VolumeMusicStream(g_curMusic, 64 * g_config.audio_mus_volume / 100);
+            Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(64)); // smbx2compat
             s_musicDefaultVolume = 64;
             if(fadeInMs > 0)
                 Mix_FadeInMusic(g_curMusic, -1, fadeInMs);
@@ -958,7 +1051,8 @@ void StartMusic(int A, int fadeInMs)
             pLogDebug("Starting custom music [%s%s]", FileNamePath.c_str(), CustomMusic[A].c_str());
             if(g_curMusic)
                 Mix_FreeMusic(g_curMusic);
-            std::string p = FileNamePath + CustomMusic[A];
+            // smbx2compat: scripts may set an absolute path (Audio.MusicChange)
+            std::string p = Files::isAbsolute(CustomMusic[A]) ? CustomMusic[A] : FileNamePath + CustomMusic[A];
             s_musicYoshiTrackNumber = -1;
             processPathArgs(p, FileNamePath, FileName + "/", &s_musicYoshiTrackNumber);
             g_curMusic = Mix_LoadMUS(p.c_str());
@@ -968,7 +1062,7 @@ void StartMusic(int A, int fadeInMs)
             {
                 s_musicHasYoshiMode = (s_musicYoshiTrackNumber >= 0 && (Mix_GetMusicTracks(g_curMusic) > s_musicYoshiTrackNumber));
                 UpdateYoshiMusic();
-                Mix_VolumeMusicStream(g_curMusic, 52 * g_config.audio_mus_volume / 100);
+                Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(52)); // smbx2compat
                 s_musicDefaultVolume = 52;
                 if(fadeInMs > 0)
                 {
@@ -1037,6 +1131,9 @@ void StopMusic()
     if(!musicPlaying || !g_mixerLoaded)
         return;
 
+    if(musicSeized(-1)) // smbx2compat
+        return;
+
     pLogDebug("Stopping music");
 
     if(g_curMusic)
@@ -1056,6 +1153,9 @@ void FadeOutMusic(int ms)
     if(!musicPlaying || !g_mixerLoaded)
         return;
 
+    if(musicSeized(-1)) // smbx2compat
+        return;
+
     pLogDebug("Fading out music");
     if(g_curMusic)
         Mix_FadeOutMusicStream(g_curMusic, ms);
@@ -1073,7 +1173,7 @@ void UpdateMusicVolume()
         if((int)g_config.audio_mus_volume == 0)
             StartMusic(s_recentMusicA); // will actually STOP it
         else
-            Mix_VolumeMusicStream(g_curMusic, s_musicDefaultVolume * g_config.audio_mus_volume / 100);
+            Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(s_musicDefaultVolume)); // smbx2compat
     }
     else if(s_recentMusicA != s_null_music)
         StartMusic(s_recentMusicA); // will restart it
@@ -1768,6 +1868,10 @@ void PlayExtSound(const std::string &path, int loops, int volume)
 #ifndef THEXTECH_NO_SDL_BUILD
 static void extSfxStopCallback(int channel)
 {
+    // smbx2compat: see SoundScript_ChannelFinishCount()
+    if(channel >= 0 && channel < maxSfxChannels)
+        s_channelFinished[channel]++;
+
     if(SDL_AtomicGet(&extSfxBusy) == 1)
         return; // Do nothing!
 
@@ -2001,4 +2105,160 @@ void UpdateSoundFX(int recentSection)
         break;
     }
 #endif // THEXTECH_ENABLE_AUDIO_FX
+}
+
+
+// smbx2compat: SMBX2's Audio API (sound_script.h, script/src/xtech_lua_audio.cpp)
+
+Mix_Music *SoundScript_Music()
+{
+    return g_curMusic;
+}
+
+void SoundScript_OpenMusic(const std::string &path)
+{
+    if(!g_mixerLoaded)
+        return;
+
+    // LunaLua keeps the track going when it's opened again
+    if(g_curMusic && g_curMusic == s_scriptMusic && path == s_scriptMusicPath && Mix_PlayingMusicStream(g_curMusic))
+        return;
+
+    if(g_curMusic)
+    {
+        Mix_HaltMusicStream(g_curMusic);
+        Mix_FreeMusic(g_curMusic);
+    }
+
+    g_curMusic = Mix_LoadMUS(path.c_str());
+    s_scriptMusic = g_curMusic;
+    s_scriptMusicPath = path;
+    s_musicHasYoshiMode = false;
+    s_musicYoshiTrackNumber = -1;
+    s_musicDefaultVolume = 64;
+    g_stats.currentMusic.clear();
+    g_stats.currentMusicFile.clear();
+
+    if(!g_curMusic)
+    {
+        pLogWarning("Music '%s' opening error: %s", path.c_str(), Mix_GetError());
+        return;
+    }
+
+    g_stats.currentMusic = Mix_GetMusicTitle(g_curMusic);
+    g_stats.currentMusicFile = Files::basename(path);
+}
+
+void SoundScript_PlayMusic(int fadeInMs)
+{
+    if(!g_mixerLoaded || !g_curMusic)
+        return;
+
+    if(Mix_PausedMusicStream(g_curMusic))
+        Mix_ResumeMusicStream(g_curMusic);
+    else if(!Mix_PlayingMusicStream(g_curMusic))
+    {
+        Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(s_musicDefaultVolume));
+        int ret = (fadeInMs > 0) ? Mix_FadeInMusic(g_curMusic, -1, fadeInMs) : Mix_PlayMusic(g_curMusic, -1);
+        if(ret < 0)
+            pLogWarning("Music '%s' playing error: %s", s_scriptMusicPath.c_str(), Mix_GetError());
+    }
+
+    musicPlaying = true;
+}
+
+void SoundScript_StopMusic(int fadeOutMs)
+{
+    if(!g_mixerLoaded || !g_curMusic)
+        return;
+
+    if(fadeOutMs <= 0)
+        Mix_HaltMusicStream(g_curMusic);
+    else if(Mix_FadingMusicStream(g_curMusic) != MIX_FADING_OUT)
+        Mix_FadeOutMusicStream(g_curMusic, fadeOutMs);
+
+    musicPlaying = false;
+}
+
+void SoundScript_SetMusicVolume(int volume)
+{
+    s_scriptMusicVolume = (volume < 0) ? -1 : SDL_min(volume, 128);
+
+    if(g_mixerLoaded && g_curMusic)
+        Mix_VolumeMusicStream(g_curMusic, musicStreamVolume(s_musicDefaultVolume));
+}
+
+int SoundScript_GetMusicVolume()
+{
+    return (s_scriptMusicVolume >= 0) ? s_scriptMusicVolume : s_musicDefaultVolume;
+}
+
+void SoundScript_SeizeMusic(int section, bool seized)
+{
+    if(section == -1)
+    {
+        for(bool &s : s_musicSeized)
+            s = seized;
+    }
+    else if(section >= 0 && section <= maxSections)
+        s_musicSeized[section] = seized;
+}
+
+unsigned SoundScript_ChannelFinishCount(int channel)
+{
+    if(channel < 0 || channel >= maxSfxChannels)
+        return 0;
+
+    return s_channelFinished[channel];
+}
+
+Mix_Chunk *SoundScript_GetSfxChunk(int A)
+{
+    if(A > 0 && A < maxScriptSfx && s_scriptSfxOverride[A])
+        return s_scriptSfxOverride[A];
+
+    auto sfx = sound.find(A);
+    return (sfx != sound.end()) ? sfx->second.chunk : nullptr;
+}
+
+void SoundScript_SetSfxOverride(int A, Mix_Chunk *chunk)
+{
+    if(A > 0 && A < maxScriptSfx)
+        s_scriptSfxOverride[A] = chunk;
+}
+
+void SoundScript_SetSfxMuted(int A, bool muted)
+{
+    if(A > 0 && A < maxScriptSfx)
+        s_scriptSfxMuted[A] = muted;
+}
+
+bool SoundScript_GetSfxMuted(int A)
+{
+    return A > 0 && A < maxScriptSfx && s_scriptSfxMuted[A];
+}
+
+void SoundScript_Reset()
+{
+    for(int A = 0; A < maxScriptSfx; ++A)
+    {
+        s_scriptSfxOverride[A] = nullptr;
+        s_scriptSfxMuted[A] = false;
+    }
+
+    bool wasSeized = false;
+    for(bool &s : s_musicSeized)
+    {
+        wasSeized |= s;
+        s = false;
+    }
+
+    s_scriptMusicVolume = -1;
+
+    // the engine's own StopMusic() at level end was skipped while seized
+    if(wasSeized && g_mixerLoaded && g_curMusic)
+    {
+        musicPlaying = true;
+        StopMusic();
+    }
 }

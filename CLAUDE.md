@@ -19,6 +19,9 @@ project, so never prepare anything from this repo as an upstream PR.
   - `xtech_lua_bindings.cpp` — luabind registrations (`xtech_*` globals).
   - `xtech_lua_fileformats.cpp` — **ours**. Level/world/`npc-N.txt` files as
     Lua tables for LunaLua's `FileFormats` (plain Lua C API, PGE underneath).
+  - `xtech_lua_audio.cpp` — **ours**. LunaLua's `Audio` namespace on the
+    engine's mixer (MixerX, as LunaLua uses), as the table `xtech_lunaAudio`.
+    What it needs from `src/sound.cpp` is declared in `src/sound_script.h`.
   - `luabind_num_t.h` — **ours**. luabind converter for `num_t` (fixed-point
     type). Without it any Lua read/write of `Location.X`, `SpeedX`, etc. fails with
     "Trying to use unregistered class: num_t".
@@ -110,6 +113,8 @@ game pauses as soon as its window loses focus, which looks like scripts stopping
 Quick test run (sound off, window moved to AeroSpace workspace 1 so it stays out
 of Jake's way, stops after N seconds and prints the log path):
 `smbx2compat/run-level.sh <level.lvlx> [seconds]`. Prefer it over launching by hand.
+With sound off (`-s`) there is no mixer at all; `XTECH_AUDIO=dummy` keeps sound
+on but sends it to SDL's silent dummy device, so audio code really runs.
 
 Test levels in `$D/smoke/`: `bonus1.lvlx` (harness written like a typical SMBX2
 level script) and `errtest.lvlx` (raises Lua errors every frame, through the
@@ -148,6 +153,12 @@ How it works (details in `core/boot.lua`'s header):
 - SMBX2 calls every library's handler for an event in one loop, so one error
   in an `onStart` handler silently skips all the later ones (whole features
   then look "missing"). Check the first `onStart` error in a log first.
+  The same holds for every event: an error in one `onDraw` handler skips the
+  rest each frame, so fixing it can make later handlers' costs appear.
+- Audio: `host.lua` builds `Audio` from `xtech_lunaAudio` and resolves paths.
+  Scripts share the engine's music stream; `Audio.SeizeStream` makes the
+  engine's `StartMusic`/`StopMusic` leave a section's music alone until the
+  level unloads (`SoundScript_Reset`).
 - Shaders: `core/lunadll.lua` reports them compiled and reads uniforms from
   the GLSL source (scripts like `darkness.lua` need the list); nothing is drawn.
 - Every file read goes through `core.resolve`: backslashes → `/`, case-insensitive
@@ -214,10 +225,10 @@ How it works (details in `core/boot.lua`'s header):
 
 ## Known issues
 
-- In core mode, `smoke/bonus1` and SMATRS 1-1 boot and run with no unknown
-  `mem()` addresses, and SMATRS's whole `onStart` chain runs; the remaining
-  script errors are audio. Drawing and audio are still missing, and SMBX2-only
-  IDs load (and spawn) as ID 1. See ROADMAP.md Phase 1 "Next round".
+- In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
+  addresses (bonus1 has two old ones). Audio works (not yet checked by ear);
+  drawing is still missing, and SMBX2-only IDs load, spawn and get set
+  (via `mem()`) as ID 1. See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

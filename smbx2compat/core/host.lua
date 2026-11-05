@@ -179,79 +179,51 @@ Misc = hostTable("Misc", {
 -- Audio --
 -----------
 
--- Sound effects play through the engine's external-sound support; a Mix_Chunk
--- is a table holding the file's path. Music, channels and the rest: Phase 5.
-local MixChunkMT = { __type = "Mix_Chunk" }
+-- LunaLua's Audio namespace comes from the engine (script/src/xtech_lua_audio.cpp,
+-- on the same mixer LunaLua uses); here we only resolve file paths, as
+-- LunaLua's getSfxPath does. Music paths may end in "|args" for the mixer.
+local lunaAudio = xtech_lunaAudio
 
-local function openChunk(path)
-    local real = search(searchDirs(), path, false)
-    if not real then
-        return nil
+-- Resolved paths are kept: with sound off SMATRS reopens its music every frame
+local audioPaths = {}
+
+local function audioPath(path)
+    path = tostring(path)
+    local resolved = audioPaths[path]
+    if not resolved then
+        local file, args = string.match(path, "^([^|]*)(|.*)$")
+        file = file or path
+        local real = search(searchDirs(), file, false)
+        resolved = core.normalize(real or file) .. (args or "")
+        audioPaths[path] = resolved
     end
-    real = core.normalize(real)
-    xtech_audio_preloadSFXExt(real)
-    return setmetatable({ path = real }, MixChunkMT)
+    return resolved
 end
 
-local function playChunk(chunk, loops)
-    if type(chunk) == "table" and chunk.path then
-        xtech_audio_playSFXExt(chunk.path, loops or 0, 128)
-    end
+Audio = hostTable("Audio", {})
+for name, fn in pairs(lunaAudio) do
+    rawset(Audio, name, fn)
 end
 
-Audio = hostTable("Audio", {
-    _GetMusicVolume = function() return xtech_audio_getMusicVolume() end,
-    -- xtech_audio_setMusicVolume changes the player's saved setting, not an in-game level
-    MusicVolume = stub("Audio.MusicVolume"),
-    __setOverrideForAlias = stub("Audio.__setOverrideForAlias"),
-    __getChunkForAlias = stub("Audio.__getChunkForAlias"),
-    __setMuteForAlias = stub("Audio.__setMuteForAlias"),
-    __getMuteForAlias = function() return false end,
-
-    SfxOpen = openChunk,
-    playSFX = function(sound)
-        if type(sound) == "number" then
-            xtech_audio_playSFX(sound, 0, 128)
-        else
-            playChunk(openChunk(sound))
-        end
-    end,
-    SfxPlayCh = function(channel, chunk, loops)
-        playChunk(chunk, loops)
-        return -1
-    end,
-    SfxPlayChVol = function(channel, chunk, loops, volume)
-        playChunk(chunk, loops)
-        return -1
-    end,
-    SfxPlayObj = function(chunk, loops)
-        playChunk(chunk, loops)
-        return -1
-    end,
-    SfxPlayObjVol = function(chunk, loops, volume)
-        playChunk(chunk, loops)
-        return -1
-    end,
-})
-
--- The rest of LunaLua's Audio namespace (bindAll); each logs when called
-for _, name in ipairs({
-    "MusicOpen", "MusicPlay", "MusicPlayFadeIn", "MusicStop", "MusicStopFadeOut",
-    "MusicPause", "MusicResume", "MusicIsPlaying", "MusicIsPaused", "MusicIsFading",
-    "MusicTitle", "MusicTitleTag", "MusicArtistTag", "MusicAlbumTag", "MusicCopyrightTag",
-    "MusicSetPos", "MusicGetPos", "MusicGetLoopStart", "MusicGetLoopEnd", "MusicGetLoopLength",
-    "SeizeStream", "ReleaseStream", "resetMciSections", "MusicChange", "MusicFadeOut", "MusicRewind",
-    "MusicGetInstChannelCount", "MusicInstChannelMute", "MusicInstChannelUnmute",
-    "MusicSetTempo", "MusicSetPitch", "MusicSetSpeed", "MusicGetTempo", "MusicGetPitch", "MusicGetSpeed",
-    "newMix_Chunk", "clearSFXBuffer",
-    "SfxPlayChTimed", "SfxPlayChTimedVol", "SfxFadeInCh", "SfxFadeInChVol",
-    "SfxFadeInChTimed", "SfxFadeInChTimedVol", "SfxPause", "SfxResume", "SfxStop", "SfxExpire",
-    "SfxFadeOut", "SfxIsPlaying", "SfxIsPaused", "SfxIsFading", "SfxVolume", "SfxSetPanning",
-    "SfxSetDistance", "SfxReverseStereo", "MixedSfxVolume",
-    "SfxPlayObjTimed", "SfxPlayObjTimedVol", "SfxFadeInObj", "SfxFadeInObjVol",
-    "SfxFadeInObjTimed", "SfxFadeInObjTimedVol", "AudioClock", "MusicClock",
-}) do
-    rawset(Audio, name, stub("Audio." .. name))
+Audio.SfxOpen = function(path)
+    return lunaAudio.SfxOpen(audioPath(path))
+end
+Audio.MusicOpen = function(path)
+    lunaAudio.MusicOpen(audioPath(path))
+end
+Audio.playSFX = function(sound)
+    if type(sound) == "number" then
+        xtech_audio_playSFX(sound, 0, 128)
+    else
+        lunaAudio.playSFX(audioPath(sound))
+    end
+end
+-- Section music paths stay as given (relative ones are to the level's folder)
+Audio.MusicChange = function(section, music, fadeMs)
+    if type(music) == "string" then
+        music = core.normalize(music)
+    end
+    lunaAudio.MusicChange(section, music, fadeMs)
 end
 
 

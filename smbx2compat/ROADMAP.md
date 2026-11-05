@@ -291,22 +291,57 @@ the order they surfaced:
 - Writes to `<SMBX>/logs/` (debugtools' warning list) go to TheXTech's log
   folder (`__xtech_logsDir`); TheXTech prunes old logs there.
 
-*Where bonus1 and SMATRS 1-1 stand now:* the `onStart` chain completes in both;
-no unknown `mem()` addresses. Errors, each logged once:
-- SMATRS: audio only: `music.lua:553/589/603` (`Audio.MusicGetPos` etc.),
-  `audiomaster.lua:410` (`SFX.play` gets a number back),
-  `ambientSound.lua:91`;
-- bonus1: `audiomaster.lua:410` (`SFX.play`), `ffi_graphics.lua:1598`
-  (`img` type), `npc-21.lua:42`.
-New gaps logged: `Misc.showRichDialog`, `LunaLuaIsFullscreen`,
-`LunaLuaSetNPCRespawnBugFix`, `FFI_GraphicsSetMainFramebufferSize`.
+*Audio round (2026-11-04).* TheXTech plays sound through MixerX, the same
+mixer library LunaLua uses, so LunaLua's `Audio` namespace
+(`LuaProxyAudio.cpp`) maps onto it almost call for call:
+- **`script/src/xtech_lua_audio.cpp`** registers it as `xtech_lunaAudio`
+  (plain Lua C API); `core/host.lua` builds `Audio` from it and only resolves
+  file paths (LunaLua's `getSfxPath` order, cached per path).
+- **Sounds**: `SfxOpen` returns a `Mix_Chunk` userdata with `allocated`,
+  `alen` and `volume`, which `audiomaster.lua` checks before playing
+  anything. Chunks are cached by path and freed with the Lua state. With
+  sound off there is no mixer to load into, so a silent chunk stands in.
+- **`SFX.play` objects**: `SfxPlayObj*` return a `PlayingSfxInstance`
+  (`SetPanning`, `Volume`, `IsPlaying`, `Stop`, ...). The engine counts
+  finished channels (`SoundScript_ChannelFinishCount`), so a handle stops
+  controlling its channel once the channel goes to another sound.
+- **Music**: scripts share the engine's music stream, as in LunaLua.
+  `MusicOpen`/`MusicPlay`/position/speed/tempo/tags/loop points work on
+  `g_curMusic`; `SeizeStream` makes the engine leave a section's music alone
+  (`StartMusic`/`StopMusic`/`FadeOutMusic` return early); `MusicVolume`
+  overrides the engine's levels (the player's music volume setting still
+  scales it). Level unload releases seizes and overrides (`SoundScript_Reset`).
+- **`Audio.sounds[A].sfx` / `.muted`**: per-sound overrides and mutes in
+  `PlaySfx_Blocking`, kept in atomics (it runs on the SFX thread).
+- **`MusicChange`**: sets the section's music and restarts it if player 1 is
+  there; absolute custom-music paths now work in `StartMusic`.
+- **Episode `sounds.ini`**: SMBX2 episodes leave extensions off and name
+  stock sounds by file name alone (`file="player-slide"`). TheXTech loaded
+  none of SMATRS's 91 sounds; it now tries LunaLua's extensions and then its
+  own sound folder (`resolveSfxFile` in `sound.cpp`).
+- **Type writes**: a `mem()` write giving a block, NPC or BGO a type past the
+  engine's limits (SMATRS turns a block into 756) now writes 1, as level
+  loading does, logged once per ID. It crashed on a range check (Jake hit
+  it too). The sizable-block scan behind `sBlockNum` checks the range as well.
+- Testing: `XTECH_AUDIO=dummy smbx2compat/run-level.sh ...` keeps sound on but
+  sends it to SDL's silent dummy device, so the mixer paths run quietly. A
+  probe showed SMATRS's `music.lua` opening `Ocean.ogg`, its position
+  advancing in real time and its volume changing; a sound object reported
+  playing, then finished.
+
+*Where bonus1 and SMATRS 1-1 stand now:* no script errors in SMATRS 1-1 (sound
+on, dummy or off); bonus1 is down to its two old ones, `ffi_graphics.lua:1598`
+(`img` type) and `npc-21.lua:42`. No unknown `mem()` addresses. Logged gaps
+are drawing (`FFI_ImageDraw`, `FFI_GLDraw`, render flags, ...), window
+(`LunaLuaSetWindowTitle`/`Icon`, `IsFullscreen`), `LunaLuaBlocksTestCollision`,
+`Misc.loadCharacterHitBoxes`/`registerCharacterId` and rumble.
+Untested by ear: run a level with sound to confirm it sounds right.
 
 *Next round, in order:*
-1. **Audio** (Phase 5): every remaining script error is audio. Music
-   (`Audio.Music*`), `SFX.play` returning a sound object, audio sources.
-2. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`, real
+1. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`, real
    shaders through TheXTech's GL renderer and ANGLE translator).
-3. Phase 3 IDs; engine collisions honouring collision groups.
+2. Phase 3 IDs (block 756 and friends now become 1); engine collisions
+   honouring collision groups.
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -341,7 +376,8 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - Cancellable events (`eventObj.cancelled`): fire `onNPCHarm` / `onPlayerHarm` /
   `onBlockHit` *before* the engine acts, and respect cancel.
 - `onEvent`, `onInputUpdate`, alt-jump/alt-run, `player:harm()` / `kill()`.
-- `SaveData` / `GameData` persisted per episode; `Audio.*` music control.
+- `SaveData` / `GameData` persisted per episode. `Audio.*` is done (Phase 1,
+  "Audio round"); audio sources (`SFX.create`) are SMBX2 Lua on top of it.
 - Done when: Chapter 1 levels are completable.
 
 ### Phase 6 — World map and episode flow
@@ -402,12 +438,20 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | + one 8 MB JIT code area | 3.7-5.1 | 2.6-3.9 | no flushes after loading |
 | + `mem()` reads through the FFI | 3.8-3.9 | 2.7-2.8 | 17,400 reads a frame |
 | FileFormats round (more SMATRS runs) | 5.2-5.5 | 3.4-3.6 | 33,700 reads a frame |
+| Audio round (all `onDraw` handlers run) | 6.7-6.8 | 5.0-5.1 | dummy audio; 7.1 / 5.3 with sound off |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
 each, `extraBGOProperties` ~0.15 ms). Image sizes are now cached by path, as
 LunaLua caches images: SMATRS's dialogue code rebuilds a font from the same
 PNG every time it formats text.
+
+The audio round adds more again: `music.lua`'s `onDraw` errored every frame
+before, and one error ends that event's handler loop, so every `onDraw`
+handler after it was skipped. Now `sizable.lua` (~1.35 ms, it draws sizable
+blocks in Lua and rebuilds the `sBlockArray` list per read) and the rest run.
+With sound off SMATRS reopens its music every frame (it never reports
+playing); caching resolved paths took that from ~1.9 ms to nothing.
 
 bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
 
@@ -438,8 +482,10 @@ bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
    some reach engine code, and an FFI-called function must never call back
    into Lua.
 
-**Open:** since the FileFormats round, every 1-1 run has one ~31-35 ms frame
-(onTick ~15 ms, heap +1.9 MB, dozens of traces compiled); not looked at yet.
+**Open:** since the FileFormats round, every 1-1 run has had one ~31-35 ms
+frame (onTick ~15 ms, heap +1.9 MB, dozens of traces compiled); not looked at
+yet. The audio round's runs didn't show it (worst after frame 100: ~19-23 ms),
+except one sound-off run with a 96 ms frame (frame 187, all in `onDraw`).
 The engine's part also went from ~1.1 to ~1.85 ms a frame. Before that, a
 rare single frame of ~60 ms (about 1 run in 5; not caught yet). The probe's "slowest" line shows the
 events and heap change of such a frame; a large GC step is the main suspect
