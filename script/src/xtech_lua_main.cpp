@@ -46,6 +46,7 @@ extern "C"
 
 #include "xtech_lua_main.h"
 #include "xtech_lua_bindings.h"
+#include "xtech_lua_fileformats.h" // smbx2compat
 #include "xtech_lua_data.h"
 
 
@@ -295,6 +296,7 @@ static bool createLuaState()
 
     // Register game bindings
     xtech_lua_register_bindings(g_L);
+    xtech_lua_register_fileformats(g_L); // smbx2compat
     return true;
 }
 
@@ -468,6 +470,9 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     lua_setglobal(g_L, "__xtech_episodePath");
     lua_pushstring(g_L, FileNameFull.c_str());
     lua_setglobal(g_L, "__xtech_levelFile");
+    // SMBX2 writes reports into <SMBX>/logs; core mode sends them to our log folder
+    lua_pushstring(g_L, AppPathManager::logsDir().c_str());
+    lua_setglobal(g_L, "__xtech_logsDir");
 
     // boot.lua sets up the host side of LunaLua, then runs main.lua
     if(!loadAndRunLuaFile(coreDir + "/boot.lua", "smbx2core/boot.lua"))

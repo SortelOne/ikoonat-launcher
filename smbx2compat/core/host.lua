@@ -271,6 +271,87 @@ Level = hostTable("Level", {
     name = function() return xtech_sysval_getLevelName() end,
 })
 
+-- One of LunaLua's older level globals (bindAllDeprecated); SMBX2's
+-- Event:trigger() calls it too. Unknown names do nothing, as in LunaLua.
+function triggerEvent(name)
+    xtech_event_triggerLevelEvent(tostring(name))
+end
+
+
+-----------------
+-- FileFormats --
+-----------------
+
+-- LunaLua's LuaProxyFileFormats.cpp: level, world and npc-N.txt files as
+-- tables. The engine reads them (xtech_fileformats_*, same field names) and
+-- leaves custom params as JSON, decoded here like LunaLua's dumpFromJson.
+local function decodeParams(text)
+    if text == "" or not json then
+        return {}
+    end
+    local ok, value = pcall(json.decode, text)
+    if ok and type(value) == "table" then
+        return value
+    end
+    return {}
+end
+
+-- Lists whose items carry meta.data (sections have data directly)
+local paramLists = { "blocks", "bgo", "npc", "warps", "physEnvZones", "layers", "events",
+                     "terrain", "scenery", "paths", "levels", "musicBoxes" }
+
+local function finishFile(t)
+    t.data = decodeParams(t.data)
+    t.meta.path = core.scriptPath(t.meta.path)
+    for _, s in ipairs(t.sections or {}) do
+        s.data = decodeParams(s.data)
+    end
+    for _, key in ipairs(paramLists) do
+        local list = t[key]
+        if list then
+            for i = 1, #list do
+                local meta = list[i].meta
+                meta.data = decodeParams(meta.data)
+            end
+        end
+    end
+    return t
+end
+
+-- Relative paths are from the episode folder, as in LunaLua
+local function filePath(path)
+    path = core.normalize(tostring(path))
+    if string.sub(path, 1, 1) ~= "/" then
+        path = core.episodePath .. path
+    end
+    return core.resolve(path) or path
+end
+
+FileFormats = hostTable("FileFormats", {
+    openLevel = function(path)
+        return finishFile(xtech_fileformats_openLevel(filePath(path), false))
+    end,
+    openLevelHeader = function(path)
+        return finishFile(xtech_fileformats_openLevel(filePath(path), true))
+    end,
+    -- LunaLua hands back the level it loaded; we read the same file again
+    getLevelData = function()
+        return finishFile(xtech_fileformats_openLevel(core.episodePath .. __xtech_levelFile, false))
+    end,
+    openWorld = function(path)
+        return finishFile(xtech_fileformats_openWorld(filePath(path), false))
+    end,
+    openWorldHeader = function(path)
+        return finishFile(xtech_fileformats_openWorld(filePath(path), true))
+    end,
+    openNpcConfig = function(path)
+        return xtech_fileformats_openNpcConfig(filePath(path))
+    end,
+})
+for name, values in pairs(xtech_fileformats_enums) do
+    rawset(FileFormats, name, values)
+end
+
 
 --------------
 -- UserData --

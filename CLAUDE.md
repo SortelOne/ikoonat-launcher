@@ -17,6 +17,8 @@ project, so never prepare anything from this repo as an upstream PR.
 - `script/src/` — the fork's Lua layer.
   - `xtech_lua_main.cpp` — Lua state, script loading, level/world hooks.
   - `xtech_lua_bindings.cpp` — luabind registrations (`xtech_*` globals).
+  - `xtech_lua_fileformats.cpp` — **ours**. Level/world/`npc-N.txt` files as
+    Lua tables for LunaLua's `FileFormats` (plain Lua C API, PGE underneath).
   - `luabind_num_t.h` — **ours**. luabind converter for `num_t` (fixed-point
     type). Without it any Lua read/write of `Location.X`, `SpeedX`, etc. fails with
     "Trying to use unregistered class: num_t".
@@ -139,8 +141,15 @@ How it works (details in `core/boot.lua`'s header):
   by the `ffi_*` files, so create cdata inside functions, not at file load.
   Return a NULL cdata (`ffi.cast("T*", nil)`), not `nil`, where C returns NULL.
 - `core/host.lua` = LunaLua's C++ tables (`Misc`, `Text`, `Audio`, `Native`,
-  `Level`, `UserData`, `console`); `core/classes.lua` = its C++ classes
-  (`Animation`, ...); `core/constants.lua` = `setupDefaults()`.
+  `Level`, `FileFormats`, `UserData`, `console`, `triggerEvent`);
+  `core/classes.lua` = its C++ classes (`Animation`, `PlayerSettings`,
+  `inputConfig1/2`, the legacy `NPC` that SMBX2's `NPC.spawn` builds on);
+  `core/constants.lua` = `setupDefaults()`.
+- SMBX2 calls every library's handler for an event in one loop, so one error
+  in an `onStart` handler silently skips all the later ones (whole features
+  then look "missing"). Check the first `onStart` error in a log first.
+- Shaders: `core/lunadll.lua` reports them compiled and reads uniforms from
+  the GLSL source (scripts like `darkness.lua` need the list); nothing is drawn.
 - Every file read goes through `core.resolve`: backslashes → `/`, case-insensitive
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
   `core/override/` replace the SMBX2 file at the same path under `scripts/`
@@ -206,9 +215,12 @@ How it works (details in `core/boot.lua`'s header):
 ## Known issues
 
 - In core mode, `smoke/bonus1` and SMATRS 1-1 boot and run with no unknown
-  `mem()` addresses; `FileFormats`, collision groups, drawing and most audio
-  are still missing, and SMBX2-only IDs load as ID 1. See ROADMAP.md Phase 1
-  "Next round".
+  `mem()` addresses, and SMATRS's whole `onStart` chain runs; the remaining
+  script errors are audio. Drawing and audio are still missing, and SMBX2-only
+  IDs load (and spawn) as ID 1. See ROADMAP.md Phase 1 "Next round".
+- TheXTech prunes old files in the log folder, so read a run's log right
+  after it (`run-level.sh` prints its path). SMBX2's warning reports
+  (`WARNING_*.txt`) land there too.
 
 ## Game data (not in git)
 

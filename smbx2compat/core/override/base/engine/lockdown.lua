@@ -36,11 +36,22 @@ do
     local nativeIO = io
     local newIO = {}
 
+    -- SMBX2 writes reports (debugtools' warning list) into <SMBX>/logs, which
+    -- our copy of SMBX2's data doesn't have; they go to TheXTech's log folder
+    local smbxLogs = string.lower(core.normalize(core.smbxPath .. "/logs/"))
+    local function logsRedirect(path)
+        path = core.normalize(path)
+        if string.lower(string.sub(path, 1, #smbxLogs)) == smbxLogs then
+            return core.normalize(__xtech_logsDir .. "/" .. string.sub(path, #smbxLogs + 1))
+        end
+        return nil
+    end
+
     function openFile(path, mode)
         if not path then
             error("bad argument #1 to 'open' (string expected, got nil)")
         end
-        local real = core.resolve(path) or core.normalize(path)
+        local real = logsRedirect(path) or core.resolve(path) or core.normalize(path)
         local f, err, errno = nativeIO.open(real, mode or "r")
         if not f then
             return nil, "Couldn't open " .. tostring(path) .. ": " .. tostring(err), errno

@@ -259,29 +259,54 @@ on load (Phase 3).
   read; NPC traits TheXTech derives from the ID (`isyoshi`, `isshoe`, ...) are
   read-only; water `Buoy` reads 0.
 
-*Where bonus1 and SMATRS 1-1 stand now:* no unknown `mem()` addresses; ~15 MemEmu
-lines per run (episode list `0xB250FC` and one-time float writes to physics
-globals). Errors, each logged once:
-- `editorevents.lua:495` `FileFormats` (LunaLua namespace) and, after it,
-  `editorevents.lua:702` `beatTimer`;
-- `ffi_player.lua:252` `ffiGroup`: collision groups
-  (`LunaLuaCollisionMatrixGetGroupFromIndex`);
-- SMATRS: `graphicalQuality.lua:34` (`section.darkness` nil),
-  `extraBGOProperties.lua:314` (per-section BGO list nil),
-  `ambientSound.lua:91` (audio sources), `debugtools.lua:136`;
-- bonus1: `ffi_graphics.lua:1598` (`img` type), `npc-21.lua:42`.
+*FileFormats round (2026-11-04).* SMBX2 runs every library's `onStart` in one
+loop (`main_events.lua`), so one error there skips every handler after it.
+That, not missing data, is why SMATRS never made `section.darkness` or its
+per-section BGO lists: `editorevents.lua`'s `onStart` failed first. Fixed, in
+the order they surfaced:
+- **`FileFormats`**: `script/src/xtech_lua_fileformats.cpp` reads level,
+  world and `npc-N.txt` files with PGE into tables with LunaLua's field names
+  (`LuaProxyFileFormats.cpp`); `core/host.lua` resolves paths, decodes custom
+  params with SMBX2's JSON library and adds the enums. `getLevelData()`
+  rereads the current level file (LunaLua keeps it in memory). Our PGE names
+  physics-zone types 6/7 and 13/14 differently; the enums use LunaLua's names.
+- **Collision groups** (`core/lunadll.lua`): LunaLua's `CollisionMatrix` plus
+  the newer name layer SMBX2 expects (`...AssignGroup`, `...GetGroupFromIndex`,
+  `...GetGroupsCollide`, ...). Only scripts see it; the engine's own
+  collisions don't consult it yet.
+- **Shaders compile** as far as scripts can tell: `FFI_ShaderCompile` succeeds
+  and uniforms/attributes are read from the GLSL declarations, shaped like
+  GL's reflection (`name[0]` with the element count). `darkness.lua` errors
+  without a uniform list. Nothing is drawn (Phase 4 replaces this).
+- **`inputConfig1`/`inputConfig2`** (`core/classes.lua`): keyboard, SMBX's
+  default keys. TODO: from TheXTech's control profiles.
+- **`NPC.spawn`**: SMBX2 builds it on the C++ class it finds as `NPC`
+  (`LegacyNPC.spawn`); `core/classes.lua` provides that, backed by
+  `xtech_npc_spawnLegacy` (a blank NPC, as LunaLua's). IDs past 306 spawn as 1,
+  like the level loader.
+- **`triggerEvent(name)`**: LunaLua's legacy global for level events
+  (`xtech_event_triggerLevelEvent`, queued with the engine's `TriggerEvent`).
+  The v0.1 shim's `triggerEvent` uses autocode events instead.
+- **Layers**: `LunaLuaShowLayer`/`LunaLuaHideLayer` (`xtech_layer_show/hide`).
+- Writes to `<SMBX>/logs/` (debugtools' warning list) go to TheXTech's log
+  folder (`__xtech_logsDir`); TheXTech prunes old logs there.
 
-*Performance round 1 is done* (Performance track section below): SMATRS 1-1
-now takes ~3.8 ms a frame in Release on an M3 Pro, with no JIT flush storms.
-The remaining performance candidates are smaller, so next is this list again.
+*Where bonus1 and SMATRS 1-1 stand now:* the `onStart` chain completes in both;
+no unknown `mem()` addresses. Errors, each logged once:
+- SMATRS: audio only: `music.lua:553/589/603` (`Audio.MusicGetPos` etc.),
+  `audiomaster.lua:410` (`SFX.play` gets a number back),
+  `ambientSound.lua:91`;
+- bonus1: `audiomaster.lua:410` (`SFX.play`), `ffi_graphics.lua:1598`
+  (`img` type), `npc-21.lua:42`.
+New gaps logged: `Misc.showRichDialog`, `LunaLuaIsFullscreen`,
+`LunaLuaSetNPCRespawnBugFix`, `FFI_GraphicsSetMainFramebufferSize`.
 
 *Next round, in order:*
-1. **`FileFormats`** (LunaLua's level/world file reader for Lua; TheXTech has
-   PGE built in) and the collision matrix exports.
-2. **SMATRS's section darkness and BGO lists**: find why `section.darkness`
-   is never made (the darkness/section-settings `onStart` chain).
-3. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`) and
-   **audio** (Phase 5); then Phase 3 IDs.
+1. **Audio** (Phase 5): every remaining script error is audio. Music
+   (`Audio.Music*`), `SFX.play` returning a sound object, audio sources.
+2. **Drawing** (Phase 4: `FFI_ImageDraw`, `FFI_TextDraw`, `FFI_GLDraw`, real
+   shaders through TheXTech's GL renderer and ANGLE translator).
+3. Phase 3 IDs; engine collisions honouring collision groups.
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -307,7 +332,8 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 - `Graphics.drawImage*` with priority, opacity, source rects, `Graphics.glDraw`
   (vertex arrays), capture buffers, `Graphics.drawBox` / `drawScreen`.
 - `Shader` — TheXTech's GL renderer already compiles GLSL and has the ANGLE
-  translator; map SMBX2's shader API onto it.
+  translator; map SMBX2's shader API onto it. Until then `core/lunadll.lua`
+  reports every shader compiled, with uniforms read from its source.
 - `Darkness`, `particles`, `textplus` fonts, `paralx2` backgrounds.
 - Done when: 1-1 looks right.
 
@@ -375,6 +401,13 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | Release baseline | 3.7-6.4 | 2.5-5.2 | 0 to 116 JIT flushes per run |
 | + one 8 MB JIT code area | 3.7-5.1 | 2.6-3.9 | no flushes after loading |
 | + `mem()` reads through the FFI | 3.8-3.9 | 2.7-2.8 | 17,400 reads a frame |
+| FileFormats round (more SMATRS runs) | 5.2-5.5 | 3.4-3.6 | 33,700 reads a frame |
+
+The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
+its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
+each, `extraBGOProperties` ~0.15 ms). Image sizes are now cached by path, as
+LunaLua caches images: SMATRS's dialogue code rebuilds a font from the same
+PNG every time it formats text.
 
 bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
 
@@ -405,12 +438,17 @@ bonus1: ~3.4 ms (Lua ~1.8). The engine's own part is ~1 ms.
    some reach engine code, and an FFI-called function must never call back
    into Lua.
 
-**Open:** a rare single frame of ~60 ms (seen in about 1 run in 5, before and
-after these changes; not caught yet). The probe's "slowest" line shows the
+**Open:** since the FileFormats round, every 1-1 run has one ~31-35 ms frame
+(onTick ~15 ms, heap +1.9 MB, dozens of traces compiled); not looked at yet.
+The engine's part also went from ~1.1 to ~1.85 ms a frame. Before that, a
+rare single frame of ~60 ms (about 1 run in 5; not caught yet). The probe's "slowest" line shows the
 events and heap change of such a frame; a large GC step is the main suspect
 (SMBX2 runs the GC by hand in `onDrawEnd`, `main_events.lua`).
 
 **Candidates, roughly in order of expected payoff (measure first):**
+0. **Draw work that isn't drawn yet.** `cutscenePal`/`darkness`/`hudCreator`
+   build draw data every frame for calls we drop; measure again once Phase 4
+   draws for real, as that cost becomes real work too.
 1. **SMBX2's class lookup** around `mem()` (`player.x` is ~50 ns, of which
    the read is 6). The sampler shows `ffi_player.lua` `__index`/`get` and
    `classValidityChecker` near the top. Patch carefully: these are SMBX2's

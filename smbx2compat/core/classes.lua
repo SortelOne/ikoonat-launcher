@@ -207,3 +207,59 @@ function PlayerSettings.get(character, powerup)
 end
 
 _G.PlayerSettings = PlayerSettings
+
+
+-----------------
+-- InputConfig --
+-----------------
+
+-- LunaLua's inputConfig1/inputConfig2 (LuaProxyNativeInput.cpp): the input
+-- type (0 = keyboard) and each key as a Windows key code. TheXTech's control
+-- profiles use SDL codes, so these hold SMBX's default keys for now; changes
+-- are kept but don't reach the engine. TODO: map from TheXTech's profiles.
+local function inputConfig(idx)
+    return {
+        idx = idx,
+        inputType = 0,
+        up = VK_UP, down = VK_DOWN, left = VK_LEFT, right = VK_RIGHT,
+        run = 0x58, altrun = 0x53,    -- X, S
+        jump = 0x5A, altjump = 0x41,  -- Z, A
+        dropitem = VK_SHIFT, pause = VK_ESCAPE,
+    }
+end
+
+_G.inputConfig1 = inputConfig(1)
+_G.inputConfig2 = inputConfig(2)
+
+
+----------------
+-- Legacy NPC --
+----------------
+
+-- ffi_npc.lua keeps the NPC class LunaLua registers in C++ (as LegacyNPC) and
+-- builds its NPC.spawn on LegacyNPC.spawn; nothing else of that class is used.
+-- Before this, NPC is still the engine's own class, which has no spawn.
+local ENGINE_MAX_NPC_ID = 306 -- maxNPCType in src/global_constants.h
+
+_G.NPC = {
+    spawn = function(id, x, y, section, respawn, centered)
+        id, section = math.floor(tonumber(id) or 0), math.floor(tonumber(section) or -1)
+        if id < 1 then
+            error("Invalid NPC-ID!\nGot NPC-ID: " .. tostring(id), 2)
+        end
+        if section < 0 or section > 20 then
+            error("Invalid Section!\nNeed Section-Index between 0-20\nGot Section-Index: " .. tostring(section), 2)
+        end
+        -- Like the level loader, IDs past the engine's become ID 1 (ROADMAP Phase 3)
+        if id > ENGINE_MAX_NPC_ID then
+            core.missingAPI("NPC IDs above " .. ENGINE_MAX_NPC_ID .. " (spawned as ID 1)")
+            id = 1
+        end
+        local idx = xtech_npc_spawnLegacy(id, tonumber(x) or 0, tonumber(y) or 0, section,
+                                          respawn and true or false, centered and true or false)
+        if idx < 0 then
+            error("Over 5000 NPCs, cannot spawn more!", 2)
+        end
+        return { idx = idx }
+    end,
+}

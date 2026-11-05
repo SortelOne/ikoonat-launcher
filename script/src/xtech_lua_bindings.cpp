@@ -464,6 +464,41 @@ static NPC_t* lua_npc_create(int type, num_t x, num_t y, num_t xspd, num_t yspd)
     return const_cast<NPC_t*>(&NPC[numNPCs]);
 }
 
+// smbx2compat: LunaLua's NPC.spawn (LuaProxyNPC.cpp), which SMBX2's ffi_npc.lua
+// builds on: a blank NPC at (x, y), active, in the given section. Returns the
+// new NPC's 0-based index (LunaLua's), or -1 when the NPC array is full.
+static int lua_npc_spawnLegacy(int type, double x, double y, int section, bool respawn, bool centered)
+{
+    if(numNPCs >= maxNPCs)
+        return -1;
+
+    numNPCs++;
+    auto &n = NPC[numNPCs];
+    n = NPC_t();
+    n.Type = (NPCID)type;
+    num_t width = NPCWidth(type), height = NPCHeight(type);
+    if(centered)
+    {
+        x -= 0.5 * (double)width;
+        y -= 0.5 * (double)height;
+    }
+    n.Location.X = num_t(x, nullptr);
+    n.Location.Y = num_t(y, nullptr);
+    n.Location.Width = width;
+    n.Location.Height = height;
+    n.DefaultLocationX = n.Location.X;
+    n.DefaultLocationY = n.Location.Y;
+    if(respawn)
+        n.DefaultType = (NPCID)type;
+    n.TimeLeft = 180;
+    n.Active = true;
+    n.Section = section;
+
+    syncLayers_NPC(numNPCs);
+
+    return numNPCs - 1;
+}
+
 // getByName
 static NPC_t* npc_getByName(const std::string &name) {
     for(int i = 1; i <= numNPCs; i++)
@@ -490,6 +525,19 @@ static Layer_t* get(int index)
 static int count()
 {
     return numLayers;
+}
+
+// smbx2compat: LunaLua's LunaLuaShowLayer/LunaLuaHideLayer (index from 0, as in SMBX)
+static void show(int index, bool noSmoke)
+{
+    if(index >= 0 && index < numLayers)
+        ShowLayer(index, noSmoke);
+}
+
+static void hide(int index, bool noSmoke)
+{
+    if(index >= 0 && index < numLayers)
+        HideLayer(index, noSmoke);
 }
 
 static void setXSpeed(Layer_t *layer, num_t speed)
@@ -949,6 +997,18 @@ static void triggerByName(const std::string &eventName)
         code->Activated = true;
         code->Expired = false;
     }
+}
+
+// smbx2compat: LunaLua's triggerEvent(name): a level (SMBX) event, not an
+// autocode one. LunaLua runs it at once; TriggerEvent queues it for this frame,
+// which keeps scripts from re-entering the engine mid-update.
+static bool triggerLevelEvent(const std::string &eventName)
+{
+    eventindex_t index = FindEvent(eventName);
+    if(index == EVENT_NONE)
+        return false;
+    TriggerEvent(index, 0);
+    return true;
 }
 
 static void cancelByName(const std::string &eventName)
@@ -3824,12 +3884,15 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_npc_getByName", &LuaNPC::npc_getByName),
         def("xtech_npc_forEach", &LuaNPC::forEach),
         def("xtech_npc_create", &LuaNPC::lua_npc_create),
+        def("xtech_npc_spawnLegacy", &LuaNPC::lua_npc_spawnLegacy), // smbx2compat
 
         // ================================================================
         // Layer API functions
         // ================================================================
         def("xtech_layer_get", &LuaLayer::get),
         def("xtech_layer_count", &LuaLayer::count),
+        def("xtech_layer_show", &LuaLayer::show), // smbx2compat
+        def("xtech_layer_hide", &LuaLayer::hide), // smbx2compat
         def("xtech_layer_setXSpeed", &LuaLayer::setXSpeed),
         def("xtech_layer_setYSpeed", &LuaLayer::setYSpeed),
         def("xtech_layer_stop", &LuaLayer::stop),
@@ -3948,6 +4011,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_event_trigger", &LuaEvent::trigger),
         def("xtech_event_triggerByName", &LuaEvent::triggerByName),
         def("xtech_event_cancelByName", &LuaEvent::cancelByName),
+        def("xtech_event_triggerLevelEvent", &LuaEvent::triggerLevelEvent), // smbx2compat
 
         // ================================================================
         // Misc API functions

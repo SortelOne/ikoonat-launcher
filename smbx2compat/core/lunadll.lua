@@ -93,6 +93,11 @@ function dll.LunaLuaGetSelectedControllerStickPosition(playerNum)
     return ffi.new("StickPos")
 end
 
+-- Matches inputConfig1/2 (classes.lua), which say keyboard. ffi.string takes a Lua string.
+function dll.LunaLuaGetSelectedControllerName(playerNum)
+    return "Keyboard"
+end
+
 
 ----------------------
 -- ffi_graphics.lua --
@@ -138,10 +143,18 @@ local images = {}
 local nextImage = 1
 core.images = images
 
+-- Image sizes by path. Like LunaLua's image cache, so a script that loads the
+-- same file every frame (SMATRS's dialogue fonts do) doesn't reread it each time.
+local imageSizes = {}
+
 local function newImage(path, sizeOut)
-    local size = xtech_misc_imageSize(path)
-    if not size then
-        return nil
+    local size = imageSizes[path]
+    if size == nil then
+        size = xtech_misc_imageSize(path)
+        if not size then
+            return nil
+        end
+        imageSizes[path] = size
     end
     local id = nextImage
     nextImage = nextImage + 1
@@ -229,8 +242,6 @@ function dll.FFI_GetSpriteOverride(name, sizeOut)
     return path and newImage(path, sizeOut) or ffi.cast("LunaImageRef*", nil)
 end
 
--- Shaders: handles that report "not compiled yet" (compile returns false with
--- no error, which ffi_graphics treats as try-again-later, not a failure)
 local nextHandle = 1
 local function newHandle(ctype)
     local h = ffi.cast(ctype, nextHandle)
@@ -238,20 +249,154 @@ local function newHandle(ctype)
     return h
 end
 
+local function handleKey(h)
+    return tonumber(ffi.cast("uintptr_t", h))
+end
+
+-- Shaders: nothing is compiled yet (Phase 4), but scripts such as darkness.lua
+-- need a compiled shader and its variable list right away, and an error there
+-- stops every later onStart handler. So compiling always succeeds, and the
+-- uniforms and attributes come from the declarations in the source, shaped
+-- like GL's reflection: arrays as "name[0]" with the element count.
+local shaders = {}
+
+-- GLSL type -> GL type enum
+local glslTypes = {
+    float = 0x1406, vec2 = 0x8B50, vec3 = 0x8B51, vec4 = 0x8B52,
+    int = 0x1404, ivec2 = 0x8B53, ivec3 = 0x8B54, ivec4 = 0x8B55,
+    uint = 0x1405, uvec2 = 0x8DC6, uvec3 = 0x8DC7, uvec4 = 0x8DC8,
+    bool = 0x8B56, bvec2 = 0x8B57, bvec3 = 0x8B58, bvec4 = 0x8B59,
+    mat2 = 0x8B5A, mat3 = 0x8B5B, mat4 = 0x8B5C,
+    mat2x2 = 0x8B5A, mat3x3 = 0x8B5B, mat4x4 = 0x8B5C,
+    mat2x3 = 0x8B65, mat2x4 = 0x8B66, mat3x2 = 0x8B67,
+    mat3x4 = 0x8B68, mat4x2 = 0x8B69, mat4x3 = 0x8B6A,
+    sampler1D = 0x8B5D, sampler2D = 0x8B5E, sampler3D = 0x8B5F, samplerCube = 0x8B60,
+    sampler1DShadow = 0x8B61, sampler2DShadow = 0x8B62, sampler2DRect = 0x8B63,
+}
+local qualifiers = { lowp = true, mediump = true, highp = true, const = true,
+                     flat = true, smooth = true, noperspective = true }
+
+-- "[8]" -> 8; sizes are numbers once SMBX2's preprocessor has run, but allow
+-- simple arithmetic
+local function arraySize(spec)
+    local expr = string.match(spec, "^%[(.*)%]$")
+    if expr == nil or expr == "" then
+        return nil
+    end
+    if string.find(expr, "^[%d%s%+%-%*/%(%)]+$") then
+        local f = loadstring("return " .. expr)
+        local ok, n = pcall(f)
+        if ok and type(n) == "number" then
+            return math.floor(n)
+        end
+    end
+    return 1
+end
+
+-- Drops initializers ("= vec2(1.0, 2.0)") while splitting declarators at commas
+local function declarators(text)
+    local list, depth, start, skipping = {}, 0, 1, false
+    for i = 1, #text + 1 do
+        local c = string.sub(text, i, i)
+        if c == "(" then
+            depth = depth + 1
+        elseif c == ")" then
+            depth = depth - 1
+        elseif (c == "," and depth == 0) or c == "" then
+            list[#list + 1] = string.match(string.sub(text, start, i - 1), "^%s*([^=]-)%s*=") or
+                              string.match(string.sub(text, start, i - 1), "^%s*(.-)%s*$")
+            start = i + 1
+        end
+    end
+    return list
+end
+
+local function parseVariables(source, keywords, varInfoType, out)
+    source = string.gsub(source, "/%*.-%*/", " ")
+    source = string.gsub(source, "//[^\n]*", "")
+    source = string.gsub("\n" .. source, "\n%s*#[^\n]*", "\n")
+    for statement in string.gmatch(source, "[^;{}]+") do
+        local words = string.match(statement, "^%s*(.-)%s*$")
+        local first, rest = string.match(words, "^(%a+)%s+(.*)$")
+        if first and keywords[first] then
+            -- skip precision/interpolation qualifiers, then the type
+            local typeName
+            repeat
+                typeName, rest = string.match(rest, "^([%w_]+)%s*(.*)$")
+            until typeName == nil or not qualifiers[typeName]
+            local glType = typeName and glslTypes[typeName]
+            if glType then
+                -- GLSL 1.20 also allows the array size on the type: "mat3x4 [8] lights"
+                local typeArray, after = string.match(rest, "^(%b[])%s*(.*)$")
+                if typeArray then
+                    rest = after
+                end
+                for _, decl in ipairs(declarators(rest)) do
+                    local name, spec = string.match(decl, "^([%a_][%w_]*)%s*(%b[])$")
+                    name = name or string.match(decl, "^([%a_][%w_]*)$")
+                    if name then
+                        local count = arraySize(spec or typeArray or "")
+                        local entry = {
+                            varInfoType = varInfoType,
+                            id = #out,
+                            arrayCount = count or 1,
+                            type = glType,
+                            name = count and (name .. "[0]") or name,
+                            rawName = name,
+                            arrayDepth = count and 1 or 0,
+                        }
+                        out[#out + 1] = entry
+                    end
+                end
+            end
+        end
+    end
+    return out
+end
+
 function dll.FFI_ShaderFromStrings(vertexSource, fragmentSource)
-    core.missingAPI("shaders")
-    return newHandle("FFI_ShaderObjRef*")
+    core.missingAPI("shaders (variables read from source; nothing is drawn)")
+    local h = newHandle("FFI_ShaderObjRef*")
+    vertexSource, fragmentSource = vertexSource or "", fragmentSource or ""
+    local uniforms = parseVariables(vertexSource, { uniform = true }, 1, {})
+    local seen = {}
+    for _, u in ipairs(uniforms) do
+        seen[u.rawName] = true
+    end
+    for _, u in ipairs(parseVariables(fragmentSource, { uniform = true }, 1, {})) do
+        if not seen[u.rawName] then
+            u.id = #uniforms
+            uniforms[#uniforms + 1] = u
+        end
+    end
+    shaders[handleKey(h)] = {
+        uniforms = uniforms,
+        attributes = parseVariables(vertexSource, { attribute = true, ["in"] = true }, 0, {}),
+    }
+    return h
 end
 
 function dll.FFI_ShaderFree(obj)
+    shaders[handleKey(obj)] = nil
 end
 
 function dll.FFI_ShaderCompile(obj)
-    return false
+    return shaders[handleKey(obj)] ~= nil
 end
 
 function dll.FFI_ShaderError(obj)
     return nil
+end
+
+-- ffi_graphics reads these with ffi.string, which takes a Lua string as well
+function dll.FFI_GetUniformInfo(obj, idx)
+    local s = shaders[handleKey(obj)]
+    return s and s.uniforms[tonumber(idx) + 1]
+end
+
+function dll.FFI_GetAttributeInfo(obj, idx)
+    local s = shaders[handleKey(obj)]
+    return s and s.attributes[tonumber(idx) + 1]
 end
 
 -- Capture buffers (render targets): handles; capturing and drawing is Phase 4
@@ -264,6 +409,19 @@ end
 
 function dll.FFI_GraphicsGetMainFramebufferSize()
     return ffi.new("FBSize", 800, 600)
+end
+
+
+-------------------
+-- ffi_layer.lua --
+-------------------
+
+function dll.LunaLuaShowLayer(layerIndex, noSmoke)
+    xtech_layer_show(layerIndex, noSmoke and true or false)
+end
+
+function dll.LunaLuaHideLayer(layerIndex, noSmoke)
+    xtech_layer_hide(layerIndex, noSmoke and true or false)
 end
 
 
@@ -393,6 +551,146 @@ end
 function dll.LunaLuaGetBlockExtendedFieldsArray()
     blockExtended = blockExtended or ffi.new("ExtendedBlockFields[?]", MAX_BLOCKS + 1)
     return blockExtended
+end
+
+
+-----------------------------------------------------------
+-- Collision groups (ffi_misc.lua and the ffi_* objects) --
+-----------------------------------------------------------
+-- LunaLua's CollisionMatrix (Misc/CollisionMatrix.cpp), with the group-name
+-- layer SMBX2 now expects on top. Objects store a group index in their extended
+-- fields; index 0 is the unnamed default group. By default two objects collide
+-- unless they share a named group; Misc.groupsCollide flips single pairs.
+-- An index is freed once no object and no flipped pair refers to it.
+-- TODO: the engine's own collisions don't consult this yet; only scripts do.
+
+local groupNames = { [0] = "" } -- index -> name
+local groupIndices = { [""] = 0 } -- name -> index
+local groupRefs = {}            -- index -> objects + flipped pairs using it
+local groupStrings = {}         -- index -> the FFIString handed to scripts
+local freeIndices = {}
+local nextIndex = 1
+local flipped = {}              -- min * PAIR_KEY + max -> true where not default
+local flippedCount = 0
+local PAIR_KEY = 2^24
+
+local function groupName(name)
+    if name == nil then
+        return ""
+    end
+    return tostring(name)
+end
+
+-- The index for a name, made on first use (with no references yet)
+local function indexFor(name)
+    local idx = groupIndices[name]
+    if idx then
+        return idx
+    end
+    idx = table.remove(freeIndices) or nextIndex
+    if idx == nextIndex then
+        nextIndex = nextIndex + 1
+    end
+    groupNames[idx] = name
+    groupIndices[name] = idx
+    groupRefs[idx] = 0
+    groupStrings[idx] = nil
+    return idx
+end
+
+local function releaseIfUnused(idx)
+    if idx ~= 0 and groupRefs[idx] == 0 then
+        groupIndices[groupNames[idx]] = nil
+        groupNames[idx] = nil
+        groupRefs[idx] = nil
+        groupStrings[idx] = nil
+        freeIndices[#freeIndices + 1] = idx
+    end
+end
+
+local function addRef(idx, n)
+    if idx ~= 0 and groupRefs[idx] then
+        groupRefs[idx] = groupRefs[idx] + n
+        releaseIfUnused(idx)
+    end
+end
+
+local function indicesCollide(i, j)
+    if i > j then
+        i, j = j, i
+    end
+    local collide = i == 0 or i ~= j
+    if flippedCount > 0 and flipped[i * PAIR_KEY + j] then
+        return not collide
+    end
+    return collide
+end
+
+function dll.LunaLuaCollisionMatrixGetGroupIndicesCollide(i, j)
+    return indicesCollide(i, j)
+end
+
+-- A name nothing uses yet has no flipped pairs and differs from every used group
+function dll.LunaLuaCollisionMatrixGetGroupIndexCollidesWithGroup(i, name)
+    local j = groupIndices[groupName(name)]
+    if j == nil then
+        return true
+    end
+    return indicesCollide(i, j)
+end
+
+function dll.LunaLuaCollisionMatrixGetGroupsCollide(a, b)
+    a, b = groupName(a), groupName(b)
+    local i, j = groupIndices[a], groupIndices[b]
+    if i == nil or j == nil then
+        return a == "" or b == "" or a ~= b
+    end
+    return indicesCollide(i, j)
+end
+
+function dll.LunaLuaCollisionMatrixSetGroupsCollide(a, b, collide)
+    local i, j = indexFor(groupName(a)), indexFor(groupName(b))
+    if i > j then
+        i, j = j, i
+    end
+    local key = i * PAIR_KEY + j
+    local wantFlip = collide ~= (i == 0 or i ~= j)
+    if wantFlip and not flipped[key] then
+        flipped[key] = true
+        flippedCount = flippedCount + 1
+        addRef(i, 1)
+        addRef(j, 1)
+    elseif not wantFlip and flipped[key] then
+        flipped[key] = nil
+        flippedCount = flippedCount - 1
+        addRef(i, -1)
+        addRef(j, -1)
+    else
+        releaseIfUnused(i)
+        releaseIfUnused(j)
+    end
+end
+
+-- Moves one object from its old group to a new one and returns the new index
+function dll.LunaLuaCollisionMatrixAssignGroup(previous, name)
+    local idx = indexFor(groupName(name))
+    addRef(idx, 1)
+    addRef(previous, -1)
+    return idx
+end
+
+-- Scripts read it as ffi.string(s.buf, s.size), which takes a Lua string as buf
+function dll.LunaLuaCollisionMatrixGetGroupFromIndex(idx)
+    local s = groupStrings[idx]
+    if s == nil then
+        local name = groupNames[idx]
+        if name == nil then
+            return { buf = "", size = 0 }
+        end
+        s = { buf = name, size = #name }
+        groupStrings[idx] = s
+    end
+    return s
 end
 
 -- LunaLua's gRawKeymap[4]: this frame's keys for players 1-2, then last frame's.
