@@ -509,6 +509,10 @@ static const char *FieldtypeToStr(FIELDTYPE ftype)
     }
 }
 
+// smbx2compat: SMBX2's script-run end states (8+) are kept in LevelMacro past
+// this, where the engine runs no macro for them
+static constexpr int c_scriptLevelMacroBase = 1000;
+
 
 
 /*!
@@ -616,16 +620,69 @@ public:
         insert(0x00B2C59E, // smbx2compat: LevelMacro, how the level is being won (SMBX2's Level.winState)
             [](FIELDTYPE ftype)->num_t
             {
-                return valueToMem((int)LevelMacro, ftype);
+                int tmp = (int)LevelMacro;
+                if(tmp >= c_scriptLevelMacroBase)
+                    tmp -= c_scriptLevelMacroBase;
+                return valueToMem(tmp, ftype);
             },
             [](num_t in, FIELDTYPE ftype)->void
             {
                 int tmp = 0;
                 memToValue(tmp, in, ftype);
+                // SMBX has macros 1-7; SMBX2's later end states (switch palace, flagpole,
+                // SMW orb) are run by its endstates.lua, while TheXTech's 8 is its own
+                // flag exit. Keep those numbers out of the engine's macros.
+                if(tmp > (int)LEVELMACRO_GOAL_TAPE_EXIT)
+                    tmp += c_scriptLevelMacroBase;
                 LevelMacro = static_cast<LevelMacro_t>(tmp);
             }
         );
         insert(0x00B2C5A0, &LevelMacroCounter); // smbx2compat
+        insert(0x00B2C59C, &EndLevel); // smbx2compat: SMBX2's Level.finish(0)
+        insert(0x00B2C5D4, // smbx2compat: LevelBeatCode, the win type a level exit unlocks paths with
+            [](FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((int)LevelBeatCode, ftype);
+            },
+            [](num_t in, FIELDTYPE ftype)->void
+            {
+                int tmp = 0;
+                memToValue(tmp, in, ftype);
+                LevelBeatCode = static_cast<LevelBeatCode_t>(tmp);
+            }
+        );
+        insert(0x00B2C5B4, // smbx2compat: LevelSelect, "show the world map"
+            [](FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(LevelSelect, ftype);
+            },
+            [](num_t in, FIELDTYPE ftype)->void
+            {
+                bool tmp = false;
+                memToValue(tmp, in, ftype);
+                // SMBX2's Level.exit sets it to leave the level; SMBX's frame loop then
+                // stopped. Leave through the engine's own level end instead, which
+                // also clears the level and its scripts.
+                if(tmp && !LevelSelect && !GameMenu)
+                    EndLevel = true;
+                else if(tmp != LevelSelect)
+                    pLogWarning("smbx2compat: mem() write to LevelSelect (0x00B2C5B4) outside a level dropped");
+            }
+        );
+        insert(0x00B2C620, // smbx2compat: GameMenu, the title screen
+            [](FIELDTYPE ftype)->num_t
+            {
+                return valueToMem(GameMenu, ftype);
+            },
+            [](num_t in, FIELDTYPE ftype)->void
+            {
+                bool tmp = false;
+                memToValue(tmp, in, ftype);
+                // Level.exit clears it, which it already is in a level
+                if(tmp != GameMenu)
+                    pLogWarning("smbx2compat: mem() write to GameMenu (0x00B2C620) dropped");
+            }
+        );
         insert(0x00B250AC, // smbx2compat: ScreenShake (SMBX2's Defines.earthquake)
             [](FIELDTYPE)->num_t
             {
@@ -881,7 +938,8 @@ public:
             auto bres = m_bf.find(address);
             if(bres != m_bf.end())
             {
-                if(ftype != FT_WORD && ftype != FT_BYTE)
+                // smbx2compat: SMBX2's HUD reads VB6 booleans as DWORDs too (hudoverride.lua)
+                if(ftype != FT_WORD && ftype != FT_BYTE && ftype != FT_DWORD)
                     pLogWarning("MemEmu: Read type missmatched at 0x%x (Sint16 or Uint8 as boolean expected, %s actually)", static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 return *bres->second ? 0xffff : 0x0000;
             }

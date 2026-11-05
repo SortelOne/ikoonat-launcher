@@ -36,6 +36,7 @@
 #include "../game_main.h" // SetupPhysics()
 #include "../frame_timer.h"
 #include "../npc.h"
+#include "../blocks.h" // smbx2compat: PSwitchScript
 #include "../load_gfx.h"
 #include "../custom.h"
 #include "../sound.h"
@@ -1858,6 +1859,7 @@ void ClearLevel()
     InvincibilityTime = 0;
     PSwitchTime = 0;
     PSwitchStop = 0;
+    PSwitchScript(0); // smbx2compat
     BeltDirection = 1;
     StopMusic();
     Layer[0] = Layer_t();

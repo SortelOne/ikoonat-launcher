@@ -43,6 +43,14 @@
 
 #include <Logger/logger.h>
 
+// smbx2compat: SMBX2's npc:harm(type, damage) replaces the damage of each hit
+int g_npcHitDamage = -1;
+
+static inline int s_hitDamage(int damage)
+{
+    return (g_npcHitDamage >= 0) ? g_npcHitDamage : damage;
+}
+
 void NPCHit(int A, int B, int C)
 {
     // NPC_t tempNPC;
@@ -455,7 +463,7 @@ void NPCHit(int A, int B, int C)
             NPC[A].Immune = 10;
         if(B == 1 || B == 2 || B == 8)
         {
-            NPC[A].Damage += 5;
+            NPC[A].Damage += s_hitDamage(5);
             PlaySoundSpatial(SFX_Stomp, NPC[A].Location);
             NPC[A].Special = 5;
             if(NPC[A].Type == NPCID_MAGIC_BOSS && NPC[A].Damage < 15)
@@ -465,14 +473,14 @@ void NPCHit(int A, int B, int C)
         {
             if(NPC[C].Type == NPCID_PLR_FIREBALL || NPC[C].Type == NPCID_PET_FIRE)
             {
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
                 PlaySoundSpatial(SFX_ShellHit, NPC[A].Location);
             }
             else
             {
                 NPCHit(C, 3, B);
                 NPC[A].Special = 5;
-                NPC[A].Damage += 5;
+                NPC[A].Damage += s_hitDamage(5);
                 PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
                 if(NPC[A].Type == NPCID_MAGIC_BOSS && NPC[A].Damage < 15)
                     PlaySoundSpatial(SFX_MagicBossShell, NPC[A].Location);
@@ -480,7 +488,7 @@ void NPCHit(int A, int B, int C)
         }
         else if(B == 10)
         {
-            NPC[A].Damage += 2;
+            NPC[A].Damage += s_hitDamage(2);
             PlaySoundSpatial(SFX_HeroHit, NPC[A].Location);
         }
         else if(B == 6)
@@ -538,20 +546,20 @@ void NPCHit(int A, int B, int C)
         {
             if(NPC[C].Type == NPCID_PLR_FIREBALL || NPC[C].Type == NPCID_PET_FIRE)
             {
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
                 PlaySoundSpatial(SFX_ShellHit, NPC[A].Location);
             }
             else
             {
                 NPCHit(C, 3, B);
                 NPC[A].Special = 5;
-                NPC[A].Damage += 5;
+                NPC[A].Damage += s_hitDamage(5);
                 PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
             }
         }
         else if(B == 10)
         {
-            NPC[A].Damage += 2;
+            NPC[A].Damage += s_hitDamage(2);
             PlaySoundSpatial(SFX_HeroHit, NPC[A].Location);
         }
         else if(B == 6)
@@ -650,7 +658,7 @@ void NPCHit(int A, int B, int C)
                         NPC[A].Immune = 20;
                     NPC[A].Special = 1;
                     PlaySoundSpatial(SFX_SMBossHit, NPC[A].Location);
-                    NPC[A].Damage += 1;
+                    NPC[A].Damage += s_hitDamage(1);
                     if(NPC[A].Damage >= 10)
                         NPC[A].Killed = 3;
                 }
@@ -678,12 +686,12 @@ void NPCHit(int A, int B, int C)
                     NPC[A].Immune = 60;
                 else
                     NPC[A].Immune = 20;
-                NPC[A].Damage += 3;
+                NPC[A].Damage += s_hitDamage(3);
             }
         }
         else if(B == 10)
         {
-            NPC[A].Damage += 3;
+            NPC[A].Damage += s_hitDamage(3);
             NPC[A].Immune = 10;
         }
         if(NPC[A].Damage >= 15)
@@ -717,9 +725,9 @@ void NPCHit(int A, int B, int C)
         if(B == 3)
         {
             if(NPC[C].Type == NPCID_PLR_FIREBALL)
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
             else
-                NPC[A].Damage += 3;
+                NPC[A].Damage += s_hitDamage(3);
             if(NPC[A].Damage >= 3)
                 NPC[A].Killed = B;
             else
@@ -727,7 +735,7 @@ void NPCHit(int A, int B, int C)
         }
         else if(B == 8)
         {
-            NPC[A].Damage += 1;
+            NPC[A].Damage += s_hitDamage(1);
             if(NPC[A].Damage >= 3)
                 NPC[A].Killed = B;
             else
@@ -748,11 +756,11 @@ void NPCHit(int A, int B, int C)
         {
             if(NPC[C].Type != NPCID_PLR_FIREBALL)
             {
-                NPC[A].Damage += 5;
+                NPC[A].Damage += s_hitDamage(5);
                 NPC[A].Immune = 60;
             }
             else
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
         }
         else if(B == 6)
         {
@@ -761,7 +769,7 @@ void NPCHit(int A, int B, int C)
         }
         else if(B == 10)
         {
-            NPC[A].Damage += 2;
+            NPC[A].Damage += s_hitDamage(2);
             NPC[A].Immune = 20;
         }
         if(NPC[A].Damage >= 20)
@@ -792,7 +800,7 @@ void NPCHit(int A, int B, int C)
                 if(NPC[A].Special == 1)
                 {
                     PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-                    NPC[A].Damage += 5;
+                    NPC[A].Damage += s_hitDamage(5);
                     NPC[A].Immune = 20;
                     NPC[C].Killed = 9;
                     NPCQueues::Killed.push_back(C);
@@ -803,13 +811,13 @@ void NPCHit(int A, int B, int C)
                 if(NPC[C].Type != NPCID_PLR_FIREBALL)
                 {
                     PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-                    NPC[A].Damage += 5;
+                    NPC[A].Damage += s_hitDamage(5);
                     NPC[A].Immune = 20;
                 }
                 else
                 {
                     PlaySoundSpatial(SFX_ShellHit, NPC[A].Location);
-                    NPC[A].Damage += 1;
+                    NPC[A].Damage += s_hitDamage(1);
                 }
             }
         }
@@ -821,7 +829,7 @@ void NPCHit(int A, int B, int C)
         else if(B == 10)
         {
             PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-            NPC[A].Damage += 5;
+            NPC[A].Damage += s_hitDamage(5);
             NPC[A].Immune = 20;
         }
     }
@@ -837,19 +845,19 @@ void NPCHit(int A, int B, int C)
             if(NPC[C].Type != NPCID_PLR_FIREBALL)
             {
                 PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-                NPC[A].Damage += 3;
+                NPC[A].Damage += s_hitDamage(3);
             }
             else
             {
                 PlaySoundSpatial(SFX_ShellHit, NPC[A].Location);
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
             }
         }
         else if(B == 10)
         {
             PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
             NPC[A].Immune = 20;
-            NPC[A].Damage += 1;
+            NPC[A].Damage += s_hitDamage(1);
         }
         else if(B == 6)
             NPC[A].Killed = B;
@@ -887,7 +895,7 @@ void NPCHit(int A, int B, int C)
         {
             if(B == 3 && NPC[C].Type == NPCID_SLIDE_BLOCK)
                 NPCHit(C, 3, C);
-            NPC[A].Damage += 1;
+            NPC[A].Damage += s_hitDamage(1);
             NPC[A].Immune = 30;
             if(NPC[A].Damage >= 3)
                 NPC[A].Killed = B;
@@ -1463,12 +1471,12 @@ void NPCHit(int A, int B, int C)
                 if(NPC[C].Type != NPCID_PLR_FIREBALL)
                 {
                     PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-                    NPC[A].Damage += 10;
+                    NPC[A].Damage += s_hitDamage(10);
                 }
                 else
                 {
                     PlaySoundSpatial(SFX_ShellHit, NPC[A].Location);
-                    NPC[A].Damage += 1;
+                    NPC[A].Damage += s_hitDamage(1);
                 }
             }
         }
@@ -1478,7 +1486,7 @@ void NPCHit(int A, int B, int C)
         {
             NPC[A].Immune = 10;
             PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-            NPC[A].Damage += 10;
+            NPC[A].Damage += s_hitDamage(10);
         }
         if(NPC[A].Damage >= 200)
         {
@@ -1636,14 +1644,14 @@ void NPCHit(int A, int B, int C)
                     if(NPC[C].Type == NPCID_PLR_FIREBALL)
                     {
                         PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
-                        NPC[A].Damage += 1;
+                        NPC[A].Damage += s_hitDamage(1);
                         NPC[A].Special3 = 10;
                         if(NPC[A].Special2 == 2)
                             NPC[A].Special = 50;
                     }
                     else
                     {
-                        NPC[A].Damage += 3;
+                        NPC[A].Damage += s_hitDamage(3);
                         PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
                         NPC[A].Special3 = 30;
                         if(NPC[A].Special2 == 2)
@@ -1652,7 +1660,7 @@ void NPCHit(int A, int B, int C)
                 }
                 else if(B == 10)
                 {
-                    NPC[A].Damage += 2;
+                    NPC[A].Damage += s_hitDamage(2);
                     PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
                     NPC[A].Special3 = 10;
                     if(NPC[A].Special2 == 2)
@@ -1752,7 +1760,7 @@ void NPCHit(int A, int B, int C)
         {
             if((B == 1 || B == 10) && NPC[A].Special == 0)
             {
-                NPC[A].Damage += 3;
+                NPC[A].Damage += s_hitDamage(3);
                 if(B == 1)
                     PlaySoundSpatial(SFX_Stomp, NPC[A].Location);
                 else
@@ -1830,7 +1838,7 @@ void NPCHit(int A, int B, int C)
                 else if(NPC[C].Type != NPCID_PLR_FIREBALL)
                 {
                     NPC[A].Special5 = -30;
-                    NPC[A].Damage += 1;
+                    NPC[A].Damage += s_hitDamage(1);
                     NPC[A].Direction = -NPC[A].Direction;
                     PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
                 }
@@ -1840,7 +1848,7 @@ void NPCHit(int A, int B, int C)
             else if(B == 10)
             {
                 NPC[A].Special5 = -30;
-                NPC[A].Damage += 1;
+                NPC[A].Damage += s_hitDamage(1);
                 NPC[A].Direction = -NPC[A].Direction;
                 PlaySoundSpatial(SFX_SpitBossHit, NPC[A].Location);
             }

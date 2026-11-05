@@ -46,6 +46,8 @@ void TouchBonus(int A, int B);
 // Public Sub NPCHit(A As Integer, B As Integer, Optional C As Integer = 0) 'For NPCs that were hit
 // For NPCs that were hit
 void NPCHit(int A, int B, int C = 0);
+// smbx2compat: if 0 or more, the damage every NPCHit adds instead of its own (SMBX2's npc:harm)
+extern int g_npcHitDamage;
 // Public Sub KillNPC(A As Integer, B As Integer) 'Handles NPC deaths and death effects
 // Handles NPC deaths and death effects
 // Returns true if this should be resumed later

@@ -27,6 +27,7 @@
 #include <memory>
 #include <chrono>
 #include <algorithm> // smbx2compat: std::remove
+#include <cmath> // smbx2compat: std::lround
 
 extern "C"
 {
@@ -67,6 +68,9 @@ extern "C"
 #include "main/level_save_info.h"
 #include "main/level_file.h"
 #include "main/trees.h" // smbx2compat: block quadtree queries
+#include "blocks.h" // smbx2compat: Misc.doPOW / doPSwitch
+#include "npc/npc_queues.h" // smbx2compat: Misc.npcToCoins
+#include "eff_id.h" // smbx2compat
 #include "main/smbx2_collision.h" // smbx2compat: collision groups
 
 #include "script/luna/lunaplayer.h"
@@ -3208,6 +3212,168 @@ static unsigned mem_templateAddress(int character)
     return 0;
 }
 
+// smbx2compat: LunaLua's Misc game actions (LuaProxyGlobalFuncMisc.cpp, NPCs.cpp).
+// NPC indices from scripts start at 0, as SMBX2's NPC._idx does.
+
+// One of LunaLua's extended NPC properties (storage behind mem())
+static double npcProperty(const char *name, int id)
+{
+    for(size_t t = 0; t < c_numMemTypeArrays; t++)
+    {
+        const MemTypeArray &a = s_memTypeArrays[t];
+        if(a.kind && std::strcmp(a.kind, "npc") == 0 && std::strcmp(a.name, name) == 0)
+            return (id >= a.first && id <= a.storeLast) ? memTypeArrayGet(t, id, 0, a.type) : 0;
+    }
+    return 0;
+}
+
+// Misc.npcToCoins: LunaLua's reconstruction of SMBX's, which SMBX2 configures
+// with the notcointransformable property instead of SMBX's list of NPC IDs
+static void npcToCoins()
+{
+    for(int A = 1; A <= numNPCs; A++)
+    {
+        NPC_t &n = NPC[A];
+        if(n.Generator)
+        {
+            n.Killed = 9;
+            n.Hidden = true;
+            NPCQueues::Killed.push_back(A);
+            continue;
+        }
+
+        if(!n.Active || n.Hidden || n.Killed != 0 || n.Inert || NPCIsAnExit(n))
+            continue;
+
+        if(npcProperty("notcointransformable", n.Type) != 0)
+        {
+            if(n.Type == NPCID_GOALTAPE || n.Type == NPCID_FIRE_CHAIN || n.Type == NPCID_FIRE_DISK)
+            {
+                n.Active = false;
+                NPCQueues::update(A);
+            }
+            continue;
+        }
+
+        n.Location.Y += 32;
+        NewEffect(EFFID_COIN_BLOCK_S3, n.Location);
+        PlaySoundSpatial(SFX_Coin, n.Location);
+        Coins += 1;
+        if(Coins >= 100)
+            Got100Coins();
+
+        n.Killed = 9;
+        n.Location.Height = 0;
+        NPCQueues::Killed.push_back(A);
+        if(n.Active)
+            NPCQueues::Active.erase(A);
+        n.Active = false;
+
+        treeNPCUpdate(A);
+        if(n.tempBlock != 0)
+            treeNPCSplitTempBlock(A);
+    }
+}
+
+static void doPOW()
+{
+    PowBlock();
+}
+
+// Misc.doPSwitchRaw: blocks to coins and back, without the timer or music
+static void doPSwitchRaw(bool activate)
+{
+    PSwitchScript(activate ? 1 : -1);
+}
+
+// Misc.doPSwitch: the switch with its timer and music
+static void doPSwitch(bool activate)
+{
+    if(activate)
+    {
+        // one frame short of the length, so UpdateBlocks doesn't start it again
+        bool wasActive = (PSwitchTime > 0);
+        PSwitchTime = Physics.NPCPSwitch - 1;
+        if(!wasActive)
+        {
+            PSwitchPlayer = 1;
+            StopMusic();
+            StartMusic(-1);
+            PSwitchScript(1);
+        }
+    }
+    else
+    {
+        PSwitchTime = 0;
+        PSwitchScript(-1);
+        SwitchEndResumeMusic();
+    }
+}
+
+static void doBombExplosion(double x, double y, int bombType)
+{
+    Location_t loc;
+    loc.X = num_t(x, nullptr);
+    loc.Y = num_t(y, nullptr);
+    Bomb(loc, bombType, 0);
+}
+
+// NPC::HarmCombo / HarmComboWithDamage: SMBX's NPC hit with the dummy NPC 0 as
+// the other side; returns the score multiplier after it. damage < 0 = the hit's own.
+static int npc_harmCombo(int idx, int harmType, int multiplier, double damage)
+{
+    int A = idx + 1;
+    if(A < 1 || A > numNPCs)
+        return multiplier;
+
+    NPCID dummyType = NPC[0].Type;
+    switch(harmType)
+    {
+    case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9: case 10:
+        break;
+    case -1: // HARM_TYPE_EXT_FIRE
+        harmType = 3;
+        dummyType = NPCID_PLR_FIREBALL;
+        break;
+    case -2: // HARM_TYPE_EXT_ICE
+        harmType = 3;
+        dummyType = NPCID_PLR_ICEBALL;
+        break;
+    case -3: // HARM_TYPE_EXT_HAMMER
+        harmType = 3;
+        dummyType = NPCID_PLR_HEAVY;
+        break;
+    default:
+        return multiplier;
+    }
+
+    NPC_t &dummy = NPC[0];
+    NPCID oldType = dummy.Type;
+    int oldMultiplier = dummy.Multiplier;
+    Location_t oldLocation = dummy.Location;
+    dummy.Type = dummyType;
+    dummy.Multiplier = multiplier;
+    dummy.Location = NPC[A].Location;
+
+    g_npcHitDamage = (damage >= 0) ? (int)std::lround(damage) : -1;
+    NPCHit(A, harmType, 0);
+    g_npcHitDamage = -1;
+
+    int newMultiplier = dummy.Multiplier;
+    dummy.Type = oldType;
+    dummy.Multiplier = oldMultiplier;
+    dummy.Location = oldLocation;
+    return newMultiplier;
+}
+
+// NPC::Collect: as if the player touched it
+static void npc_collect(int idx, int playerIdx)
+{
+    int A = idx + 1;
+    if(A >= 1 && A <= numNPCs && playerIdx >= 1 && playerIdx <= numPlayers)
+        TouchBonus(playerIdx, A);
+}
+
 } // namespace LuaMisc
 
 
@@ -4126,6 +4292,13 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_mem_set", &LuaMisc::mem_set), // smbx2compat
         def("xtech_mem_templateAddress", &LuaMisc::mem_templateAddress), // smbx2compat
         def("xtech_mem_propertyTableAddress", &LuaMisc::mem_propertyTableAddress), // smbx2compat
+        def("xtech_misc_npcToCoins", &LuaMisc::npcToCoins), // smbx2compat
+        def("xtech_misc_doPOW", &LuaMisc::doPOW), // smbx2compat
+        def("xtech_misc_doPSwitchRaw", &LuaMisc::doPSwitchRaw), // smbx2compat
+        def("xtech_misc_doPSwitch", &LuaMisc::doPSwitch), // smbx2compat
+        def("xtech_misc_doBombExplosion", &LuaMisc::doBombExplosion), // smbx2compat
+        def("xtech_npc_harmCombo", &LuaMisc::npc_harmCombo), // smbx2compat
+        def("xtech_npc_collect", &LuaMisc::npc_collect), // smbx2compat
         def("xtech_block_queryIntersecting", &LuaMisc::block_queryIntersecting), // smbx2compat
         def("xtech_mem_getString", &LuaMisc::mem_getString), // smbx2compat
         def("xtech_mem_setString", &LuaMisc::mem_setString), // smbx2compat

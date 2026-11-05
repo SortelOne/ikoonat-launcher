@@ -67,4 +67,9 @@ void PowBlock();
 // Extra: restore the normal music after a switch ends
 void SwitchEndResumeMusic();
 
+// smbx2compat: turn blocks to coins and back (1) or undo it (-1) in the next
+// UpdateBlocks, without the switch's timer or music (SMBX2's Misc.doPSwitchRaw);
+// 0 cancels a pending one (level load)
+void PSwitchScript(int state);
+
 #endif // BLOCKS_H

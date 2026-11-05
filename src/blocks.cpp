@@ -50,6 +50,17 @@
 #include "main/trees.h"
 #include "main/game_loop_interrupt.h"
 
+// smbx2compat: objects spawned by scripts have no layer (LAYER_NONE), as in LunaLua
+static inline num_t s_layerOffsetX(layerindex_t l)
+{
+    return (l != LAYER_NONE) ? Layer[l].OffsetX : num_t();
+}
+
+static inline num_t s_layerOffsetY(layerindex_t l)
+{
+    return (l != LAYER_NONE) ? Layer[l].OffsetY : num_t();
+}
+
 void s_makeCoin(Block_t& b)
 {
     Coins += 1;
@@ -731,8 +742,8 @@ void BlockHit(int A, bool HitDown, int whatPlayer)
 
             nn.Effect2 = 0;
             nn.Layer = b.Layer;
-            nn.DefaultLocationX = nn.Location.X - Layer[b.Layer].OffsetX;
-            nn.DefaultLocationY = nn.Location.Y - Layer[b.Layer].OffsetY;
+            nn.DefaultLocationX = nn.Location.X - s_layerOffsetX(b.Layer);
+            nn.DefaultLocationY = nn.Location.Y - s_layerOffsetY(b.Layer);
             syncLayers_NPC(numNPCs);
             CheckSectionNPC(numNPCs);
 
@@ -1347,6 +1358,18 @@ void BlockFrames()
 
 bool PSwitch(bool enabled);
 
+// smbx2compat: SMBX2's Misc.doPSwitchRaw, queued until UpdateBlocks, where the
+// switch's events may interrupt the frame like the engine's own switch
+static int s_scriptPSwitch = 0; // 1 = to blocks, -1 = back to coins
+static bool s_scriptPSwitchRunning = false;
+
+void PSwitchScript(int state)
+{
+    s_scriptPSwitch = state;
+    if(state == 0)
+        s_scriptPSwitchRunning = false;
+}
+
 bool UpdateBlocks()
 {
     int B = 0;
@@ -1359,9 +1382,13 @@ bool UpdateBlocks()
     case GameLoopInterrupt::UpdateBlocks_TriggerHit:
         goto resume_iBlocks;
     case GameLoopInterrupt::UpdateBlocks_SwitchOn:
+        if(s_scriptPSwitchRunning) // smbx2compat
+            goto resume_ScriptSwitch;
         goto resume_SwitchOn;
     case GameLoopInterrupt::UpdateBlocks_SwitchOff:
     case GameLoopInterrupt::UpdateBlocks_SwitchOff_KillBlock:
+        if(s_scriptPSwitchRunning) // smbx2compat
+            goto resume_ScriptSwitch;
         goto resume_SwitchOff;
     default:
         break;
@@ -1634,6 +1661,17 @@ resume_KillBlock:
         }
     }
 
+    // smbx2compat: a switch a script asked for (PSwitchScript)
+    if(s_scriptPSwitch != 0)
+    {
+        s_scriptPSwitchRunning = true;
+resume_ScriptSwitch:
+        if(PSwitch(s_scriptPSwitch > 0))
+            return true;
+        s_scriptPSwitchRunning = false;
+        s_scriptPSwitch = 0;
+    }
+
     if(PSwitchTime > 0)
     {
         if(PSwitchTime == Physics.NPCPSwitch)
@@ -1815,8 +1853,8 @@ bool PSwitch(bool enabled)
                     nn.Location = Block[A].Location;
                     nn.Location.SpeedX = 0;
                     nn.Location.SpeedY = 0;
-                    nn.DefaultLocationX = nn.Location.X - Layer[nn.Layer].OffsetX;
-                    nn.DefaultLocationY = nn.Location.Y - Layer[nn.Layer].OffsetY;
+                    nn.DefaultLocationX = nn.Location.X - s_layerOffsetX(nn.Layer);
+                    nn.DefaultLocationY = nn.Location.Y - s_layerOffsetY(nn.Layer);
                     nn.Location.Width = nn->TWidth;
                     nn.Location.Height = nn->THeight;
                     nn.Location.X += (Block[A].Location.Width - nn.Location.Width) / 2;
@@ -1922,8 +1960,8 @@ bool PSwitch(bool enabled)
                     nn.Location = Block[A].Location;
                     nn.Location.SpeedX = 0;
                     nn.Location.SpeedY = 0;
-                    nn.DefaultLocationX = nn.Location.X - Layer[nn.Layer].OffsetX;
-                    nn.DefaultLocationY = nn.Location.Y - Layer[nn.Layer].OffsetY;
+                    nn.DefaultLocationX = nn.Location.X - s_layerOffsetX(nn.Layer);
+                    nn.DefaultLocationY = nn.Location.Y - s_layerOffsetY(nn.Layer);
                     nn.Location.Width = nn->TWidth;
                     nn.Location.Height = nn->THeight;
                     nn.Location.X += (Block[A].Location.Width - nn.Location.Width) / 2;

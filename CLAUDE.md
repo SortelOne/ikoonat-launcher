@@ -130,7 +130,9 @@ shim and directly from the engine; the game must keep running and log each once)
 `spritetest.lvlx` (sets, clears and re-sets sprite overrides, then kills the
 player so the level reloads and the overrides are restored at unload) and
 `collisiontest.lvlx` (goombas in collision groups against floor blocks; it
-logs `collisiontest: ... -> OK` or `WRONG` for each).
+logs `collisiontest: ... -> OK` or `WRONG` for each) and `actiontest.lvlx`
+(`npc:harm`, `npcToCoins`, P-switches, `npc:collect`, then `Level.exit()`;
+`actiontest: ... -> OK`/`WRONG`, then `actiontest: onExit`).
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
@@ -209,6 +211,13 @@ How it works (details in `core/boot.lua`'s header):
   `src/main/smbx2_collision.h`, which the engine checks where LunaLua hooks
   SMBX: NPC-NPC, held NPC-NPC, NPC-block, player-block, player-NPC,
   player-player.
+- Level endings and game actions: `Level.exit()` sets `LevelSelect`
+  (`0xB2C5B4`), which mememu turns into `EndLevel`, so levels end through
+  the engine's own path. SMBX2's script-run end states (8+) live in
+  `LevelMacro` past 1000. `Misc.npcToCoins`/`doPOW`/`doPSwitch*`/
+  `doBombExplosion` and `npc:harm`/`npc:collect` are `LuaMisc` functions in
+  `xtech_lua_bindings.cpp`; `doPSwitchRaw` is queued for `UpdateBlocks`
+  (`PSwitchScript`), since the switch's events can interrupt the frame.
 - Sprite overrides (`Graphics.sprites.block[id].img = ...`): lunadll.lua's
   `FFI_SetSpriteOverride` -> `xtech_gfx_setSpriteOverride` ->
   `SpriteOverride_Set` (`src/load_gfx.cpp`), which swaps the engine's texture
@@ -288,9 +297,7 @@ How it works (details in `core/boot.lua`'s header):
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
   Drawing works (shaders, capture buffers and sprite overrides too) except
-  `redirectCameraFB`. `Level.exit()` does nothing yet (its mode flags aren't
-  in `mem()`), nor do `Misc.doPOW` and friends. See ROADMAP.md Phase 1
-  "Next round".
+  `redirectCameraFB`. See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

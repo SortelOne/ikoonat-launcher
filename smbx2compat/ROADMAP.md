@@ -490,12 +490,52 @@ image` now changes what the engine draws, as LunaLua's
   it. Group reference counts don't drop when the engine removes an NPC, so
   an unused group name keeps its index until the level ends (harmless).
 
+*Level flow and game actions round (2026-11-04)*:
+- `Level.exit()` works. SMBX2 writes SMBX's globals: `0xB2C5D4` is
+  `LevelBeatCode` (the win type a level exit unlocks paths with),
+  `0xB2C5B4` is `LevelSelect` and `0xB2C620` `GameMenu`. In SMBX, setting
+  `LevelSelect` stopped the level's frame loop; here, setting it in a level
+  sets `EndLevel` instead, so the engine leaves through its usual level end
+  (checkpoints, saves, `onExit`, clearing the level and its Lua state).
+  `0xB2C59C` (`EndLevel`) is `Level.finish(0)`. The engine's end
+  macros take `LevelMacroCounter = 1000` (`Level.finish` hurrying one).
+- SMBX2's end states past SMBX's 7 (switch palace, flagpole, SMW orb) are
+  run by its `endstates.lua`; TheXTech's own macro 8 is its flag exit.
+  Those values are stored in `LevelMacro` past 1000, where the engine runs
+  no macro, and read back as written.
+- `Misc` game actions call the engine (`xtech_lua_bindings.cpp`, `LuaMisc`):
+  - `npc:harm(type[, damage])` (`_npcHarmCombo*`): `NPCHit` with the dummy
+    NPC 0 as the other side, as LunaLua does; the fire/ice/hammer harm
+    types set the dummy's type. A damage argument replaces the damage of
+    every hit (`g_npcHitDamage` in `npc_hit.cpp`, where LunaLua patches
+    SMBX's 32 damage constants). Before this, `npc:harm()` did nothing.
+  - `npc:collect(player)`: `TouchBonus`.
+  - `Misc.npcToCoins()`: LunaLua's version, which asks SMBX2's
+    `notcointransformable` property instead of the engine's list of IDs
+    (SMATRS's star system calls it).
+  - `Misc.doPOW()`: `PowBlock`. `Misc.doBombExplosion`: `Bomb` (SMBX2
+    replaces it with its own `explosion.spawn` anyway).
+  - `Misc.doPSwitchRaw` (SMATRS's respawn rooms): the engine's switch can
+    stop the frame to run level events, so the request waits for
+    `UpdateBlocks` and runs there with its own resume point
+    (`PSwitchScript` in `blocks.cpp`). `Misc.doPSwitch` also sets the timer
+    and music.
+- Fixed: turning bricks back into coins crashed (`Layer[255]` assert) when
+  the coin had no layer, which is normal for NPCs spawned by scripts in
+  LunaLua; `blocks.cpp` now uses no layer offset for them.
+- mememu: 32-bit reads of true/false globals are fine (SMBX2's default HUD
+  reads `0xB2C89C` that way every frame; 900+ warnings per run).
+- `smoke/actiontest.lvlx` checks each action and ends with `Level.exit()`.
+- Not done: `NPC:toCoin()` / `toIce()` call LunaLua's C++ NPC class
+  (`LegacyNPC(idx)`), which classes.lua doesn't have; `onNPCCollect` /
+  `onNPCHarm` aren't sent from the engine yet (Phase 5).
+
 *Next round, in order:*
-1. Level flow and game actions: `Level.exit`/`Level.finish` flags in
-   `mem()`, and the `Misc` stubs above (`doPOW`, `doPSwitch`, `npcToCoins`,
-   `doBombExplosion`, `_npcHarmCombo*`, `_npcCollect`).
-2. `Graphics.redirectCameraFB` (glowing background layers).
-3. Performance: the ID round added ~2 ms of Lua (Performance track).
+1. `Graphics.redirectCameraFB` (glowing background layers).
+2. Performance: ~12.5 of ~14 traces abort each frame (`ffi_mem.lua`
+   loops, `ffi_npc.lua:444`, `blockeventmanager.lua:156`); 48,000 `mem()`
+   reads a frame; see the Performance track.
+3. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -602,6 +642,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | Shader round (shaders and capture buffers drawn) | 9.7-11.4 | 6.6-7.4 | same; engine 3.1-4.0; runs vary ~1 ms |
 | Sprite override round | 8.9 | 6.1 | frames 300-900, real sound (low volume); engine 2.8 |
 | ID and collision group round | 11.3 | 8.2 | frames 300-900, muted; engine 3.1; 48,200 `mem()` reads a frame |
+| Level flow and game actions round | 10.5 | 7.6 | same; engine 2.9; 12.5 of 13.9 traces abort a frame |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms

@@ -161,15 +161,28 @@ Misc = hostTable("Misc", {
     __getBlockPropertyTableAddress = function(name)
         return xtech_mem_propertyTableAddress("block", name)
     end,
-    npcToCoins = stub("Misc.npcToCoins"),
-    doPOW = stub("Misc.doPOW"),
-    doPSwitchRaw = stub("Misc.doPSwitchRaw"),
-    doPSwitch = stub("Misc.doPSwitch"),
-    doBombExplosion = stub("Misc.doBombExplosion"),
+    -- SMBX's game actions, done by the engine (xtech_lua_bindings.cpp LuaMisc)
+    npcToCoins = function() xtech_misc_npcToCoins() end,
+    doPOW = function() xtech_misc_doPOW() end,
+    doPSwitchRaw = function(activate) xtech_misc_doPSwitchRaw(activate and true or false) end,
+    doPSwitch = function(activate)
+        if activate == nil then
+            -- no argument toggles it (LunaLua checks the switch timer)
+            activate = (mem(0x00B2C62C, FIELD_WORD) == 0)
+        end
+        xtech_misc_doPSwitch(activate and true or false)
+    end,
+    doBombExplosion = function(x, y, bombType)
+        xtech_misc_doBombExplosion(tonumber(x) or 0, tonumber(y) or 0, math.floor(tonumber(bombType) or 0))
+    end,
     _setSemisolidCollidingFlyType = stub("Misc._setSemisolidCollidingFlyType"),
-    _npcHarmCombo = stub("Misc._npcHarmCombo"),
-    _npcHarmComboWithDamage = stub("Misc._npcHarmComboWithDamage"),
-    _npcCollect = stub("Misc._npcCollect"),
+    _npcHarmCombo = function(idx, harmType, multiplier)
+        return xtech_npc_harmCombo(idx, harmType, multiplier, -1)
+    end,
+    _npcHarmComboWithDamage = function(idx, harmType, multiplier, damage)
+        return xtech_npc_harmCombo(idx, harmType, multiplier, tonumber(damage) or -1)
+    end,
+    _npcCollect = function(idx, playerIdx) xtech_npc_collect(idx, playerIdx) end,
     _playerHarm = function(idx) xtech_player_harm(idx) end,
     _playerKill = function(idx) xtech_player_kill(idx) end,
 })
