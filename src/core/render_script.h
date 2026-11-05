@@ -81,6 +81,10 @@ struct ScriptDraw_t
     bool linearFiltered = false;
     //! test and write depth (LEQUAL), in a capture buffer's own depth buffer
     bool depthTest = false;
+    //! pixels where a*x + b*y + c*0 + d < 0 for any plane (x, y in the view,
+    //! after offsetX/Y) aren't drawn (LunaLua's glClipPlane)
+    int clipPlaneCount = 0;
+    float clipPlanes[6][4] = {};
 
     const ScriptDrawVar_t *attributes = nullptr;
     int attributeCount = 0;

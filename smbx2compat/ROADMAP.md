@@ -938,14 +938,40 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     (one map shader compile or model, the level's custom graphics).
     The log has one line per loading screen (`Lua: loading screen: ...`).
   - Gap: clip planes (the map screen's chapter name should wipe in; it shows
-    whole), as everywhere else.
+    whole), as everywhere else. Done in the next round.
+- *Map speed, shader caches, clip planes (2026-11-05):*
+  - The map is cheap to draw (Release, M3 Pro, frames 200-800): 4.3-5.2 ms a
+    frame standing, ~4.6-5.1 walking (Lua ~3, engine ~1.5; 1-1 is ~4.1).
+    `map.lua`'s `onDraw` ~1 ms, `npcEventManager` ~0.4 ms; LuaJIT's sampler
+    shows no single hot spot (lib3d's `drawMesh` ~12%). Occasional slow
+    frames: the JIT on the first frames, first use of an image (`map.lua`
+    `onTick` 7-8 ms when the Lakitu and splash images load; opening a file
+    costs ~0.4 ms on this Mac), a GC step freeing ~1 MB.
+  - Level loads, sampled (`SMBX2COMPAT_PROFILE=...,load`): ~28% of a warm
+    map load (~0.6 s) was shaders, rebuilt by every level's new Lua state:
+    SMBX2's preprocessor (pure-Lua LPeg) ~0.37 s, translation and GL compile
+    ~0.25 s. Now kept for the session (CLAUDE.md, "Shaders are kept").
+    Warm level changes in the episode: ~2.2 -> ~1.78 s (map and 1-1, same
+    flow, caches off/on). Compiling SMBX2's Lua is only ~0.11 s a load; the
+    rest is the scripts' own start-up (`npcManager.loadNpcCode` ~30%,
+    `map.lua`'s `loadSection` ~12%).
+  - Found by checking the episode flow's screenshots: entered from the map,
+    1-1 drew in "staircase" copies (its intro zooms with `handycam`, whose
+    capture buffer followed the camera's size at `onCameraUpdate`: 1280x720
+    there, against a 960x540 screen). TheXTech's `UpdateInternalRes` queues
+    screen-size messages only when the size differs from the screen's current
+    one, so the level's config reset (1280) then the loading screen's size
+    (960) before the messages ran left the screen at 1280
+    (`src/change_res.cpp` compares with the size asked for last too).
+    `-l` tests never showed it (no intro, no size change).
+  - Clip planes: per-pixel in the shaders (CLAUDE.md); the map loading
+    screen's chapter name wipes in.
 - *Next:*
-  - Jake checks the loading screens (chapter art after the prologue, the
-    level card, the map's photos).
-  - Map performance (unmeasured).
-  - Clip planes (`glDraw{clipPlanes=}`): the loading screen's name wipe, and
-    whatever else uses them.
-  - Later: SMBX2's NPC type flags above, if an episode needs them.
+  - Jake checks the loading screens and the map.
+  - The Chapter 1 sweep and Jake's random-level sampling (below), now
+    through `World.wld` where a level behaves differently in episode play.
+  - Later: SMBX2's NPC type flags above, if an episode needs them; the
+    image-load hitches on Android if they show there.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until

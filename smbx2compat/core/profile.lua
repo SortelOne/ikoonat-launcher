@@ -7,11 +7,16 @@
     SMBX2COMPAT_PROFILE=100-400,nosample    without the sampling profiler
     SMBX2COMPAT_PROFILE=100-400,memcallers  also which lines read mem() most
                                             (slower; for finding readers only)
+    SMBX2COMPAT_PROFILE=load                also samples the level's load: from
+                                            here (the end of boot.lua) through
+                                            the level's scripts and onStart to
+                                            the first frame drawn
 
   Over that range it measures, then logs once as "[smbx2core] profile ...":
     - frame time: from the engine's onLoop call to the end of its render
       (vsync is off by default, so this is work, not waiting), and the Lua part;
-    - the 5 slowest frames, with their events, traces compiled and heap change;
+    - the 5 slowest frames, with their events, traces compiled, heap change
+      and the listener that took longest in them;
     - Lua time per event sent by the engine (onTick, onDraw, ...);
     - time per library listener (EventManager.callApiListeners; nested events
       such as onCameraDraw are counted inside the event that sent them);
@@ -34,6 +39,7 @@ local spec = core.profileSpec
 
 local firstFrame, lastFrame = string.match(spec, "^(%d+)%-(%d+)")
 local sampling = not string.find(spec, "nosample", 1, true)
+local loading = string.find(spec, "load", 1, true) ~= nil
 firstFrame, lastFrame = tonumber(firstFrame) or 100, tonumber(lastFrame) or 400
 
 local frame = 0         -- frames since onStart
@@ -48,6 +54,7 @@ local stopsAtFrameStart = 0
 local eventTime, eventOrder = {}, {}
 local frameEvents, gcAtFrameStart = {}, 0 -- this frame's events, and the Lua heap size
 local listenerTime, listenerCalls = {}, {}
+local frameTopListener, frameTopTime = "", 0 -- this frame's slowest listener call
 local memCalls = core.profileMemCalls -- {get = n, set = n, string = n}
 local memCallers = core.profileMemCallers -- "line < library line" -> reads (sampled)
 
@@ -152,6 +159,27 @@ local function top(counts, n)
     return out
 end
 
+-- The sampler's results so far (prefix: "load " for the load's), then a fresh start
+local function logSamples(prefix)
+    if totalSamples > 0 then
+        local function pct(n)
+            return string.format("%.0f%%", 100 * n / totalSamples)
+        end
+        log(string.format("%ssamples %d: compiled %s, interpreted %s, C %s, GC %s, JIT compiler %s",
+            prefix, totalSamples, pct(vmSamples.N), pct(vmSamples.I), pct(vmSamples.C), pct(vmSamples.G), pct(vmSamples.J)))
+        for _, which in ipairs({{"self", selfFuncs}, {"incl", inclFuncs}, {"line", selfLines}}) do
+            local parts = {}
+            for _, e in ipairs(top(which[2], prefix == "" and 15 or 45)) do
+                parts[#parts + 1] = e[1] .. " " .. pct(e[2])
+            end
+            log(prefix .. "top " .. which[1] .. ": " .. table.concat(parts, ", "))
+        end
+    end
+    vmSamples = {N = 0, I = 0, C = 0, G = 0, J = 0}
+    selfFuncs, selfLines, inclFuncs = {}, {}, {}
+    totalSamples = 0
+end
+
 local function report()
     if reported then
         return
@@ -174,8 +202,8 @@ local function report()
 
     local parts = {}
     for _, f in ipairs(slowest) do
-        parts[#parts + 1] = string.format("frame %d %s ms (Lua %s, %d traces compiled, heap %+.0f KB: %s)",
-            f[3], ms(f[1]), ms(f[2]), f[4], f[6], f[5])
+        parts[#parts + 1] = string.format("frame %d %s ms (Lua %s, %d traces compiled, heap %+.0f KB, slowest listener %s %s: %s)",
+            f[3], ms(f[1]), ms(f[2]), f[4], f[6], f[7], ms(f[8]), f[5])
     end
     log("slowest: " .. table.concat(parts, "; "))
 
@@ -218,20 +246,7 @@ local function report()
         log("trace aborts by code: " .. table.concat(parts, ", "))
     end
 
-    if totalSamples > 0 then
-        local function pct(n)
-            return string.format("%.0f%%", 100 * n / totalSamples)
-        end
-        log(string.format("samples %d: compiled %s, interpreted %s, C %s, GC %s, JIT compiler %s",
-            totalSamples, pct(vmSamples.N), pct(vmSamples.I), pct(vmSamples.C), pct(vmSamples.G), pct(vmSamples.J)))
-        for _, which in ipairs({{"self", selfFuncs}, {"incl", inclFuncs}, {"line", selfLines}}) do
-            parts = {}
-            for _, e in ipairs(top(which[2], 15)) do
-                parts[#parts + 1] = e[1] .. " " .. pct(e[2])
-            end
-            log("top " .. which[1] .. ": " .. table.concat(parts, ", "))
-        end
-    end
+    logSamples("")
 end
 
 
@@ -289,7 +304,11 @@ do
                     local key = listenerName(hostObject, nextAPIToHandle.eventHandlerName)
                     local t = clock()
                     hostObject[nextAPIToHandle.eventHandlerName](args[1], args[2], args[3], args[4])
-                    listenerTime[key] = (listenerTime[key] or 0) + clock() - t
+                    t = clock() - t
+                    listenerTime[key] = (listenerTime[key] or 0) + t
+                    if t > frameTopTime then
+                        frameTopListener, frameTopTime = key, t
+                    end
                     listenerCalls[key] = (listenerCalls[key] or 0) + 1
                 end
             end
@@ -326,6 +345,7 @@ function __xtech_onLoop(...)
     frameStart = clock()
     stopsAtFrameStart = traceEvents.stop
     frameEvents, gcAtFrameStart = {}, collectgarbage("count")
+    frameTopListener, frameTopTime = "none", 0
     onLoop(...)
     frameLua = clock() - frameStart
 end
@@ -348,9 +368,20 @@ __xtech_onDraw = timedHook(__xtech_onDraw)
 __xtech_onCameraDraw = timedHook(__xtech_onCameraDraw)
 __xtech_onHUDDraw = timedHook(__xtech_onHUDDraw)
 
+local loadStart = loading and clock()
+if loading then
+    jitProfile.start("i1", sample)
+end
+
 function __xtech_onRenderEnd(...)
     local t = clock()
     onRenderEnd(...)
+    if loadStart then
+        jitProfile.stop()
+        log(string.format("load: %.0f ms from the end of boot.lua to the first frame drawn", (t - loadStart) * 1000))
+        logSamples("load ")
+        loadStart = nil
+    end
     if active and frameStart then
         frameLua = frameLua + clock() - t
         local busy = clock() - frameStart
@@ -360,7 +391,8 @@ function __xtech_onRenderEnd(...)
         local compiled = traceEvents.stop - stopsAtFrameStart
         if #slowest < 5 or busy > slowest[#slowest][1] then
             slowest[#slowest + 1] = {busy, frameLua, frame, compiled,
-                table.concat(frameEvents, " "), collectgarbage("count") - gcAtFrameStart}
+                table.concat(frameEvents, " "), collectgarbage("count") - gcAtFrameStart,
+                frameTopListener, frameTopTime}
             table.sort(slowest, function(a, b) return a[1] > b[1] end)
             slowest[6] = nil
         end

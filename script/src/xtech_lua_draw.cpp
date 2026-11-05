@@ -170,6 +170,24 @@ int s_standardShader = 0;
 // freed after this frame's draws, which may still use them
 std::vector<int> s_freedShaders, s_freedBuffers;
 
+// Compiled programs by their sources, kept for the session: each level starts
+// a new Lua state, which compiles the same shaders again (~150 ms of SMATRS's
+// map load). A program no handle uses is idle; when a level takes it up again
+// its uniforms are reset to their values as linked, as in a newly compiled one.
+// The loading screen's state keeps programs of its own (it lasts the session,
+// so a level sharing one would see the uniforms it last set).
+struct KeptProgram
+{
+    int users = 0;
+    std::string sources;
+};
+std::unordered_map<std::string, int> s_programBySources;
+std::unordered_map<int, KeptProgram> s_keptPrograms;
+std::unordered_map<std::string, std::string> s_failedPrograms; // sources -> error
+size_t s_idlePrograms = 0;
+constexpr size_t c_maxIdlePrograms = 256;
+bool s_loadScreenSwappedIn = false;
+
 // FFI_GraphicsSetMainFramebufferSize's size, which the engine applies later
 int s_fbW = 0, s_fbH = 0;
 
@@ -230,6 +248,8 @@ struct ScriptOp
     bool depthTest;
     uint32_t varFirst;      // s_vars: attributes, then uniforms
     uint32_t attrCount, unifCount;
+    uint32_t clip;          // s_floats: 4 per clip plane (c_none: none)
+    uint32_t clipCount;
 };
 
 struct QueuedVar
@@ -489,6 +509,19 @@ void queueScriptDraw(const FFI_GL_Draw_Cmd &cmd, int shader)
         s_floats.insert(s_floats.end(), cmd.mVertColor, cmd.mVertColor + 4 * cmd.mCount);
     }
 
+    so.clip = c_none;
+    so.clipCount = 0;
+    if(cmd.mNumClipPlane > 0 && cmd.mNumClipPlane <= 6)
+    {
+        so.clip = (uint32_t)s_floats.size();
+        so.clipCount = cmd.mNumClipPlane;
+        for(unsigned i = 0; i < so.clipCount; i++)
+        {
+            for(int k = 0; k < 4; k++)
+                s_floats.push_back((float)cmd.mClipPlane[i][k]);
+        }
+    }
+
     so.varFirst = (uint32_t)s_vars.size();
     so.attrCount = so.unifCount = 0;
     if(shader)
@@ -528,9 +561,6 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
         }
     } owned{cmd};
 
-    if(cmd->mNumClipPlane)
-        warnOnce(warnedClip, "Graphics.glDraw clip planes aren't supported yet (ignored)");
-
     if(!cmd->mVert || cmd->mCount == 0)
         return;
 
@@ -556,7 +586,8 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
         warnOnce(warnedCompile, "Graphics.glDraw with a shader that didn't compile here (drawn without)");
 
     bool lines = cmd->mType < GL_PRIM_TRIANGLES;
-    if(shader || cmd->mTarget || cmd->mCap || lines)
+    bool clipped = cmd->mNumClipPlane > 0 && cmd->mNumClipPlane <= 6;
+    if(shader || cmd->mTarget || cmd->mCap || lines || clipped)
     {
         if(s_standardShader)
         {
@@ -572,6 +603,8 @@ void ffi_glDraw(const FFI_GL_Draw_Cmd *cmd)
         }
         if(cmd->mShader)
             warnOnce(warnedShader, "Graphics.glDraw shaders need OpenGL 3.3 or ES (drawn without)");
+        if(clipped)
+            warnOnce(warnedClip, "Graphics.glDraw clip planes need OpenGL 3.3 or ES (ignored)");
     }
 
     if(cmd->mCount < 3)
@@ -701,6 +734,9 @@ void drawScriptOp(const ScriptOp &so, double offX, double offY)
     d.offsetY = (float)offY;
     d.linearFiltered = so.linear;
     d.depthTest = so.depthTest;
+    d.clipPlaneCount = (int)so.clipCount;
+    if(so.clip != c_none)
+        std::memcpy(d.clipPlanes, &s_floats[so.clip], sizeof(float) * 4 * so.clipCount);
 
     s_drawVars.clear();
     for(uint32_t i = 0; i < so.attrCount + so.unifCount; i++)
@@ -895,6 +931,37 @@ static bool fileStamp(const std::string &path, long long &size, long long &mtime
 }
 
 
+// A handle stopped using a program: it stays compiled for later levels,
+// unless too many are idle
+static void releaseProgram(int id)
+{
+    auto it = s_keptPrograms.find(id);
+    if(it == s_keptPrograms.end())
+    {
+        g_render->scriptShaderFree(id);
+        return;
+    }
+    if(--it->second.users > 0)
+        return;
+
+    if(++s_idlePrograms <= c_maxIdlePrograms)
+        return;
+
+    for(auto k = s_keptPrograms.begin(); k != s_keptPrograms.end();)
+    {
+        if(k->second.users > 0)
+        {
+            ++k;
+            continue;
+        }
+        s_programBySources.erase(k->second.sources);
+        g_render->scriptShaderFree(k->first);
+        k = s_keptPrograms.erase(k);
+    }
+    s_idlePrograms = 0;
+}
+
+
 // Lua side (registered as globals, used by smbx2compat/core/lunadll.lua)
 
 // xtech_gfx_imageLoad(path) -> id, w, h; nil if it can't be loaded
@@ -1030,13 +1097,45 @@ int lua_shaderCompile(lua_State *L)
     const char *vs = luaL_checkstring(L, 2);
     const char *fs = luaL_checkstring(L, 3);
 
-    std::string error;
-    int id = g_render->scriptShaderCreate(vs, fs, error);
-    if(!id)
+    // SMBX2COMPAT_SHADERCACHE=0: a new program each time (to compare)
+    static const bool keep = !(std::getenv("SMBX2COMPAT_SHADERCACHE") && std::strcmp(std::getenv("SMBX2COMPAT_SHADERCACHE"), "0") == 0);
+
+    std::string sources = std::string(s_loadScreenSwappedIn ? "L" : "") + '\0' + vs + '\0' + fs;
+    auto failed = keep ? s_failedPrograms.find(sources) : s_failedPrograms.end();
+    if(failed != s_failedPrograms.end())
     {
         lua_pushboolean(L, 0);
-        lua_pushstring(L, error.c_str());
+        lua_pushstring(L, failed->second.c_str());
         return 2;
+    }
+
+    int id;
+    auto kept = keep ? s_programBySources.find(sources) : s_programBySources.end();
+    if(kept != s_programBySources.end())
+    {
+        id = kept->second;
+        KeptProgram &p = s_keptPrograms[id];
+        if(p.users++ == 0)
+        {
+            s_idlePrograms--;
+            g_render->scriptShaderReset(id);
+        }
+    }
+    else
+    {
+        std::string error;
+        id = g_render->scriptShaderCreate(vs, fs, error);
+        if(!id)
+        {
+            s_failedPrograms[sources] = error;
+            lua_pushboolean(L, 0);
+            lua_pushstring(L, error.c_str());
+            return 2;
+        }
+        s_programBySources[sources] = id;
+        KeptProgram &p = s_keptPrograms[id];
+        p.users = 1;
+        p.sources = std::move(sources);
     }
 
     auto it = s_shaders.find(key);
@@ -1178,6 +1277,7 @@ void xtech_lua_drawSwapLoadScreen()
 {
     using std::swap;
     OwnerState &o = s_otherOwner;
+    s_loadScreenSwappedIn = !s_loadScreenSwappedIn;
     swap(s_images, o.images);
     swap(s_shaders, o.shaders);
     swap(s_buffers, o.buffers);
@@ -1292,7 +1392,7 @@ void xtech_lua_drawFrameEnd()
     endRedirects();
 
     for(int id : s_freedShaders)
-        g_render->scriptShaderFree(id);
+        releaseProgram(id);
     s_freedShaders.clear();
     for(int id : s_freedBuffers)
         g_render->scriptBufferFree(id);

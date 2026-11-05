@@ -2093,6 +2093,73 @@ static luabind::object misc_readFileCached(lua_State *, const std::string &)
 }
 #endif
 
+// smbx2compat: "size:time" of a file, or nil; scripts compare it to tell
+// whether a file they used before is still the same
+static luabind::object misc_fileStamp(lua_State* L, const std::string &path)
+{
+#ifndef _WIN32
+    struct stat st;
+    if(stat(path.c_str(), &st) != 0 || !S_ISREG(st.st_mode))
+        return luabind::object(); // nil
+
+    const struct timespec &mtime = fileTime(st);
+    char buf[80];
+    std::snprintf(buf, sizeof(buf), "%lld:%lld:%ld", (long long)st.st_size, (long long)mtime.tv_sec, (long)mtime.tv_nsec);
+    return luabind::object(L, std::string(buf));
+#else
+    (void)L; (void)path;
+    return luabind::object(); // nil: never the same
+#endif
+}
+
+// smbx2compat: strings kept for the session, across levels' Lua states
+// (core mode keeps preprocessed and translated shader sources here, which
+// each level would otherwise rebuild). Cleared when it grows past the limit.
+static std::unordered_map<std::string, std::string> s_sessionCache;
+static size_t s_sessionCacheBytes = 0;
+static const size_t c_sessionCacheLimit = 64 * 1024 * 1024;
+
+// SMBX2COMPAT_SHADERCACHE=0 turns it off (and xtech_lua_draw.cpp's kept programs)
+static bool sessionCacheOn()
+{
+    static int on = -1;
+    if(on < 0)
+    {
+        const char *env = std::getenv("SMBX2COMPAT_SHADERCACHE");
+        on = !(env && std::strcmp(env, "0") == 0);
+    }
+    return on != 0;
+}
+
+static luabind::object misc_sessionCacheGet(lua_State* L, const std::string &key)
+{
+    if(!sessionCacheOn())
+        return luabind::object(); // nil
+
+    auto it = s_sessionCache.find(key);
+    if(it == s_sessionCache.end())
+        return luabind::object(); // nil
+    return luabind::object(L, it->second);
+}
+
+static void misc_sessionCacheSet(const std::string &key, const std::string &value)
+{
+    if(s_sessionCacheBytes + key.size() + value.size() > c_sessionCacheLimit)
+    {
+        s_sessionCache.clear();
+        s_sessionCacheBytes = 0;
+    }
+
+    auto it = s_sessionCache.find(key);
+    if(it != s_sessionCache.end())
+    {
+        s_sessionCacheBytes -= it->first.size() + it->second.size();
+        s_sessionCache.erase(it);
+    }
+    s_sessionCache.emplace(key, value);
+    s_sessionCacheBytes += key.size() + value.size();
+}
+
 // smbx2compat: {w, h} of an image file, or nil. SMBX2's Graphics.loadImage
 // needs sizes when it loads; drawing the images comes later.
 static luabind::object misc_imageSize(lua_State* L, const std::string &path)
@@ -4652,6 +4719,9 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_pathKind", &LuaMisc::misc_pathKind), // smbx2compat
         def("xtech_misc_pathChanged", &LuaMisc::misc_pathChanged), // smbx2compat
         def("xtech_misc_readFileCached", &LuaMisc::misc_readFileCached), // smbx2compat
+        def("xtech_misc_fileStamp", &LuaMisc::misc_fileStamp), // smbx2compat
+        def("xtech_misc_sessionCacheGet", &LuaMisc::misc_sessionCacheGet), // smbx2compat
+        def("xtech_misc_sessionCacheSet", &LuaMisc::misc_sessionCacheSet), // smbx2compat
         def("xtech_misc_clock", &LuaMisc::misc_clock), // smbx2compat
         def("xtech_misc_setWindowTitle", &LuaMisc::misc_setWindowTitle), // smbx2compat
         def("xtech_misc_isFullscreen", &LuaMisc::misc_isFullscreen), // smbx2compat

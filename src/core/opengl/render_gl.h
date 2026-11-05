@@ -444,6 +444,18 @@ private:
         GLint u_mv = -1;
         GLint u_p = -1;
         GLint u_texmat = -1;
+        GLint u_clip_count = -1;
+        GLint u_clip_planes = -1;
+        // each uniform element's value after linking (GLSL initializers), which
+        // scriptShaderReset puts back: {location, type, first of initial_values}
+        struct Initial_t
+        {
+            GLint location;
+            GLenum type;
+            size_t offset;
+        };
+        std::vector<Initial_t> initial;
+        std::vector<GLuint> initial_values; // floats or ints, by type
     };
 
     struct ScriptBuffer_t
@@ -845,6 +857,7 @@ public:
     const char *scriptShaderHeader() override;
     int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error) override;
     void scriptShaderFree(int shader) override;
+    void scriptShaderReset(int shader) override;
     void scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out) override;
     int scriptBufferCreate(int w, int h) override;
     void scriptBufferFree(int buffer) override;

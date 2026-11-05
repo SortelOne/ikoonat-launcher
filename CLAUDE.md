@@ -235,7 +235,20 @@ How it works (details in `core/boot.lua`'s header):
   `OP_REDIRECT`/`OP_UNREDIRECT` at its two priorities; `RenderGL::scriptRedirect`
   puts the capture buffer in `BUFFER_GAME`'s slot meanwhile, so the engine's
   own draws and passes go into it too (camera at its top-left; one camera,
-  unscaled). Redirects end with each camera. Clip planes aren't done.
+  unscaled). Redirects end with each camera. Clip planes
+  (`glDraw{clipPlanes=}`, fixed-function `glClipPlane` in LunaLua) are
+  tested in the fragment shader: glsl.lua wraps every shader's `main` and
+  discards pixels behind the planes (`xt_ClipPlane`/`xt_ClipPlanes`, in view
+  coordinates); clipped draws take the immediate path.
+- Shaders are kept for the session (each level's new Lua state would build
+  them again, ~0.5 s of a level change): SMBX2's preprocessor output
+  (patches.lua wraps `shader_preprocessor.execute`; reused while its
+  `#include`s resolve to the same unchanged files), glsl.lua's translation
+  (`xtech_misc_sessionCacheGet/Set`), and compiled programs by source
+  (xtech_lua_draw.cpp; an idle one taken up again gets its uniforms reset to
+  their values as linked, since SMATRS's shaders have initializers such as
+  `framebufferSize = vec2(800.0, 600.0)`; the loading screen's state has
+  programs of its own). `SMBX2COMPAT_SHADERCACHE=0` turns all three off.
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
@@ -413,10 +426,12 @@ How it works (details in `core/boot.lua`'s header):
   compiles: with LuaJIT's 64 KB code areas, arm64's branch range made it throw
   away all compiled code every few frames in SMATRS (ROADMAP.md, Performance
   track). Don't remove it.
-- Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample][,memcallers]` turns on
+- Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample][,memcallers][,load]` turns on
   `core/profile.lua` (frame/event/listener times, `mem()` counts and, with
-  `memcallers`, the lines reading most, slowest frames, JIT traces and
-  flushes, LuaJIT's sampler); results log as `[smbx2core] profile ...`.
+  `memcallers`, the lines reading most, slowest frames with their slowest
+  listener, JIT traces and flushes, LuaJIT's sampler; with `load`, LuaJIT's
+  sampler over the level's load, from boot.lua to the first frame drawn);
+  results log as `[smbx2core] profile ...`.
   Compare the best or median of 3 runs (some runs are ~25% slower overall).
   `SMBX2COMPAT_JITOPT="hotloop=56,..."` overrides SMBX2's JIT options for
   trials. For native time, `sample` the running game (ROADMAP.md,
@@ -446,9 +461,13 @@ How it works (details in `core/boot.lua`'s header):
 
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
-  Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
-  overrides too) except clip planes. 2-1 runs with no errors too. The
+  Drawing works (shaders, capture buffers, `redirectCameraFB`, sprite
+  overrides and clip planes). 2-1 runs with no errors too. The
   episode plays from `World.wld`: prologue, 1-1, the map and back.
+- `-l` level tests skip what SMATRS only does in episode play (1-1's intro
+  cutscene, entered from the map); check those through `World.wld` with a
+  debug file that presses keys (above) and, to leave a level, calls
+  `Level.load`.
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

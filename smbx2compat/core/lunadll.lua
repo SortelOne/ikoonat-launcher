@@ -486,6 +486,97 @@ local function shaderLabel(source)
     return table.concat(lines, " | ")
 end
 
+-- Shader sources each level would build again: SMBX2 caches its preprocessor's
+-- output and LunaLua its compiled programs, but only in the level's Lua state,
+-- and each level starts a new one. Results are kept for the session in the
+-- engine (xtech_misc_sessionCache*), so a warm level load skips the preprocessor
+-- (pure-Lua LPeg, ~0.4 s of the map's load) and the translation.
+local cacheGet, cacheSet, fileStamp = xtech_misc_sessionCacheGet, xtech_misc_sessionCacheSet, xtech_misc_fileStamp
+
+-- What a file #include name leads to now: "name\1path\1stamp"
+local function includeRecord(name, path)
+    local real = path and core.resolve(path)
+    return name .. "\1" .. tostring(path) .. "\1" .. tostring(real and fileStamp(real))
+end
+
+-- patches.lua wraps ffi_graphics.lua's shader_preprocessor.execute with this.
+-- A kept result is used while each file its #includes read resolves to the
+-- same file, unchanged (patches.lua has parser.include report them).
+function core.cachedShaderPreprocessor(pp)
+    local execute = pp.execute
+    if not (pp.macros and pp.macros.parse) then
+        return execute -- no preprocessor (no LPeg): sources pass through
+    end
+
+    local includes -- this run's includes, while one runs
+    function pp.onInclude(name, path)
+        if includes then
+            includes[#includes + 1] = includeRecord(name, path)
+        end
+    end
+
+    local function resolveInclude(name)
+        if string.match(name, "^[A-Za-z]:") then
+            return name
+        end
+        return Misc.resolveFile(name)
+    end
+
+    local function stillValid(header)
+        for record in string.gmatch(header, "[^\3]+") do
+            local name = string.match(record, "^([^\1]*)")
+            if includeRecord(name, resolveInclude(name)) ~= record then
+                return false
+            end
+        end
+        return true
+    end
+
+    return function(source, macrolist, ...)
+        if type(source) ~= "string" then
+            return execute(source, macrolist, ...)
+        end
+        -- macros as the GLSL text they become, in a fixed order
+        local ok, key = pcall(function()
+            local names = {}
+            for k in pairs(macrolist or {}) do
+                names[#names + 1] = tostring(k)
+            end
+            table.sort(names)
+            local parts = {"pp", source}
+            for _, k in ipairs(names) do
+                parts[#parts + 1] = k .. "=" .. pp.macros.parse(macrolist[k])
+            end
+            return table.concat(parts, "\0")
+        end)
+        if not ok then
+            return execute(source, macrolist, ...)
+        end
+
+        local kept = cacheGet(key)
+        if kept then
+            local header, parsed = string.match(kept, "^(.-)\2(.*)$")
+            if parsed and stillValid(header) then
+                return parsed
+            end
+        end
+
+        includes = {}
+        local done, parsed = pcall(execute, source, macrolist, ...)
+        local used = includes
+        includes = nil
+        if not done then
+            error(parsed, 0)
+        end
+        -- an earlier run in this state may have answered from SMBX2's own
+        -- cache, without reading its includes
+        if type(parsed) == "string" and (#used > 0 or not string.find(source, "include", 1, true)) then
+            cacheSet(key, table.concat(used, "\3") .. "\2" .. parsed)
+        end
+        return parsed
+    end
+end
+
 function dll.FFI_ShaderFromStrings(vertexSource, fragmentSource)
     local h = newHandle("FFI_ShaderObjRef*")
     shaders[handleKey(h)] = { vertex = vertexSource or "", fragment = fragmentSource or "" }
@@ -503,7 +594,16 @@ local function compileShader(key)
 
     local ok, err = false, "this renderer has no shaders"
     if glslHeader then
-        local vs, fs = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+        local vs, fs
+        local cacheKey = "glsl\0" .. s.vertex .. "\0" .. s.fragment
+        local kept = cacheGet(cacheKey)
+        if kept then
+            local split = string.find(kept, "\0", 1, true)
+            vs, fs = string.sub(kept, 1, split - 1), string.sub(kept, split + 1)
+        else
+            vs, fs = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+            cacheSet(cacheKey, vs .. "\0" .. fs)
+        end
         ok, err = xtech_gfx_shaderCompile(key, vs, fs)
     end
 

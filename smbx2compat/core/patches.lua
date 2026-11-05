@@ -26,6 +26,25 @@ return {
         },
     },
 
+    -- Shader preprocessor results kept for the session (lunadll.lua's
+    -- core.cachedShaderPreprocessor), instead of only for the level's Lua state
+    ["base/engine/ffi_graphics.lua"] = {
+        {
+            "\t\t\t\treturn shader_preprocessor.preprocess(loadShaderFile(input));",
+            "\t\t\t\tif shader_preprocessor.onInclude then\n" ..
+            "\t\t\t\t\tshader_preprocessor.onInclude(initial, input)\n" ..
+            "\t\t\t\tend\n" ..
+            "\t\t\t\treturn shader_preprocessor.preprocess(loadShaderFile(input));",
+            "report each #include, so kept results can be checked against the files",
+        },
+        {
+            "\tlocal shaderCache = {}",
+            "\tshader_preprocessor.execute = __smbx2core.cachedShaderPreprocessor(shader_preprocessor)\n" ..
+            "\tlocal shaderCache = {}",
+            "keep preprocessed shaders across levels",
+        },
+    },
+
     -- Block queries through the engine's block quadtree (xtech_block_queryIntersecting).
     -- SMBX2 scans the blocks SMBX's X-sorted column lookup points at, which TheXTech
     -- doesn't keep, so it would scan every block in the level each call.

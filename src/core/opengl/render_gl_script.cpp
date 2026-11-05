@@ -353,6 +353,129 @@ static bool scriptMoveAttributes(GLuint program)
     return true;
 }
 
+// Values per element of a uniform type
+static int uniformComponents(GLenum type)
+{
+    switch(type)
+    {
+    case GL_FLOAT: case GL_INT: case GL_BOOL:          return 1;
+    case GL_FLOAT_VEC2: case GL_INT_VEC2: case GL_BOOL_VEC2: return 2;
+    case GL_FLOAT_VEC3: case GL_INT_VEC3: case GL_BOOL_VEC3: return 3;
+    case GL_FLOAT_VEC4: case GL_INT_VEC4: case GL_BOOL_VEC4: return 4;
+    case GL_FLOAT_MAT2: return 4;
+    case GL_FLOAT_MAT3: return 9;
+    case GL_FLOAT_MAT4: return 16;
+#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+    case GL_UNSIGNED_INT:      return 1;
+    case GL_UNSIGNED_INT_VEC2: return 2;
+    case GL_UNSIGNED_INT_VEC3: return 3;
+    case GL_UNSIGNED_INT_VEC4: return 4;
+    case GL_FLOAT_MAT2x3: case GL_FLOAT_MAT3x2: return 6;
+    case GL_FLOAT_MAT2x4: case GL_FLOAT_MAT4x2: return 8;
+    case GL_FLOAT_MAT3x4: case GL_FLOAT_MAT4x3: return 12;
+#endif
+    default: return 1; // samplers
+    }
+}
+
+static bool uniformIsFloat(GLenum type)
+{
+    switch(type)
+    {
+    case GL_FLOAT: case GL_FLOAT_VEC2: case GL_FLOAT_VEC3: case GL_FLOAT_VEC4:
+    case GL_FLOAT_MAT2: case GL_FLOAT_MAT3: case GL_FLOAT_MAT4:
+#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+    case GL_FLOAT_MAT2x3: case GL_FLOAT_MAT2x4: case GL_FLOAT_MAT3x2:
+    case GL_FLOAT_MAT3x4: case GL_FLOAT_MAT4x2: case GL_FLOAT_MAT4x3:
+#endif
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Sets one element of a uniform (the program in use) from raw values
+static void setUniformElement(GLint loc, GLenum type, const GLuint *raw)
+{
+    const GLfloat *f = reinterpret_cast<const GLfloat *>(raw);
+    const GLint *iv = reinterpret_cast<const GLint *>(raw);
+
+    switch(type)
+    {
+    case GL_FLOAT:        glUniform1fv(loc, 1, f); break;
+    case GL_FLOAT_VEC2:   glUniform2fv(loc, 1, f); break;
+    case GL_FLOAT_VEC3:   glUniform3fv(loc, 1, f); break;
+    case GL_FLOAT_VEC4:   glUniform4fv(loc, 1, f); break;
+    case GL_FLOAT_MAT2:   glUniformMatrix2fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT3:   glUniformMatrix3fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT4:   glUniformMatrix4fv(loc, 1, GL_FALSE, f); break;
+    case GL_INT_VEC2:
+    case GL_BOOL_VEC2:    glUniform2iv(loc, 1, iv); break;
+    case GL_INT_VEC3:
+    case GL_BOOL_VEC3:    glUniform3iv(loc, 1, iv); break;
+    case GL_INT_VEC4:
+    case GL_BOOL_VEC4:    glUniform4iv(loc, 1, iv); break;
+#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+    case GL_UNSIGNED_INT:      glUniform1uiv(loc, 1, raw); break;
+    case GL_UNSIGNED_INT_VEC2: glUniform2uiv(loc, 1, raw); break;
+    case GL_UNSIGNED_INT_VEC3: glUniform3uiv(loc, 1, raw); break;
+    case GL_UNSIGNED_INT_VEC4: glUniform4uiv(loc, 1, raw); break;
+    case GL_FLOAT_MAT2x3: glUniformMatrix2x3fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT2x4: glUniformMatrix2x4fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT3x2: glUniformMatrix3x2fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT3x4: glUniformMatrix3x4fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT4x2: glUniformMatrix4x2fv(loc, 1, GL_FALSE, f); break;
+    case GL_FLOAT_MAT4x3: glUniformMatrix4x3fv(loc, 1, GL_FALSE, f); break;
+#endif
+    default: // int, bool and the samplers
+        glUniform1iv(loc, 1, iv);
+        break;
+    }
+}
+
+// Keeps each uniform element's value as linked, for scriptShaderReset
+// (initial: ScriptProgram_t::initial)
+template<class InitialList>
+static void readInitialUniforms(GLuint program, InitialList &initial, std::vector<GLuint> &values)
+{
+    GLint count = 0, max_len = 0;
+    glGetProgramiv(program, GL_ACTIVE_UNIFORMS, &count);
+    glGetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &max_len);
+
+    std::vector<char> name((size_t)max_len + 1);
+    for(GLint i = 0; i < count; i++)
+    {
+        GLsizei len = 0;
+        GLint size = 0;
+        GLenum type = 0;
+        glGetActiveUniform(program, (GLuint)i, (GLsizei)name.size(), &len, &size, &type, name.data());
+
+        // array elements one by one ("name[0]" is reported for arrays)
+        std::string base(name.data(), (size_t)len);
+        if(base.size() > 3 && base.compare(base.size() - 3, 3, "[0]") == 0)
+            base.resize(base.size() - 3);
+
+        int comps = uniformComponents(type);
+        for(GLint k = 0; k < size; k++)
+        {
+            std::string el = size > 1 ? base + "[" + std::to_string(k) + "]" : base;
+            GLint loc = glGetUniformLocation(program, el.c_str());
+            if(loc < 0)
+                continue; // in a uniform block
+
+            size_t offset = values.size();
+            values.resize(offset + 16, 0);
+            if(uniformIsFloat(type))
+                glGetUniformfv(program, loc, reinterpret_cast<GLfloat *>(&values[offset]));
+            else
+                glGetUniformiv(program, loc, reinterpret_cast<GLint *>(&values[offset]));
+            values.resize(offset + (size_t)comps);
+
+            initial.push_back({loc, type, offset});
+        }
+    }
+}
+
 int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
 {
     if(!scriptShaderHeader())
@@ -424,6 +547,9 @@ int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::
     p.u_mv = glGetUniformLocation(program, "xt_MV");
     p.u_p = glGetUniformLocation(program, "xt_P");
     p.u_texmat = glGetUniformLocation(program, "xt_TexMatrix0");
+    p.u_clip_count = glGetUniformLocation(program, "xt_ClipPlanes");
+    p.u_clip_planes = glGetUniformLocation(program, "xt_ClipPlane");
+    readInitialUniforms(program, p.initial, p.initial_values);
 
     int id = ++m_script_next_id;
     m_script_programs[id] = p;
@@ -439,6 +565,19 @@ void RenderGL::scriptShaderFree(int shader)
     glDeleteProgram(it->second.program);
     GLProgramObject::s_forget_active_program();
     m_script_programs.erase(it);
+}
+
+void RenderGL::scriptShaderReset(int shader)
+{
+    auto it = m_script_programs.find(shader);
+    if(it == m_script_programs.end())
+        return;
+
+    const ScriptProgram_t &p = it->second;
+    glUseProgram(p.program);
+    for(const auto &u : p.initial)
+        setUniformElement(u.location, u.type, &p.initial_values[u.offset]);
+    GLProgramObject::s_forget_active_program();
 }
 
 void RenderGL::scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out)
@@ -712,6 +851,13 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
         glUniformMatrix4fv(prog.u_p, 1, GL_FALSE, proj.data());
     if(prog.u_texmat != -1)
         glUniformMatrix4fv(prog.u_texmat, 1, GL_FALSE, mat4Scale(tex_scale[0], tex_scale[1]).data());
+    if(prog.u_clip_count != -1)
+    {
+        int planes = SDL_min(SDL_max(d.clipPlaneCount, 0), 6);
+        glUniform1i(prog.u_clip_count, planes);
+        if(planes > 0 && prog.u_clip_planes != -1)
+            glUniform4fv(prog.u_clip_planes, planes, &d.clipPlanes[0][0]);
+    }
 
     // uniforms (samplers get texture units after the engine's)
     int next_unit = 0;
@@ -952,6 +1098,11 @@ int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::
 void RenderGL::scriptShaderFree(int shader)
 {
     AbstractRender_t::scriptShaderFree(shader);
+}
+
+void RenderGL::scriptShaderReset(int shader)
+{
+    AbstractRender_t::scriptShaderReset(shader);
 }
 
 void RenderGL::scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out)

@@ -18,9 +18,16 @@ and, for GLSL 3.30 / ES 3.00, attribute/varying -> in/out and texture2D ->
 texture. Names that later GLSL reserves (SMATRS has uniforms named
 textureSize) become xt_r_<name>; lunadll.lua reports them by their own name.
 
+Clip planes (glDraw's clipPlanes; LunaLua uses fixed-function glClipPlane,
+which neither GL 3.3 core nor ES has): each stage's main() becomes xt_main(),
+called by a main() of ours. The vertex one passes the position in the view
+(xt_MV * xt_Vertex, or gl_ClipVertex if the shader sets it, as fixed-function
+GL does) to the fragment one, which discards pixels behind any of the
+xt_ClipPlanes planes in xt_ClipPlane (set by the engine for every draw).
+
 What isn't handled yet: ES's lack of implicit int -> float conversion (SMBX2's
-shaders rely on it; desktop GLSL allows it), clip planes, and built-ins
-besides the ones above. A shader that doesn't compile is drawn without.
+shaders rely on it; desktop GLSL allows it) and built-ins besides the ones
+above. A shader that doesn't compile is drawn without.
 ]]
 
 local glsl = {}
@@ -139,6 +146,21 @@ function glsl.translate(vertexSource, fragmentSource, header)
     if clipVertex then
         vsHead[#vsHead + 1] = "vec4 xt_ClipVertex;\n"
     end
+
+    -- clip planes: our main() around the shader's
+    vs = string.gsub(vs, "void(%s+)main(%s*%()", "void%1xt_main%2")
+    fs = string.gsub(fs, "void(%s+)main(%s*%()", "void%1xt_main%2")
+    vsHead[#vsHead + 1] = varyingOut .. " vec4 xt_ClipPos;\n"
+    fsHead[#fsHead + 1] = varyingIn .. " vec4 xt_ClipPos;\n" ..
+                          "uniform vec4 xt_ClipPlane[6];\nuniform int xt_ClipPlanes;\n"
+    vs = vs .. "\nvoid main()\n{\n    xt_main();\n    xt_ClipPos = " ..
+         (clipVertex and "xt_ClipVertex" or "xt_MV * xt_Vertex") .. ";\n}\n"
+    fs = fs .. "\nvoid main()\n{\n" ..
+         "    if(xt_ClipPlanes > 0)\n    {\n" ..
+         "        for(int i = 0; i < 6; i++)\n        {\n" ..
+         "            if(i < xt_ClipPlanes && dot(xt_ClipPlane[i], xt_ClipPos) < 0.0)\n" ..
+         "                discard;\n        }\n    }\n" ..
+         "    xt_main();\n}\n"
 
     if string.find(fs, word("xt_MVP")) then
         fsHead[#fsHead + 1] = "uniform mat4 xt_MVP;\n"

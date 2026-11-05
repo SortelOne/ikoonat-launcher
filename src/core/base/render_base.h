@@ -345,6 +345,9 @@ public:
     //! Compiles a program; 0 on failure (error says why)
     virtual int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error);
     virtual void scriptShaderFree(int shader);
+    //! Sets all of the program's uniforms to 0, as in a newly linked program
+    //! (programs are kept across levels)
+    virtual void scriptShaderReset(int shader);
     //! The program's active uniforms (or attributes)
     virtual void scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out);
     //! A w x h render target, cleared to transparent

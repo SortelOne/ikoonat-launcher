@@ -309,10 +309,21 @@ void UpdateInternalRes()
         new_ScreenH = canon_h;
     }
 
-    if(l_screen->W != new_ScreenW)
+    // smbx2compat: also compare with the size asked for last. The messages are
+    // handled later, so two changes before then (a level's config reset to the
+    // default size, then SMBX2's loading screen setting its own back) left the
+    // screen at the first size: the second matched the screen's old one.
+    static int s_askedW = -1, s_askedH = -1;
+    if(l_screen->W != new_ScreenW || s_askedW != new_ScreenW)
+    {
         XMessage::PushMessage({XMessage::Type::screen_w, (uint8_t)(new_ScreenW / 256), (uint8_t)(new_ScreenW % 256)});
-    if(l_screen->H != new_ScreenH)
+        s_askedW = new_ScreenW;
+    }
+    if(l_screen->H != new_ScreenH || s_askedH != new_ScreenH)
+    {
         XMessage::PushMessage({XMessage::Type::screen_h, (uint8_t)(new_ScreenH / 256), (uint8_t)(new_ScreenH % 256)});
+        s_askedH = new_ScreenH;
+    }
     if(l_screen->CameraOverscanX != new_CameraOverscanX)
         XMessage::PushMessage({XMessage::Type::camera_overscan_x, 0, (uint8_t)new_CameraOverscanX});
     if(XRender::is_nullptr() || !GameIsActive)

@@ -907,6 +907,11 @@ void AbstractRender_t::scriptShaderFree(int shader)
     UNUSED(shader);
 }
 
+void AbstractRender_t::scriptShaderReset(int shader)
+{
+    UNUSED(shader);
+}
+
 void AbstractRender_t::scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out)
 {
     UNUSED(shader);
