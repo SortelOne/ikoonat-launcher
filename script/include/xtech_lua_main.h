@@ -32,4 +32,7 @@ extern lua_State* xtech_lua_getState();
 // Pushes the function (or nil) onto the stack. Returns true if found.
 extern bool xtech_lua_getFunc(const char* funcName);
 
+// smbx2compat: the level runs SMBX2's own scripts (core mode)
+extern bool xtech_lua_isSmbx2Core();
+
 #endif // LUA_MAIN_HHH

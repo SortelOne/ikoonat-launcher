@@ -433,6 +433,11 @@ static int runSandboxed(const std::string &path)
 // smbx2compat: SMBX2 core mode
 // ============================================================================
 
+bool xtech_lua_isSmbx2Core()
+{
+    return g_smbx2Core;
+}
+
 // Core mode runs SMBX2's own scripts/base/engine/main.lua (what LunaLua boots)
 // instead of the v0.1 shim. It needs SMBX2's data folder at <assets>/smbx2/ and
 // our host layer at <assets>/scripts/smbx2core/boot.lua (smbx2compat/core in the

@@ -170,6 +170,8 @@ enum OpKind : uint8_t
     OP_SCRIPT,   // first = index into s_scriptOps
     OP_CAPTURE,  // first = capture buffer (renderer id)
     OP_CLEAR,    // first = capture buffer (renderer id)
+    OP_REDIRECT,   // first = capture buffer (renderer id), count = redirect handle
+    OP_UNREDIRECT, // count = handle of its OP_REDIRECT
 };
 
 struct DrawOp
@@ -184,7 +186,7 @@ struct DrawOp
     // OP_TRIANGLES: vertices [first, first + count) of s_vertices
     // OP_IMAGE: x, y = position; u, v = source position; count/first = source size
     // OP_TEXT: x, y = position; first = index into s_texts, count = font
-    // OP_SCRIPT, OP_CAPTURE, OP_CLEAR: see OpKind
+    // OP_SCRIPT, OP_CAPTURE, OP_CLEAR, OP_(UN)REDIRECT: see OpKind
     double x, y;
     int u, v;
     uint32_t first, count;
@@ -235,6 +237,11 @@ std::vector<ScriptDrawVar_t> s_drawVars;
 // drawing order: indices into s_ops sorted by priority (queue order on ties)
 std::vector<uint32_t> s_order;
 size_t s_orderCursor = 0;
+
+// Graphics.redirectCameraFB's active redirects, innermost last (LunaLua's
+// GLContextManager::mActiveRedirects): {handle, capture buffer}
+std::vector<std::pair<uint32_t, int>> s_redirects;
+uint32_t s_nextRedirect = 0;
 
 int s_curCamera = 0;       // camera whose draws are being queued (0: all)
 int s_drawScreen = 0;      // vScreen being drawn (0: none)
@@ -725,7 +732,43 @@ void drawOp(const DrawOp &op, double camX, double camY)
     case OP_CLEAR:
         g_render->scriptBufferClear((int)op.first);
         break;
+
+    case OP_REDIRECT:
+        s_redirects.emplace_back(op.count, (int)op.first);
+        g_render->scriptRedirect((int)op.first);
+        break;
+
+    case OP_UNREDIRECT:
+        if(!s_redirects.empty() && s_redirects.back().first == op.count)
+        {
+            // back to the redirect it interrupted, or the screen
+            s_redirects.pop_back();
+            g_render->scriptRedirect(s_redirects.empty() ? 0 : s_redirects.back().second);
+        }
+        else
+        {
+            // ending a redirect that a later one interrupted: just forget it
+            for(auto it = s_redirects.begin(); it != s_redirects.end(); ++it)
+            {
+                if(it->first == op.count)
+                {
+                    s_redirects.erase(it);
+                    break;
+                }
+            }
+        }
+        break;
     }
+}
+
+// LunaLua drops a camera's redirects when it moves on to the next camera
+void endRedirects()
+{
+    if(s_redirects.empty())
+        return;
+
+    s_redirects.clear();
+    g_render->scriptRedirect(0);
 }
 
 // Testing: saves the frame just drawn as smbx2shot-N.png in the log folder (the
@@ -1004,6 +1047,26 @@ int lua_bufferClear(lua_State *L)
     return queueBufferOp(L, OP_CLEAR);
 }
 
+// xtech_gfx_redirect(handle, startPriority, endPriority): the engine's and the
+// screen's draws from startPriority to endPriority go into the capture buffer
+int lua_redirect(lua_State *L)
+{
+    int id = bufferFor(reinterpret_cast<void *>((uintptr_t)luaL_checknumber(L, 1)));
+    double startPriority = luaL_checknumber(L, 2);
+    double endPriority = luaL_checknumber(L, 3);
+    if(!id)
+        return 0;
+
+    makeRoom();
+    uint32_t handle = ++s_nextRedirect;
+    DrawOp &start = newOp(OP_REDIRECT, startPriority, false);
+    start.first = (uint32_t)id;
+    start.count = handle;
+    DrawOp &end = newOp(OP_UNREDIRECT, endPriority, false);
+    end.count = handle;
+    return 0;
+}
+
 // Frees the pictures when the level's Lua state closes
 int lua_ownerGC(lua_State *)
 {
@@ -1029,6 +1092,7 @@ void xtech_lua_drawCameraStart(int screenZ)
 
 void xtech_lua_cameraEnd()
 {
+    endRedirects();
     s_drawScreen = 0;
 }
 
@@ -1096,6 +1160,7 @@ void xtech_lua_drawFrameEnd()
     s_orderCursor = 0;
     s_curCamera = 0;
     s_drawScreen = 0;
+    endRedirects();
 
     for(int id : s_freedShaders)
         g_render->scriptShaderFree(id);
@@ -1147,6 +1212,7 @@ void xtech_lua_register_draw(lua_State *L)
     lua_register(L, "xtech_gfx_bufferFree", lua_bufferFree);
     lua_register(L, "xtech_gfx_bufferCapture", lua_bufferCapture);
     lua_register(L, "xtech_gfx_bufferClear", lua_bufferClear);
+    lua_register(L, "xtech_gfx_redirect", lua_redirect);
 
     lua_pushlightuserdata(L, reinterpret_cast<void *>(&ffi_glDraw));
     lua_setglobal(L, "__xtech_ffiGLDraw");

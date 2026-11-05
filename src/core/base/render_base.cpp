@@ -945,6 +945,11 @@ void AbstractRender_t::scriptDrawEnd()
 {
 }
 
+void AbstractRender_t::scriptRedirect(int buffer)
+{
+    UNUSED(buffer);
+}
+
 
 #ifdef USE_RENDER_BLOCKING
 bool AbstractRender_t::renderBlocked()

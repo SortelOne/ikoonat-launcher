@@ -59,9 +59,12 @@
 #   define SMBX2_DRAW_BELOW(p) xtech_lua_drawBelow(XTECH_LUA_PRI_##p)
 // smbx2compat: false when an SMBX2 library draws this itself
 #   define SMBX2_VANILLA(what) (LevelEditor || xtech_lua_drawVanilla(XTECH_LUA_DRAW_##what))
+// smbx2compat: SMBX2's own scripts run this level (core mode)
+#   define SMBX2_CORE() (!LevelEditor && xtech_lua_isSmbx2Core())
 #else
 #   define SMBX2_DRAW_BELOW(p)
 #   define SMBX2_VANILLA(what) true
+#   define SMBX2_CORE() false
 #endif
 
 #include "npc/npc_activation.h"
@@ -3007,11 +3010,13 @@ void UpdateGraphicsScreen(Screen_t& screen)
         if(SectionParticlesFG[S])
             XRender::renderParticleSystem(**SectionParticlesFG[S], camX_i, camY_i);
 
-        XRender::setupLighting(SectionLighting[S]);
+        // smbx2compat: in core mode SMBX2's darkness.lua draws the section's
+        // darkness (the same LVLX settings this lighting emulates)
+        XRender::setupLighting(SMBX2_CORE() ? GLLightSystem() : SectionLighting[S]);
 
         if(SectionEffect[S])
             XRender::renderTextureScale(0, 0, vScreen[Z].Width, vScreen[Z].Height, **SectionEffect[S]);
-        else if(SectionLighting[S])
+        else if(SectionLighting[S] && !SMBX2_CORE())
             XRender::renderLighting();
 #endif
 

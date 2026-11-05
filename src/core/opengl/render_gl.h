@@ -445,6 +445,8 @@ private:
     {
         GLuint fb = 0;
         GLuint texture = 0;
+        // depth buffer for the engine's draws, made the first time they're redirected here
+        GLuint depth_rb = 0;
         int w = 0;
         int h = 0;
     };
@@ -463,6 +465,11 @@ private:
     // capture buffer left bound by script draws (0: the engine's framebuffer)
     int m_script_bound_buffer = 0;
     GLint m_script_saved_viewport[4] = {0, 0, 0, 0};
+    // capture buffer the engine's draws are redirected to (0: none); it takes
+    // BUFFER_GAME's place meanwhile, these keep the game buffer's own
+    int m_script_redirect = 0;
+    GLuint m_script_game_fb = 0;
+    GLuint m_script_game_texture = 0;
 
     //! framebuffer the engine is drawing to
     GLuint scriptCurrentFB() const;
@@ -835,6 +842,7 @@ public:
     void scriptBufferCapture(int buffer) override;
     void scriptDraw(const ScriptDraw_t &draw) override;
     void scriptDrawEnd() override;
+    void scriptRedirect(int buffer) override;
 
 
 

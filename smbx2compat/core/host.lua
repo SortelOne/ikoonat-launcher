@@ -262,6 +262,12 @@ function triggerEvent(name)
     xtech_event_triggerLevelEvent(tostring(name))
 end
 
+-- Starts a section's music (SMBX's StartMusic); Player:teleport calls it
+-- when the player lands in another section
+function playMusic(section)
+    xtech_audio_playMusic(math.floor(tonumber(section) or 0), 0)
+end
+
 
 -----------------
 -- FileFormats --

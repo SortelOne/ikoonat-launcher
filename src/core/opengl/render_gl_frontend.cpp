@@ -552,7 +552,11 @@ void RenderGL::applyViewport()
 
     int y_sign = 1;
 
-    if(m_has_fbo && m_game_texture_fb)
+    // smbx2compat: draws redirected to a capture buffer (Graphics.redirectCameraFB) put the
+    // camera's view at its top-left, unscaled, as in LunaLua's camera framebuffers
+    if(m_has_fbo && m_game_texture_fb && m_script_redirect)
+        glViewport(viewport.x - m_viewport.x, viewport.y - m_viewport.y, viewport.w, viewport.h);
+    else if(m_has_fbo && m_game_texture_fb)
     {
         RectSizeI viewport_scaled = viewport * m_render_scale_factor;
 

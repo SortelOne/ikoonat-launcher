@@ -542,6 +542,14 @@ function dll.FFI_CaptureBufferClear(buf, priority)
     xtech_gfx_bufferClear(handleKey(buf), tonumber(priority))
 end
 
+-- Graphics.redirectCameraFB: everything drawn to the camera between the two
+-- priorities, the engine's objects too, goes into the buffer instead
+function dll.FFI_RedirectCameraFB(buf, startPriority, endPriority)
+    if buf ~= nil then
+        xtech_gfx_redirect(handleKey(buf), tonumber(startPriority), tonumber(endPriority))
+    end
+end
+
 -- The engine's screen size (SMATRS asks for 960x540)
 function dll.FFI_GraphicsSetMainFramebufferSize(w, h)
     xtech_gfx_setFramebufferSize(w, h)

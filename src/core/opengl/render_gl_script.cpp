@@ -36,6 +36,15 @@
 // A capture buffer stays bound after a draw into it until something needs the
 // engine's framebuffer again (scriptDrawEnd at the latest): each switch starts
 // a new render pass on tiled GPUs, which Apple's OpenGL makes costly.
+//
+// Graphics.redirectCameraFB (scriptRedirect) makes a capture buffer the
+// engine's framebuffer for a while: it takes BUFFER_GAME's slot, so the
+// engine's own draws, its passes that rebind the game buffer (framebuffer
+// copies, lighting, multipass) and script draws to the screen all land in it,
+// with the camera's view at its top-left as in LunaLua's camera framebuffers.
+// It gets a depth buffer of its own, cleared at each redirect, for the
+// engine's opaque draws. The engine's copies use game-buffer coordinates, which
+// match only for an unscaled camera at the screen's top-left (one player).
 
 #include <array>
 #include <cstring>
@@ -173,15 +182,71 @@ void RenderGL::scriptDrawEnd()
     glBindFramebuffer(GL_FRAMEBUFFER, scriptCurrentFB());
 
     if(scriptCurrentFB())
-    {
-        // as applyViewport sets it for the game buffer
-        RectSizeI viewport = m_viewport;
-        s_normalize_coords(viewport);
-        viewport = viewport * m_render_scale_factor;
-        glViewport(viewport.x, viewport.y, viewport.w, viewport.h);
-    }
+        applyViewport();
     else
         glViewport(m_script_saved_viewport[0], m_script_saved_viewport[1], m_script_saved_viewport[2], m_script_saved_viewport[3]);
+}
+
+void RenderGL::scriptRedirect(int buffer)
+{
+    ScriptBuffer_t *b = nullptr;
+    if(buffer)
+    {
+        auto it = m_script_buffers.find(buffer);
+        if(it == m_script_buffers.end())
+            buffer = 0;
+        else
+            b = &it->second;
+    }
+
+    // only while drawing to the game buffer (a level's cameras)
+    if(m_recentTargetScreen || !m_game_texture_fb)
+    {
+        buffer = 0;
+        b = nullptr;
+    }
+
+    if(buffer == m_script_redirect)
+        return;
+
+    // what's queued so far goes where it was drawn
+    scriptDrawEnd();
+    flushDrawQueues();
+
+    // the capture buffer stands in for the game buffer, so every engine pass
+    // (framebuffer copies, lighting, multipass) draws into it too
+    if(!m_script_redirect)
+    {
+        m_script_game_fb = m_buffer_fb[BUFFER_GAME];
+        m_script_game_texture = m_buffer_texture[BUFFER_GAME];
+    }
+
+    m_script_redirect = buffer;
+    m_buffer_fb[BUFFER_GAME] = b ? b->fb : m_script_game_fb;
+    m_buffer_texture[BUFFER_GAME] = b ? b->texture : m_script_game_texture;
+
+    if(m_recentTargetScreen)
+        return;
+
+    if(b && m_use_depth_buffer && !b->depth_rb)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, b->fb);
+        glGenRenderbuffers(1, &b->depth_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, b->depth_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT16, b->w, b->h);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, b->depth_rb);
+        if(glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+            pLogWarning("smbx2compat: couldn't add a depth buffer to a %dx%d capture buffer", b->w, b->h);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, scriptCurrentFB());
+
+    // the engine's depth values only order its draws within this redirect
+    if(b && m_use_depth_buffer)
+        glClear(GL_DEPTH_BUFFER_BIT);
+
+    applyViewport();
 }
 
 const char *RenderGL::scriptShaderHeader()
@@ -360,11 +425,15 @@ void RenderGL::scriptBufferFree(int buffer)
     if(it == m_script_buffers.end())
         return;
 
+    if(m_script_redirect == buffer)
+        scriptRedirect(0);
     if(m_script_bound_buffer == buffer)
         scriptDrawEnd();
 
     glDeleteFramebuffers(1, &it->second.fb);
     glDeleteTextures(1, &it->second.texture);
+    if(it->second.depth_rb)
+        glDeleteRenderbuffers(1, &it->second.depth_rb);
     m_script_buffers.erase(it);
 }
 
@@ -385,7 +454,7 @@ void RenderGL::scriptBufferClear(int buffer)
 void RenderGL::scriptBufferCapture(int buffer)
 {
     auto it = m_script_buffers.find(buffer);
-    if(it == m_script_buffers.end() || !scriptCurrentFB())
+    if(it == m_script_buffers.end() || !scriptCurrentFB() || buffer == m_script_redirect)
         return;
 
     // reads the engine's framebuffer
@@ -400,11 +469,20 @@ void RenderGL::scriptBufferCapture(int buffer)
     if(w <= 0 || h <= 0)
         return;
 
-    r = r * m_render_scale_factor;
+    // a redirect's capture buffer holds the view at its top-left, unscaled
+    float scale = m_render_scale_factor;
+    if(m_script_redirect)
+    {
+        r.x -= m_viewport.x;
+        r.y -= m_viewport.y;
+        scale = 1.0f;
+    }
+
+    r = r * scale;
 
     glBindTexture(GL_TEXTURE_2D, it->second.texture);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.x, r.y,
-                        (GLsizei)(w * m_render_scale_factor), (GLsizei)(h * m_render_scale_factor));
+                        (GLsizei)(w * scale), (GLsizei)(h * scale));
 }
 
 void RenderGL::scriptDraw(const ScriptDraw_t &d)
@@ -460,7 +538,7 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
         {
             auto bit = m_script_buffers.find(t.buffer);
             // a buffer can't be read while it's drawn into
-            if(bit == m_script_buffers.end() || &bit->second == target)
+            if(bit == m_script_buffers.end() || &bit->second == target || (!target && t.buffer == m_script_redirect))
                 return 0;
             return bit->second.texture;
         }
@@ -697,6 +775,7 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
 
 void RenderGL::scriptCleanup()
 {
+    scriptRedirect(0);
     scriptDrawEnd();
 
     for(auto &p : m_script_programs)
@@ -707,6 +786,8 @@ void RenderGL::scriptCleanup()
     {
         glDeleteFramebuffers(1, &b.second.fb);
         glDeleteTextures(1, &b.second.texture);
+        if(b.second.depth_rb)
+            glDeleteRenderbuffers(1, &b.second.depth_rb);
     }
     m_script_buffers.clear();
 
@@ -779,6 +860,11 @@ void RenderGL::scriptDraw(const ScriptDraw_t &draw)
 
 void RenderGL::scriptDrawEnd()
 {
+}
+
+void RenderGL::scriptRedirect(int buffer)
+{
+    AbstractRender_t::scriptRedirect(buffer);
 }
 
 void RenderGL::scriptCleanup()

@@ -192,8 +192,14 @@ How it works (details in `core/boot.lua`'s header):
   first, blending is LunaLua's premultiplied one. SMBX2's images load
   premultiplied (`StdPictureLoad::premultiply`), as in LunaLua; batched draws
   of them use `m_program_premultiplied`. Capture buffers are framebuffers with
-  top-down rows like the game buffer. `redirectCameraFB` and clip planes
-  aren't done.
+  top-down rows like the game buffer. `Graphics.redirectCameraFB` queues
+  `OP_REDIRECT`/`OP_UNREDIRECT` at its two priorities; `RenderGL::scriptRedirect`
+  puts the capture buffer in `BUFFER_GAME`'s slot meanwhile, so the engine's
+  own draws and passes go into it too (camera at its top-left; one camera,
+  unscaled). Redirects end with each camera. Clip planes aren't done.
+- TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
+  `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
+  SMBX2's `darkness.lua` draws it, and both together darkened twice.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -296,8 +302,9 @@ How it works (details in `core/boot.lua`'s header):
 
 - In core mode, SMATRS 1-1 runs with no script errors and no unknown `mem()`
   addresses (bonus1 has its old ones). Audio works (checked by ear).
-  Drawing works (shaders, capture buffers and sprite overrides too) except
-  `redirectCameraFB`. See ROADMAP.md Phase 1 "Next round".
+  Drawing works (shaders, capture buffers, `redirectCameraFB` and sprite
+  overrides too) except clip planes. 2-1 runs too, with one error from the
+  box light NPC 675 (`sourceSize` nil). See ROADMAP.md Phase 1 "Next round".
 - TheXTech prunes old files in the log folder, so read a run's log right
   after it (`run-level.sh` prints its path). SMBX2's warning reports
   (`WARNING_*.txt`) land there too.

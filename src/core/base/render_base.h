@@ -357,6 +357,9 @@ public:
     virtual void scriptDraw(const ScriptDraw_t &draw);
     //! After script draws (before the engine draws anything): puts back the engine's render target
     virtual void scriptDrawEnd();
+    //! Sends the engine's draws (and script draws to the screen) to a capture buffer,
+    //! the camera's view at its top-left, until called again (0: back to the screen)
+    virtual void scriptRedirect(int buffer);
 
 
 

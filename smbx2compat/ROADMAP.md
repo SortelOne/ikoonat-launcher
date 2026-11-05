@@ -400,10 +400,8 @@ sprite override round.
   across consecutive draws into it.
 - 1-1 now shows the shaded sunset sky, sand and water layers, Mario in his
   palette colours, the foreground water and the music-name box text.
-- Not done: `Graphics.redirectCameraFB` (SMATRS's `dynamicBackgrounds.lua`
-  sends the engine's own drawing of a priority range into a buffer for its
-  "glowing layer" on some backgrounds; needs the engine to draw into a
-  capture buffer), depth buffers as samplers, clip planes, double-precision
+- Not done: `Graphics.redirectCameraFB` (done in the camera redirect
+  round, 2026-11-05), depth buffers as samplers, clip planes, double-precision
   uniforms. On ES, SMBX2's shaders will also need int -> float conversions
   added (desktop GLSL converts implicitly, ES doesn't): Phase 7.
 
@@ -530,12 +528,39 @@ image` now changes what the engine draws, as LunaLua's
   (`LegacyNPC(idx)`), which classes.lua doesn't have; `onNPCCollect` /
   `onNPCHarm` aren't sent from the engine yet (Phase 5).
 
+*Camera redirect round (2026-11-05)*:
+- `Graphics.redirectCameraFB(buffer, start, end)`: everything drawn to the
+  camera from `start` to `end`, the engine's blocks, NPCs and players too,
+  goes into the capture buffer (LunaLua's `GLContextManager` redirect stack).
+  The draw queue gets `OP_REDIRECT`/`OP_UNREDIRECT` ops at the two
+  priorities, nesting like LunaLua's stack; redirects end with each camera.
+  `RenderGL::scriptRedirect` puts the capture buffer in `BUFFER_GAME`'s slot
+  (framebuffer and texture), so the engine's own extra passes that rebind
+  "the game buffer" (screen copies, lighting, multipass) follow it; a first
+  version that only bound the buffer lost every draw after the first such
+  pass. The buffer gets its own depth buffer (cleared per redirect) for the
+  engine's opaque draws. The camera sits at the buffer's top-left, unscaled,
+  as in LunaLua, so it matches the engine's coordinates for one unscaled
+  camera only (split screen would need more).
+- SMATRS's glowing moon (2-1 Warped Woods, `dynamicBackgrounds.lua`) now
+  shows above the level's darkness.
+- TheXTech reads SMBX2's section `darkness` settings for its own lighting;
+  with SMBX2's `darkness.lua` also running, levels with darkness (1-1, 2-1)
+  were darkened twice. The engine's lighting is off in core mode now.
+- `playMusic(section)` (a LunaLua global; `Player:teleport` calls it) was
+  missing; 2-1's start-up stopped at it.
+- Not checked: 2-3, 2-5 and the badge screen, the other redirect users
+  (they need playing to reach). Not done: clip planes.
+
 *Next round, in order:*
-1. `Graphics.redirectCameraFB` (glowing background layers).
-2. Performance: ~12.5 of ~14 traces abort each frame (`ffi_mem.lua`
+1. Performance: ~5.4 of ~6.7 traces abort each frame (`ffi_mem.lua`
    loops, `ffi_npc.lua:444`, `blockeventmanager.lua:156`); 48,000 `mem()`
    reads a frame; see the Performance track.
-3. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
+2. Box light NPC 675 in 2-1: `data._settings` without `sourceSize`, though
+   the level's settings for it are complete (settings reaching the wrong NPC?).
+3. `smoke/actiontest`: the mushroom check (powerup at tick 180) fails on
+   this round's and the previous round's code alike.
+4. Cancellable engine events (`onNPCHarm`, `onNPCCollect`, ...; Phase 5).
 Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 2 — `mem()` and object classes (started 2026-11-04)
@@ -563,8 +588,8 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 ### Phase 4 — Rendering
 - `Graphics.drawImage*` with priority, opacity, source rects, `Graphics.glDraw`
   (vertex arrays), capture buffers, `Graphics.drawBox` / `drawScreen`.
-  Done 2026-11-04 (Phase 1 "Drawing round" and "Shader round"), except
-  `redirectCameraFB` and clip planes.
+  Done 2026-11-04 (Phase 1 "Drawing round" and "Shader round") and
+  `redirectCameraFB` 2026-11-05, except clip planes.
 - `Shader` — done 2026-11-04: translated by `core/lunadll.lua`'s `glsl.lua`,
   compiled and drawn by the engine (Phase 1 "Shader round").
 - `Darkness`, `particles`, `textplus` fonts, `paralx2` backgrounds.
@@ -643,6 +668,7 @@ VM-state split (compiled / interpreted / C / GC / JIT compiler) is reliable.
 | Sprite override round | 8.9 | 6.1 | frames 300-900, real sound (low volume); engine 2.8 |
 | ID and collision group round | 11.3 | 8.2 | frames 300-900, muted; engine 3.1; 48,200 `mem()` reads a frame |
 | Level flow and game actions round | 10.5 | 7.6 | same; engine 2.9; 12.5 of 13.9 traces abort a frame |
+| Camera redirect round | 7.0 | 5.1 | same; engine 1.9 (no TheXTech lighting pass); 5.4 of 6.7 traces abort; Lua drop not explained by the round's changes |
 
 The FileFormats round lets SMATRS's whole `onStart` chain run, so far more of
 its code runs each frame (`cutscenePal` and `darkness` `onDraw` ~0.35-0.6 ms
