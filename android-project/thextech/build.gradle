@@ -188,14 +188,17 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
 
-            if(xTechVersionType == "-dev") {
-                applicationIdSuffix = '.dev.' + xTechBranch
-                android.sourceSets.release.res.srcDirs += project.projectDir.toString() + '/icon/devel'
-                manifestPlaceholders.dstAppName = "Ikoonat DEV [" + xTechBranchOrig + "]"
-            } else {
-                android.sourceSets.release.res.srcDirs += project.projectDir.toString() + '/icon/main'
-                manifestPlaceholders.dstAppName = "Ikoonat Launcher" // smbx2compat
-            }
+            // smbx2compat: no release key here, so the Release APK (optimised native
+            // code; Debug's is far too slow for SMATRS) is signed with this computer's
+            // debug key and installs straight away. Reinstalling it from another
+            // computer's build needs an uninstall first (different key).
+            signingConfig = signingConfigs.debug
+
+            // smbx2compat: TheXTech's version says "-dev", which gave upstream's
+            // dev builds their own app ID; ours keep Ikoonat Launcher's
+            // (io.github.sortelone.ikoonat, as frontends' launch commands use)
+            android.sourceSets.release.res.srcDirs += project.projectDir.toString() + '/icon/main'
+            manifestPlaceholders.dstAppName = "Ikoonat Launcher"
         }
         releaseci {
             minifyEnabled false

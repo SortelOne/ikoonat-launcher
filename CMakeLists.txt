@@ -522,6 +522,7 @@ if(PGE_MIN_PORT)
     set(PGEFL_DISABLE_SMBX38A ON)
 endif()
 
+include(cmake/smbx2compat_patches.cmake) # smbx2compat: our submodule patches, for fresh clones
 add_subdirectory(3rdparty/PGE_File_Formats)
 mark_as_advanced(WITH_UNIT_TESTS PGEFL_QT_SUPPORT)
 

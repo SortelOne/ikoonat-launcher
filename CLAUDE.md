@@ -70,7 +70,10 @@ their project, so never prepare anything from this repo as an upstream PR.
 
 The fork's submodule pin (`b2e1cc5`) was never pushed upstream, so the submodule
 is pinned to upstream `WohlSoft/PGE-File-Library-STL` (`e5fdc53`) instead. The fork's
-engine code expects fields upstream lacks, so after checkout apply our patch:
+engine code expects fields upstream lacks, so our patch goes on top. CMake
+applies it, and LuaJIT's below, at configure time when they aren't applied
+yet (`cmake/smbx2compat_patches.cmake`; a fresh clone needs nothing by
+hand). By hand:
 
 ```bash
 git -C 3rdparty/PGE_File_Formats apply ../../smbx2compat/pge-file-library.patch
@@ -677,7 +680,11 @@ is `io.github.sortelone.ikoonat`; the Java/JNI package stays
 `ru.wohlsoft.thextech`. Android launcher icons:
 `python3 resources/ikoonat/make_icons.py --android`. There is no Android
 SDK on this Mac (don't install one without asking): Kotlin changes can't
-be compiled here, so read them twice; Jake builds and tests on the Odin.
+be compiled here, so read them twice; Jake builds on his Windows PC in
+WSL (`smbx2compat/ANDROID-BUILD.md`: setup, `./gradlew assembleApkRelease`,
+keeping each build's unstripped `libthextech.so`) and tests on the Odin.
+Release APKs are signed with the building computer's debug key and keep
+the plain app ID (`thextech/build.gradle`).
 
 ## Conventions
 
@@ -685,3 +692,7 @@ be compiled here, so read them twice; Jake builds and tests on the Odin.
   `pLogInfo`/`pLogWarning` for logging). Mark our engine edits with a short
   `// smbx2compat:` comment so they're easy to find when merging upstream.
 - Don't commit game assets, episodes, or build output.
+- Commits use Jake's GitHub no-reply address
+  (`19493690+SortelOne@users.noreply.github.com`; GitHub refuses pushes
+  that expose the account's own email). The repo is private; making it
+  public needs Jake's explicit go.
