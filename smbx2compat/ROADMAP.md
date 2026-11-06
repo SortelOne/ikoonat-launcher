@@ -1608,21 +1608,39 @@ free/reset at level unload; (4) the same soak on the Odin (Android's
   than leaks); worth one run before release. On the Odin: read the memory
   lines in a long session's log.
 
-*To do after the TheXTech merge (Jake asked, 2026-11-06):* repeat the leak
-test on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), the same way
-as above: the soak (1-1, 2-1, 1-4 and 2-7 from the map, four rounds,
-`test/sweep/episode.sh`) comparing the `[smbx2core] memory:` lines with the
-2026-11-06 figures (resident ~280 MB by rounds 3-4, textures ~100-115, GL
-programs 151), then `leaks` on the running Release game. Places the merge
-changed that hold resources: single-file saves keep the save file open
-between saves (`s_open_gamesave` in `game_save.cpp`; `CloseSave`), the
-OpenGL renderer's program list and unloading (`render_gl_frontend.cpp`,
-the new `m_no_tint_program`), the Background2 draw refactor, effect sizes
-read from graphics (`ResetEffectSize`, also run after an episode-mode
-sprite switch), and LevelSaveEntries (world map save info, which our Lua
-world-map helpers now add to). Also play two episodes in a row (SMATRS,
-then The Invasion 2, then SMATRS) so the SMBX/SMBX2 sprite switch is in
-the soak.
+*After the TheXTech merge (Jake asked, 2026-11-06; done the same day):*
+on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), Release build.
+- The soak as above (1-1, 2-1, 1-4 and 2-7 from the map, four rounds, 33
+  level starts): flat once round 1 fills the caches. Resident 263-277 MB
+  in rounds 2-4, textures 103-116, GL programs 154, no script errors;
+  open files (~50) and threads (8-10) steady (`lsof`/`ps` every 30 s).
+- Episode restarts: SMATRS's main-menu Quit calls `Misc.exitEngine`, a stub
+  until now, so the episode couldn't be left (on Android only Home got out).
+  It now leaves for the menu (see CLAUDE.md, "Episodes"). Continue from the
+  library, Quit, Continue again, 19-23 times in one process: resident flat
+  at ~189 MB, textures 429, programs 71.
+- Found: the loading screen's state still kept each load's context (~0.4 MB
+  and 3 images), now through LuaJIT's compiled traces, which hold the
+  tables they were compiled against until the next trace flush (every 4-16
+  loads here: a 2-9 MB sawtooth). A probe walking strong references from
+  the registry found no path to the old contexts; flushing the JIT freed
+  them all. `core/loadscreen.lua` now flushes that state's traces before
+  each init: its heap stays at ~1.9-2.4 MB and its images at 6 (episode
+  restarts) or 25-27 (level changes); resident levels at ~258 MB in round 2.
+  The memory line now counts that heap after a full collection (it showed
+  garbage as growth); the first version collected without swapping the
+  state's draw tables in, so its image finalizers freed from the level's
+  table and its own handles stayed (fixed before commit).
+- `leaks` on the running Release game after the soak: 418 objects, 20 KB,
+  all macOS's own (XPC connections, NSUserDefaults), as before.
+- Read for frees: the open single-file save (`s_open_gamesave`, closed by
+  `CloseSave` before every reopen), `m_no_tint_program` (reset with the
+  others in `render_gl_frontend.cpp`), LevelSaveEntries (every add looks
+  the level up first: one entry per level file).
+- Not done: two episodes of different modes in one process (SMATRS, then
+  The Invasion 2, then SMATRS) for the SMBX/SMBX2 sprite switch: an SMBX
+  episode can only be left through the engine's pause menu, which test
+  runs can't press yet. An AddressSanitizer build; the Odin's memory lines.
 
 ## Risks
 

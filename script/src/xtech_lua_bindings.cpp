@@ -66,6 +66,8 @@ extern "C"
 #include "core/msgbox.h"
 #include "game_main.h"
 #include "main/game_save.h" // smbx2compat: SaveGame()
+#include "main/speedrunner.h" // smbx2compat: Misc.exitEngine
+#include "editor.h" // smbx2compat: Misc.exitEngine (Backup_FullFileName)
 #include "npc_traits.h"
 #include "npc_constant_traits.h" // smbx2compat: mem() NPC type arrays
 #include "screen.h" // smbx2compat: mem() camera arrays
@@ -3726,6 +3728,46 @@ static void doPOW()
     PowBlock();
 }
 
+// smbx2compat: Misc.exitEngine / Misc.exitGame. LunaLua ends the process
+// (SMATRS's main menu "Quit" is the only way out of SMATRS); here an episode
+// goes back to the main menu (the library; a command-line world start then
+// quits, so Android shows its library app again), as TheXTech's pause menu
+// "Quit" does but without saving (LunaLua doesn't save either), and a level
+// test closes the game as the pause menu's "Quit testing" does. Only sets
+// flags: the level ends at the end of this frame.
+static void exitEngine()
+{
+    if(GameMenu || !GameIsActive)
+        return;
+
+    pLogInfo("smbx2compat: Misc.exitEngine: leaving the %s", TestLevel ? "level test" : "episode");
+
+    if(TestLevel)
+    {
+        EndLevel = true;
+        LevelBeatCode = BEATCODE_QUIT;
+        if(Backup_FullFileName.empty())
+            GameIsActive = false;
+        return;
+    }
+
+    speedRun_saveStats();
+
+    GameMenu = true;
+    MenuMode = MENU_INTRO;
+    MenuCursor = 0;
+
+    if(!LevelSelect)
+    {
+        LevelSelect = true;
+        EndLevel = true;
+    }
+    else
+        LevelSelect = false;
+
+    StopMusic();
+}
+
 // Misc.doPSwitchRaw: blocks to coins and back, without the timer or music
 static void doPSwitchRaw(bool activate)
 {
@@ -4827,6 +4869,7 @@ void xtech_lua_register_bindings(lua_State *L)
         def("xtech_misc_npcToCoins", &LuaMisc::npcToCoins), // smbx2compat
         def("xtech_misc_saveGame", &LuaMisc::saveGame), // smbx2compat
         def("xtech_misc_doPOW", &LuaMisc::doPOW), // smbx2compat
+        def("xtech_misc_exitEngine", &LuaMisc::exitEngine), // smbx2compat
         def("xtech_misc_doPSwitchRaw", &LuaMisc::doPSwitchRaw), // smbx2compat
         def("xtech_misc_doPSwitch", &LuaMisc::doPSwitch), // smbx2compat
         def("xtech_misc_doBombExplosion", &LuaMisc::doBombExplosion), // smbx2compat

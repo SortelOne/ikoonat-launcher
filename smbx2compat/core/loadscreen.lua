@@ -12,6 +12,7 @@
 local core = __smbx2core
 local traceback = debug.traceback
 local getupvalue = debug.getupvalue -- SMBX2's lockdown hides it
+local jitFlush = jit and jit.flush -- hidden later too
 
 -- InitMinimalLuaState's globals
 _smbxPath = getSMBXPath()
@@ -47,6 +48,12 @@ end
 -- functions, from the context that made them) in valuetable until the
 -- pattern is collected, and those functions keep the pattern alive. So the
 -- patterns made since the state started go with them.
+-- LuaJIT's compiled traces keep the tables they were compiled against (a
+-- context's environments, its fonts and images) until the traces are
+-- flushed, which happened only every 4-16 loads: until then each load kept
+-- the last ones (~0.4 MB and 3 images each in SMATRS, 2 to 9 MB). So the
+-- state's compiled code goes too; it is small and compiles again in a few
+-- frames. jit.flush only touches this state's traces, not the level's.
 local function upvalue(f, wanted)
     local i = 1
     while type(f) == "function" do
@@ -117,6 +124,9 @@ function __xtech_loadScreenInit()
     _loadingFinished = false
     frame = 0
     dropOldContexts()
+    if jitFlush then
+        jitFlush()
+    end
     call(init)
 end
 

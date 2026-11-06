@@ -221,8 +221,10 @@ Misc = hostTable("Misc", {
         end
     end,
     openPauseMenu = stub("Misc.openPauseMenu"),
-    exitGame = stub("Misc.exitGame"),
-    exitEngine = stub("Misc.exitEngine"),
+    -- LunaLua ends the process; the engine leaves the episode for the menu
+    -- (SMATRS's main menu "Quit"), or closes a level test
+    exitGame = function() xtech_misc_exitEngine() end,
+    exitEngine = function() xtech_misc_exitEngine() end,
     loadEpisode = stub("Misc.loadEpisode"),
     -- SMBX2's extra characters (Wario, Bowser, ...), each on one of the five
     -- built-in ones; playermanager registers them all at every start. The

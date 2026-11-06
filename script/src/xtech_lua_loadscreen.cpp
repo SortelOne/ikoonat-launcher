@@ -342,7 +342,21 @@ void xtech_lua_loadScreenQuit()
 
 int xtech_lua_loadScreenLuaKB()
 {
-    return s_L ? lua_gc(s_L, LUA_GCCOUNT, 0) : -1;
+    if(!s_L)
+        return -1;
+
+    // collected first, so the memory line shows what the state keeps (it
+    // lasts the session; garbage alone looked like growth); a few ms on its
+    // few MB, at a level start, never while its scripts run. Swapped in, as
+    // for every call: its images' finalizers free them from the draw tables
+    // in place (otherwise from the level's, and its own handles stayed)
+    if(!s_inFrame)
+    {
+        xtech_lua_drawSwapLoadScreen();
+        lua_gc(s_L, LUA_GCCOLLECT, 0);
+        xtech_lua_drawSwapLoadScreen();
+    }
+    return lua_gc(s_L, LUA_GCCOUNT, 0);
 }
 
 void xtech_lua_register_loadscreen(lua_State *L)

@@ -358,7 +358,12 @@ How it works (details in `core/boot.lua`'s header):
 - Episodes: `Misc.inEditor()` is SMBX2's `save slot == 0`, so `-l` level
   tests count as the editor and a world started with `--save-slot N` (as
   the menu does) is played. `Level.load` writes `GoToLevel` and leaves the
-  level; TheXTech's hub code loads it next. `Misc.saveGame` ->
+  level; TheXTech's hub code loads it next. `Misc.exitEngine`/`exitGame`
+  (LunaLua ends the process; SMATRS's main-menu Quit, its only way out)
+  leave the episode for the menu as TheXTech's pause-menu Quit does,
+  without saving (`exitEngine` in `xtech_lua_bindings.cpp`), so a
+  command-line world start quits (Android's library comes back); a level
+  test closes the game. `Misc.saveGame` ->
   `SaveGame()` (`src/main/game_save.cpp`), which sends `onSaveGame` first
   (`__xtech_onSaveGame`), as LunaLua does; SMBX2's `savedata.lua` then
   writes `<episode>/save<slot>-ext.dat`. With SMBX2's data a level without
@@ -527,7 +532,12 @@ How it works (details in `core/boot.lua`'s header):
   long run for growth (ROADMAP.md, Milestones, "Before M6"). The loading
   screen's state lasts the session, so anything it keeps per load piles up:
   `core/loadscreen.lua` drops SMBX2's `childEnvsByGlobal` contexts and
-  LPegLJ's `valuetable` entries made since it started before each init.
+  LPegLJ's `valuetable` entries made since it started before each init,
+  and flushes that state's JIT traces (they kept each old context alive
+  until LuaJIT's next flush). The line's loading-screen heap is counted
+  after a full collection, swapped in like every call into that state
+  (`xtech_lua_loadScreenLuaKB`): its image finalizers free from the draw
+  tables in place.
 - Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample][,memcallers][,load]` turns on
   `core/profile.lua` (frame/event/listener times, `mem()` counts and, with
   `memcallers`, the lines reading most, slowest frames with their slowest
