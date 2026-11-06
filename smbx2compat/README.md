@@ -93,7 +93,11 @@ Everything game-related lives outside the repo, in `../TheXTech-data/`
 | `userdir/worlds/smbx/SMATRS Chapter 1+2/` | the episode (the main menu lists episodes from here) |
 | `smoke/` | small test levels (see `CLAUDE.md`) |
 
-The two symlinks are what turn core mode on:
+The two symlinks are what turn core mode on for episodes in SMBX2 mode (each
+episode's mode is auto-detected or set in `userdir/settings/library.ini`; see
+`CLAUDE.md`, "SMBX2 core mode"). Without the second one the app uses its own
+copy of `core/` (copied into the app at each build), which misses edits made
+since the last link:
 
 ```bash
 D=../TheXTech-data

@@ -975,33 +975,14 @@ static void s_find_default_image(std::string& dest, DirListCI& CurDir, DirListCI
         s_find_image(dest, CurDir, baseName);
 }
 
-void LoadGFX()
+// smbx2compat: the default sprites that differ between SMBX 1.3 and SMBX2
+// (g_smbx2Ids); ReloadDefaultObjectGFX loads them again when an episode
+// switches modes (main/smbx2_mode.cpp)
+static void s_loadDefaultObjectSprites()
 {
-#if defined(PGE_MIN_PORT) || defined(THEXTECH_CLI_BUILD)
-    if(LoadGFXFromList(getGfxDir(), false, false))
-        return;
-#endif
-
     std::string p;
     DirListCI CurDir;
-    DirListCI smbx2Dir; // smbx2compat
-
-    SMBX2Ids_Detect(); // smbx2compat
-
-    pLogDebug("Loading character textures");
-    LoaderUpdateDebugString("Characters");
-    for(int c = 0; c < numCharacters; ++c)
-    {
-        LoaderUpdateDebugString(fmt::sprintf_ne("Character %d", c));
-        CurDir.setCurDir(getGfxDir() + GFXPlayerNames[c]);
-        For(A, 1, numStates)
-        {
-            s_find_image(p, CurDir, fmt::sprintf_ne("%s-%d", GFXPlayerNames[c], A));
-            if(!p.empty())
-                XRender::lazyLoadPicture(GFXCharacterBMP[c][A], p);
-        }
-        UpdateLoad();
-    }
+    DirListCI smbx2Dir;
 
     pLogDebug("Loading block textures");
     LoaderUpdateDebugString("Blocks");
@@ -1095,6 +1076,93 @@ void LoadGFX()
     }
     UpdateLoad();
 
+    pLogDebug("Loading background textures");
+    LoaderUpdateDebugString("BGO");
+    CurDir.setCurDir(getGfxDir() + "background/");
+    if(g_smbx2Ids)
+        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("background/"));
+    for(int A = 1; A <= maxBackgroundType; ++A)
+    {
+        LoaderUpdateDebugString(fmt::sprintf_ne("BGO %d", A));
+        s_find_default_image(p, CurDir, smbx2Dir, A, 1000, fmt::sprintf_ne("background-%d", A));
+
+        if(!p.empty())
+        {
+            XRender::lazyLoadPicture(GFXBackgroundBMP[A], p);
+            BackgroundWidth[A] = GFXBackgroundBMP[A].w;
+            BackgroundHeight[A] = GFXBackgroundBMP[A].h;
+        }
+        // smbx2compat: no break (gaps in SMBX2's IDs)
+
+        if(A % 20 == 0)
+            UpdateLoad();
+    }
+    UpdateLoad();
+}
+
+static void s_unloadDefaultObjectSprites()
+{
+    for(int A = 1; A <= maxBlockType; ++A)
+        GFXBlockBMP[A].reset();
+
+    for(int A = 1; A <= numBackground2; ++A)
+        GFXBackground2BMP[A].reset();
+
+    for(int A = 1; A <= maxNPCType; ++A)
+        GFXNPCBMP[A].reset();
+
+    for(int A = 1; A <= maxEffectType; ++A)
+        GFXEffectBMP[A].reset();
+
+    for(int A = 1; A <= maxBackgroundType; ++A)
+    {
+        GFXBackgroundBMP[A].reset();
+        BackgroundWidth[A] = 0;
+        BackgroundHeight[A] = 0;
+    }
+}
+
+void ReloadDefaultObjectGFX()
+{
+    // custom sprites keep backups of the defaults; put those back first
+    UnloadCustomGFX();
+    UnloadWorldCustomGFX();
+    SpriteOverride_Reset();
+
+    s_unloadDefaultObjectSprites();
+    s_loadDefaultObjectSprites();
+}
+
+void LoadGFX()
+{
+#if defined(PGE_MIN_PORT) || defined(THEXTECH_CLI_BUILD)
+    if(LoadGFXFromList(getGfxDir(), false, false))
+        return;
+#endif
+
+    std::string p;
+    DirListCI CurDir;
+
+    SMBX2Ids_Detect(); // smbx2compat
+
+    pLogDebug("Loading character textures");
+    LoaderUpdateDebugString("Characters");
+    for(int c = 0; c < numCharacters; ++c)
+    {
+        LoaderUpdateDebugString(fmt::sprintf_ne("Character %d", c));
+        CurDir.setCurDir(getGfxDir() + GFXPlayerNames[c]);
+        For(A, 1, numStates)
+        {
+            s_find_image(p, CurDir, fmt::sprintf_ne("%s-%d", GFXPlayerNames[c], A));
+            if(!p.empty())
+                XRender::lazyLoadPicture(GFXCharacterBMP[c][A], p);
+        }
+        UpdateLoad();
+    }
+
+    // smbx2compat: blocks, backgrounds, NPCs, effects and BGOs (SMBX2's or the asset pack's)
+    s_loadDefaultObjectSprites();
+
     pLogDebug("Loading mount textures");
     LoaderUpdateDebugString("Mounts");
     CurDir.setCurDir(getGfxDir() + "yoshi/");
@@ -1134,28 +1202,6 @@ void LoadGFX()
     }
     UpdateLoad();
 
-    pLogDebug("Loading background textures");
-    LoaderUpdateDebugString("BGO");
-    CurDir.setCurDir(getGfxDir() + "background/");
-    if(g_smbx2Ids)
-        smbx2Dir.setCurDir(SMBX2Ids_GfxDir("background/"));
-    for(int A = 1; A <= maxBackgroundType; ++A)
-    {
-        LoaderUpdateDebugString(fmt::sprintf_ne("BGO %d", A));
-        s_find_default_image(p, CurDir, smbx2Dir, A, 1000, fmt::sprintf_ne("background-%d", A));
-
-        if(!p.empty())
-        {
-            XRender::lazyLoadPicture(GFXBackgroundBMP[A], p);
-            BackgroundWidth[A] = GFXBackgroundBMP[A].w;
-            BackgroundHeight[A] = GFXBackgroundBMP[A].h;
-        }
-        // smbx2compat: no break (gaps in SMBX2's IDs)
-
-        if(A % 20 == 0)
-            UpdateLoad();
-    }
-    UpdateLoad();
 
 
 // 'world map

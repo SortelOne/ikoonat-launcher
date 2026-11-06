@@ -1211,6 +1211,20 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     `core/` copied out, library data file); (2) the library screen and
     import on the Mac; (3) the Android pieces on Jake's personal machine;
     (4) on the Odin: controls, draw-rate measurements, crash logs.
+  *Step 1 done (2026-11-06, on the Mac):* episode modes
+  (`src/main/smbx2_mode.cpp`): auto-detect (Lua files, LVLX/WLDX saved
+  with SMBX2's config pack, sprites/configs past the classic IDs), the
+  player's choice in `settings/library.ini` or `--episode-mode`; SMBX mode
+  is plain TheXTech (no shim either unless a level has scripts). SMBX2's
+  data folder from `--smbx2-data`, library.ini, `<user>/smbx2` or
+  `<assets>/smbx2`; `core/` ships inside the Mac app. Switching the default
+  sprites costs ~1.2-2.9 s (Debug), so the menu keeps them and the game
+  starts with the last-played episode's; if the library will switch modes
+  often, make the swap cheaper (it reads every sprite file again).
+  `library.ini` (`src/main/episode_library.cpp`) keeps per episode the
+  mode, the detected mode and why, last played and last slot; play time
+  per slot is TheXTech's own `timers<slot>.ini`. Still to do for Android:
+  copy `core/` out of the APK to `<user>/smbx2core`.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)

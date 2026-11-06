@@ -2,7 +2,7 @@
 # Run a level for testing: sound off (-s), window moved to AeroSpace workspace 1
 # (if AeroSpace is running), then stop after N seconds and report whether it survived.
 #
-#   smbx2compat/run-level.sh <level.lvlx | world.wld> [seconds=40]
+#   smbx2compat/run-level.sh <level.lvlx | world.wld | menu> [seconds=40]
 #
 # A world file is played as an episode (as if picked from the menu) in save slot
 # XTECH_SAVE_SLOT (default 3, left for tests; 1-2 are for playing); a level test
@@ -18,7 +18,11 @@
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 D=${XTECH_DATA:-$REPO/../TheXTech-data}
-LEVEL=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") # absolute, as LunaLua's paths are
+if [ "$1" = "menu" ]; then
+    LEVEL= # the main menu (no level test)
+else
+    LEVEL=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") # absolute, as LunaLua's paths are
+fi
 SECS=${2:-40}
 WS=${XTECH_WORKSPACE:-1}
 BIN="$REPO/${XTECH_BUILD:-build}/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher"
@@ -31,11 +35,11 @@ esac
 # so its logs and screenshots are Jake's.
 rm -f "$D"/userdir/logs/smbx2shot-*.png
 if [ "${XTECH_AUDIO:-}" = "dummy" ]; then
-    SDL_AUDIODRIVER=dummy "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
+    SDL_AUDIODRIVER=dummy "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" ${LEVEL:+-l} ${LEVEL:+"$LEVEL"} $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
 elif [ "${XTECH_AUDIO:-}" = "on" ]; then
-    "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
+    "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" ${LEVEL:+-l} ${LEVEL:+"$LEVEL"} $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
 else
-    "$BIN" -s -c "$D/assets-smbx13" -u "$D/userdir" -l "$LEVEL" $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
+    "$BIN" -s -c "$D/assets-smbx13" -u "$D/userdir" ${LEVEL:+-l} ${LEVEL:+"$LEVEL"} $SLOT ${XTECH_ARGS:-} >/dev/null 2>&1 &
 fi
 PID=$!
 

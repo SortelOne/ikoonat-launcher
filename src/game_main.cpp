@@ -51,6 +51,7 @@
 #include "xtech_lua_events.h"
 #include "xtech_lua_loadscreen.h" // smbx2compat
 #endif
+#include "main/smbx2_mode.h" // smbx2compat
 
 #ifdef THEXTECH_ENABLE_SDL_NET
 #include "main/client_methods.h"
@@ -579,6 +580,13 @@ int GameMain(const CmdLineSetup_t &setup)
 
     // want to go directly to game content
     bool cmdline_content = (!setup.testLevel.empty() || !setup.testReplay.empty() || setup.interprocess);
+
+    // smbx2compat: a level test or an episode from the command line decides
+    // its mode before the default sprites load (main/smbx2_mode.h)
+    if(!setup.testLevel.empty())
+        EpisodeMode_begin(Files::dirname(setup.testLevel), 0);
+    else
+        EpisodeMode_beginStartup();
 
     // special case: go straight to asset pack menu
     if(g_config.pick_assets_on_start && !cmdline_content && setup.assetPack.empty() && GetAssetPacks().size() > 1)
@@ -1118,6 +1126,7 @@ int GameMain(const CmdLineSetup_t &setup)
                 return 1;// Fatal error happen
             }
 
+            EpisodeMode_beginMenu(); // smbx2compat: no SMBX2 scripts at the menu
             OpenLevel(introPath);
             Screens[0].vScreen(1).X = -level[0].X;
             Screens[0].canonical_screen().vScreen(1).X = -level[0].X;
@@ -2600,6 +2609,9 @@ void StartEpisode()
 
     wPath = s_prepare_episode_path(wPath);
 
+    // smbx2compat: SMBX or SMBX2 mode for this episode
+    EpisodeMode_begin(Files::dirname(wPath), selSave);
+
     if(!OpenWorld(wPath))
     {
         if(doSaveConfig)
@@ -2760,6 +2772,7 @@ void StartBattleMode()
     }
 
     const std::string& levelPath = SelectBattle[selWorld].WorldFilePath;
+    EpisodeMode_begin(Files::dirname(levelPath), 0); // smbx2compat
     if(!OpenLevel(levelPath))
     {
         ReportLoadFailure(levelPath);

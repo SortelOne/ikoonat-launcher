@@ -31,6 +31,9 @@ extern bool gfxLoaderThreadingMode;
 void LoadGFX();
 // Public Sub UnloadGFX()
 void UnloadGFX(bool reload = false);
+// smbx2compat: loads the default block/BGO/NPC/effect/background sprites again
+// after g_smbx2Ids changed (an episode in the other mode); drops custom sprites
+void ReloadDefaultObjectGFX();
 // Public Sub LoadCustomGFX()
 void LoadCustomGFX(bool include_world = false, const char* preview_players_from = nullptr);
 // Public Sub UnloadCustomGFX()

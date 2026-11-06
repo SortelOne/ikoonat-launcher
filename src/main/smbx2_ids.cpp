@@ -23,6 +23,7 @@
 
 #include "globals.h"
 #include "main/smbx2_ids.h"
+#include "main/smbx2_mode.h"
 
 #include <Utils/files.h>
 #include <Logger/logger.h>
@@ -31,12 +32,9 @@ bool g_smbx2Ids = false;
 
 void SMBX2Ids_Detect()
 {
-    // the same test as core mode's (xtech_lua_main.cpp, findSmbx2Core)
-    const char *mode = std::getenv("SMBX2COMPAT_MODE");
-    bool forcedShim = mode && std::strcmp(mode, "shim") == 0;
-
+    // SMBX2's IDs and sprites in SMBX2 mode (main/smbx2_mode.cpp; the menu keeps them)
     bool was = g_smbx2Ids;
-    g_smbx2Ids = !forcedShim && Files::fileExists(AppPath + "smbx2/scripts/base/engine/main.lua");
+    g_smbx2Ids = EpisodeMode_idsSmbx2();
 
     if(g_smbx2Ids != was)
         pLogInfo("smbx2compat: %s object IDs", g_smbx2Ids ? "SMBX2" : "TheXTech");
@@ -47,5 +45,5 @@ std::string SMBX2Ids_GfxDir(const char *category)
     if(!g_smbx2Ids)
         return std::string();
 
-    return AppPath + "smbx2/graphics/" + category;
+    return SMBX2Data_dir() + "graphics/" + category;
 }

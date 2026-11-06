@@ -853,6 +853,8 @@ set(THEXTECH_SRC
     src/main/main_config.cpp
     src/main/level_file.cpp
     src/main/smbx2_ids.cpp
+    src/main/smbx2_mode.cpp
+    src/main/episode_library.cpp
     src/main/smbx2_collision.cpp
     src/main/menu_loop.cpp
     src/main/menu_main.cpp
@@ -1419,6 +1421,17 @@ if(APPLE)
 
     if(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY)
         target_compile_definitions(thextech PRIVATE -DUSE_BUNDLED_ASSETS)
+    endif()
+
+    # smbx2compat: SMBX2 core mode's host scripts ship inside the app
+    # (Resources/smbx2core); <assets>/scripts/smbx2core still wins (a symlink
+    # to the repo while developing)
+    if(THEXTECH_ENABLE_LUA)
+        add_custom_command(TARGET thextech POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:thextech>/../Resources/smbx2core"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/smbx2compat/core" "$<TARGET_FILE_DIR:thextech>/../Resources/smbx2core"
+            COMMENT "Copying SMBX2 core scripts into bundle..."
+        )
     endif()
 
     if(XTECH_MACOSX_TIGER) # Use X11 mode on Mac OS X Tiger

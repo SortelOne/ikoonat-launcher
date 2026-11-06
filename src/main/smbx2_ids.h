@@ -24,15 +24,15 @@
 
 // smbx2compat: SMBX2 and TheXTech both used the IDs past SMBX 1.3 for their
 // own NPCs. TheXTech's (NPCs 301-306) now live at 1001-1006 (npc_id.h); level
-// files and graphics still name them 301-306. When SMBX2's data is installed
-// (<assets>/smbx2, see SMBX2Ids_Detect), IDs 301-306 in a level are SMBX2's
-// NPCs and default sprites come from SMBX2's graphics folders.
+// files and graphics still name them 301-306. While an episode plays in SMBX2
+// mode (main/smbx2_mode.h), IDs 301-306 in a level are SMBX2's NPCs and
+// default sprites come from SMBX2's graphics folders.
 
 #include <string>
 
 extern bool g_smbx2Ids;
 
-// Sets g_smbx2Ids for the current asset pack (LoadGFX calls it)
+// Sets g_smbx2Ids for the current episode's mode (LoadGFX and the mode switch call it)
 void SMBX2Ids_Detect();
 
 // SMBX2's graphics folder for a category ("npc/", "block/", ...), or empty without SMBX2 data

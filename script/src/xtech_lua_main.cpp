@@ -54,6 +54,7 @@ extern "C"
 #include "xtech_lua_events.h" // smbx2compat
 #include "xtech_lua_loadscreen.h" // smbx2compat
 #include "load_gfx.h" // smbx2compat: SpriteOverride_Count
+#include "main/smbx2_mode.h" // smbx2compat
 #include "core/render.h" // smbx2compat: g_render (memory log)
 #if defined(__APPLE__)
 #   include <mach/mach.h> // smbx2compat: memory log
@@ -457,19 +458,40 @@ bool xtech_lua_isSmbx2Core()
 }
 
 // Core mode runs SMBX2's own scripts/base/engine/main.lua (what LunaLua boots)
-// instead of the v0.1 shim. It needs SMBX2's data folder at <assets>/smbx2/ and
-// our host layer at <assets>/scripts/smbx2core/boot.lua (smbx2compat/core in the
-// repo). SMBX2COMPAT_MODE=shim in the environment forces the shim.
+// instead of the v0.1 shim, for episodes in SMBX2 mode (src/main/smbx2_mode.h:
+// the library's choice or auto-detect). It needs SMBX2's data folder
+// (SMBX2Data_dir) and our host layer, smbx2compat/core in the repo
+// (SMBX2Core_dir). SMBX2COMPAT_MODE=shim in the environment forces the shim.
 bool xtech_lua_findSmbx2Core(std::string &dataRoot, std::string &coreDir)
 {
-    const char *mode = std::getenv("SMBX2COMPAT_MODE");
-    if(mode && std::strcmp(mode, "shim") == 0)
+    if(!EpisodeMode_isSmbx2())
         return false;
 
-    dataRoot = AppPathManager::assetsRoot() + "smbx2";
-    coreDir = AppPathManager::assetsRoot() + "scripts/smbx2core";
-    return Files::fileExists(dataRoot + "/scripts/base/engine/main.lua")
-        && Files::fileExists(coreDir + "/boot.lua");
+    dataRoot = SMBX2Data_dir();
+    coreDir = SMBX2Core_dir();
+    if(coreDir.empty())
+    {
+        static bool warned = false;
+        if(!warned)
+            pLogWarning("smbx2compat: SMBX2 mode, but core mode's scripts (smbx2core/boot.lua) are missing");
+        warned = true;
+        return false;
+    }
+
+    // without the slashes, as before (boot.lua adds them)
+    if(!dataRoot.empty() && dataRoot.back() == '/')
+        dataRoot.pop_back();
+    if(!coreDir.empty() && coreDir.back() == '/')
+        coreDir.pop_back();
+
+    static std::string s_logged;
+    if(s_logged != dataRoot + "|" + coreDir)
+    {
+        s_logged = dataRoot + "|" + coreDir;
+        pLogInfo("Lua: SMBX2 data in %s, core scripts in %s", dataRoot.c_str(), coreDir.c_str());
+    }
+
+    return true;
 }
 
 // smbx2compat: LunaLua's GM_LEVEL_EXIT_TYPE, passed to onExitLevel
@@ -650,6 +672,20 @@ void xtech_lua_loadLevel()
         return;
     }
 
+    // Find level script (SMBX2 uses luna.lua; the fork's own names still work)
+    std::string levelPath = g_dirCustom.resolveFileCaseExistsAbs("luna.lua");
+    if(levelPath.empty())
+        levelPath = g_dirCustom.resolveFileCaseExistsAbs("level.lua");
+    if(levelPath.empty())
+        levelPath = g_dirCustom.resolveFileCaseExistsAbs("lunadll.lua");
+
+    // smbx2compat: SMBX2 also runs an episode-wide luna.lua in every level
+    std::string episodeLuna = g_dirEpisode.resolveFileCaseExistsAbs("luna.lua");
+
+    // smbx2compat: a level without scripts (SMBX 1.3 episodes) needs no shim
+    if(levelPath.empty() && episodeLuna.empty())
+        return;
+
     // smbx2compat: load the SMBX2 compatibility shim into _G once
     if(!g_compatLoaded)
     {
@@ -664,18 +700,7 @@ void xtech_lua_loadLevel()
             g_compatLoaded = loadAndRunLuaFile(shim, "smbx2compat.lua");
     }
 
-    // Find level script (SMBX2 uses luna.lua; the fork's own names still work)
-    std::string levelPath = g_dirCustom.resolveFileCaseExistsAbs("luna.lua");
-    if(levelPath.empty())
-        levelPath = g_dirCustom.resolveFileCaseExistsAbs("level.lua");
-    if(levelPath.empty())
-        levelPath = g_dirCustom.resolveFileCaseExistsAbs("lunadll.lua");
-
-    // smbx2compat: SMBX2 also runs an episode-wide luna.lua in every level
-    std::string episodePath = g_compatLoaded ? g_dirEpisode.resolveFileCaseExistsAbs("luna.lua") : std::string();
-
-    if(levelPath.empty() && episodePath.empty())
-        return;
+    std::string episodePath = g_compatLoaded ? episodeLuna : std::string();
 
     if(g_compatLoaded)
     {

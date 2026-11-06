@@ -32,6 +32,7 @@
 #include "main/speedrunner.h"
 #include "main/game_info.h"
 #include "main/asset_pack.h"
+#include "main/smbx2_mode.h" // smbx2compat
 #include "main/translate.h"
 #include "core/language.h"
 #include "config.h"
@@ -360,6 +361,19 @@ int main(int argc, char**argv)
                                                        cmd);
 
 
+        // smbx2compat: SMBX2 episodes
+        TCLAP::ValueArg<std::string> episodeMode(std::string(), "episode-mode",
+                                                 "Play episodes in SMBX mode (plain TheXTech), SMBX2 mode (SMBX2's scripts), or decide per episode (auto, the default)",
+                                                 false, "",
+                                                 "auto, smbx, smbx2",
+                                                 cmd);
+
+        TCLAP::ValueArg<std::string> smbx2Data(std::string(), "smbx2-data",
+                                               "SMBX2's data folder (scripts, graphics, sound, ...) for SMBX2 episodes",
+                                               false, "",
+                                               "directory path",
+                                               cmd);
+
         TCLAP::SwitchArg switchFrameSkip("f", "frameskip", "Enable frame skipping mode", false);
         TCLAP::SwitchArg switchDisableFrameSkip(std::string(), "no-frameskip", "Disable frame skipping mode", false);
         TCLAP::SwitchArg switchNoSound("s", "no-sound", "Disable sound", false);
@@ -555,6 +569,11 @@ int main(int argc, char**argv)
 
             AppPathManager::initAppPath();
         }
+
+        // smbx2compat: SMBX2 episodes (main/smbx2_mode.h)
+        g_smbx2DataOverride = smbx2Data.getValue();
+        if(!episodeMode.getValue().empty() && !EpisodeMode_parse(episodeMode.getValue(), g_episodeModeOverride))
+            std::fprintf(stderr, "Unknown --episode-mode %s (auto, smbx, smbx2); deciding per episode\n", episodeMode.getValue().c_str());
 
 #ifdef THEXTECH_INTERPROC_SUPPORTED
         if(switchPrintCapabilities.isSet() && switchPrintCapabilities.getValue())

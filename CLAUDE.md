@@ -133,6 +133,7 @@ With sound off (`-s`) there is no mixer at all; `XTECH_AUDIO=dummy` keeps sound
 on but sends it to SDL's silent dummy device, so audio code really runs.
 `XTECH_AUDIO=on` plays it at the test userdir's low volumes
 (`settings/thextech.ini` `[audio]`, music/SFX 15); only when Jake asks.
+`run-level.sh menu` opens the main menu instead (no level test).
 Given a `.wld`, `run-level.sh` plays the episode as from the menu, in save
 slot 3 (`XTECH_SAVE_SLOT`; slots 1-2 are Jake's). `XTECH_ARGS=-x` turns off
 the frame limit, for long cutscenes. Test runs write SMBX2's
@@ -172,12 +173,31 @@ Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 
 ## SMBX2 core mode
 
-Turns on when both exist (otherwise the v0.1 shim runs; `SMBX2COMPAT_MODE=shim`
-forces the shim):
-- `$D/assets-smbx13/smbx2` → symlink to `$D/smbx2/SMBX2 + SMATRS/data` (SMBX2's
-  `scripts/`, `graphics/`, `sound/`, `music/`, `costumes/`)
-- `$D/assets-smbx13/scripts/smbx2core` → symlink to this repo's `smbx2compat/core`
-  (so edits take effect without copying; Android will need a real copy)
+Each episode plays in **SMBX mode** (plain TheXTech: SMBX 1.3 behavior, the
+asset pack's sprites) or **SMBX2 mode** (core mode, SMBX2's object IDs and
+default sprites), decided when it starts (`src/main/smbx2_mode.cpp`,
+`EpisodeMode_begin` in `StartEpisode`, battle levels, and before the first
+graphics load for `-l` tests): `--episode-mode auto|smbx|smbx2`, else the
+episode's `mode` in `<user>/settings/library.ini` (the library app's data,
+`src/main/episode_library.cpp`; also records the detected mode and why,
+last played, last slot), else auto-detect: Lua files, LVLX/WLDX with
+`CPID:"SMBX2..."` in their HEAD (TheXTech's own say `"TheXTech"`), or
+`npc-N`/`block-N`/... files past SMBX 1.3's and TheXTech's IDs, within two
+folder levels. Each start logs `smbx2compat: episode <key>: <mode> (<why>)`.
+Switching the default sprites reads every file again (~1.2-2.9 s in Debug,
+`ReloadDefaultObjectGFX`), so the main menu turns SMBX2's scripts off but
+keeps the sprites, and the game starts with the sprites of the episode
+played last. SMBX2 mode also needs (otherwise SMBX mode; the v0.1 shim runs
+levels that have scripts; `SMBX2COMPAT_MODE=shim` forces it):
+- SMBX2's data folder (`scripts/`, `graphics/`, `sound/`, `music/`,
+  `costumes/`, `config/`): the first that has SMBX2's `main.lua` of
+  `--smbx2-data <dir>`, `library.ini` `[library] smbx2-data`, `<user>/smbx2`,
+  `<assets>/smbx2` (here a symlink to `$D/smbx2/SMBX2 + SMATRS/data`).
+- core mode's scripts: `<assets>/scripts/smbx2core` first (here a symlink to
+  this repo's `smbx2compat/core`, so edits take effect without a rebuild),
+  then the app's own copy (`Contents/Resources/smbx2core`, copied at each
+  link), then `<user>/smbx2core` (where Android will copy it out).
+Both are logged as `Lua: SMBX2 data in ..., core scripts in ...`.
 
 How it works (details in `core/boot.lua`'s header):
 - Each level gets a **fresh Lua state** (LunaLua does the same); the engine
@@ -378,7 +398,8 @@ How it works (details in `core/boot.lua`'s header):
   (ini names, enums by number) for a test run at each level start (boot.lua),
   without touching the user folder's settings file, which Jake plays with.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
-  saves those frames as `smbx2shot-N.png` in the log folder (read them with
+  saves those frames as `smbx2shot-N.png` in the log folder (core mode
+  only: boot.lua takes them, so SMBX-mode runs have none) (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot
   folder, and `screencapture` can't capture the window.
   `SMBX2COMPAT_LOADSHOTS=10,60` does the same for frames of each loading screen.
