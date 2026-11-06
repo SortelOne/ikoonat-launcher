@@ -71,3 +71,32 @@ endif()
 if(THEXTECH_BUILD_GL_DESKTOP_MODERN OR THEXTECH_BUILD_GL_ES_MODERN)
     target_compile_definitions(XTechLua PRIVATE -DTHEXTECH_BUILD_GL_MODERN)
 endif()
+
+# smbx2compat: the main build's own switches that add or drop Config_t members
+# (the top-level CMakeLists sets them on the thextech target only; Android and
+# iOS are fullscreen-only, which drops "fullscreen" and "background-work")
+if(THEXTECH_FORCE_FULLSCREEN)
+    target_compile_definitions(XTechLua PRIVATE -DRENDER_FULLSCREEN_ALWAYS)
+    if(IOS OR TVOS)
+        target_compile_definitions(XTechLua PRIVATE -DMOBILE_WINDOW_FOCUS_TRACKING)
+    else()
+        target_compile_definitions(XTechLua PRIVATE -DNO_WINDOW_FOCUS_TRACKING)
+    endif()
+endif()
+
+if(THEXTECH_ENABLE_DISCORD_RPC)
+    target_compile_definitions(XTechLua PRIVATE -DENABLE_XTECH_DISCORD_RPC)
+endif()
+
+if(PGE_ENABLE_VIDEO_REC AND PGE_VIDEO_REC_WEBM_SUPPORTED)
+    target_compile_definitions(XTechLua PRIVATE -DPGE_VIDEO_REC_WEBM_SUPPORTED)
+endif()
+
+# smbx2compat: RangeArr<> layout must match too
+if(RANGE_ARR_USE_HEAP)
+    target_compile_definitions(XTechLua PRIVATE -DRANGE_ARR_USE_HEAP)
+endif()
+
+if(RANGE_ARR_UNSAFE_MODE)
+    target_compile_definitions(XTechLua PRIVATE -DRANGE_ARR_UNSAFE_MODE)
+endif()
