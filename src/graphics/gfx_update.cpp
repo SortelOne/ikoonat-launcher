@@ -62,10 +62,13 @@
 #   define SMBX2_VANILLA(what) (LevelEditor || xtech_lua_drawVanilla(XTECH_LUA_DRAW_##what))
 // smbx2compat: SMBX2's own scripts run this level (core mode)
 #   define SMBX2_CORE() (!LevelEditor && xtech_lua_isSmbx2Core())
+// smbx2compat: an SMBX2 script resized SMBX's screen this level
+#   define SMBX2_SCREEN_SET() (SMBX2_CORE() && xtech_lua_drawScriptScreenSize())
 #else
 #   define SMBX2_DRAW_BELOW(p)
 #   define SMBX2_VANILLA(what) true
 #   define SMBX2_CORE() false
+#   define SMBX2_SCREEN_SET() false
 #endif
 
 #include "npc/npc_activation.h"
@@ -1306,7 +1309,10 @@ void ModernNPCScreenLogic(Screen_t& screen, int vscreen_i, bool fill_draw_queue,
     int c_Z1 = 0;
     int c_Z2 = 0;
 
-    if(!screen.is_canonical())
+    // smbx2compat: an SMBX2 script that resizes SMBX's own screen (SMATRS plays at
+    // 960x540) has NPCs activate on all of it, not an 800x600 one in its middle (they
+    // popped in late at the sides); other levels keep SMBX's 800x600
+    if(!screen.is_canonical() && !SMBX2_SCREEN_SET())
     {
         Screen_t& c_screen = screen.canonical_screen();
 

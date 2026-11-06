@@ -81,6 +81,8 @@ void xtech_lua_drawFrameEnd();
 void xtech_lua_drawReset();
 //! ownsDrawing: closing the state resets SMBX2's drawing (the level's state)
 void xtech_lua_register_draw(lua_State *L, bool ownsDrawing = true);
+//! The level's script set SMBX's screen size (FFI_GraphicsSetMainFramebufferSize)
+bool xtech_lua_drawScriptScreenSize();
 
 // Used by xtech_lua_loadscreen.cpp
 //! Swaps the loading screen's images, shaders, buffers and queue in or out

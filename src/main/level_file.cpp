@@ -192,6 +192,7 @@ struct LevelLoad
     SaveInfoInit si;
 
     int numPlayerStart = 0;
+    bool playerStartSet[3] = {false, false, false}; // smbx2compat: by player number
 
     layerindex_t layers_finalized = 0;
     eventindex_t events_finalized = 0;
@@ -609,9 +610,16 @@ bool OpenLevel_PlayerStart(void* userdata, PlayerPoint& p)
         return false;
 
     {
-        // TODO: should try to use the startpoint's ID field if possible
+        // smbx2compat: use the startpoint's ID field, as SMBX2 and PGE do. LVLX files
+        // can list player 2's point first (SMATRS 1-3), which put player 1 there.
+        int A;
+        if((p.id == 1 || p.id == 2) && !load.playerStartSet[p.id])
+            A = (int)p.id;
+        else
+            A = load.playerStartSet[1] ? 2 : 1;
+
+        load.playerStartSet[A] = true;
         load.numPlayerStart++;
-        int A = load.numPlayerStart;
 
         PlayerStart[A].X = p.x;
         PlayerStart[A].Y = p.y;

@@ -1300,6 +1300,11 @@ void xtech_lua_drawSwapLoadScreen()
     swap(s_drawScreen, o.drawScreen);
 }
 
+bool xtech_lua_drawScriptScreenSize()
+{
+    return s_fbW > 0;
+}
+
 void xtech_lua_drawLoadScreenSize(int &w, int &h)
 {
     w = s_fbW;

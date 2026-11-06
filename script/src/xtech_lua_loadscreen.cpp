@@ -242,6 +242,11 @@ bool xtech_lua_loadScreenStart()
     if(!episode.empty() && episode.back() != '/')
         episode.push_back('/');
 
+    // SMATRS's loading screen finds its files through SMBX's episode path
+    // (mem 0x00B2C61C, FileNamePath), which a level test sets only in OpenLevel
+    if(FileNamePath.empty())
+        FileNamePath = episode;
+
     if(s_L && s_episode != episode)
         closeState();
     if(!s_L)

@@ -2723,6 +2723,38 @@ struct ObjMemArray
 static constexpr int c_numTemplates = 32;
 static Player_t s_templatePlayers[c_numTemplates];
 
+// The template for a character, as LunaLua's getTemplateForCharacter: SMBX's own
+// for its characters (TheXTech's SavedChar; SMBX2's Player:transform takes the
+// powerup from it), else a copy started as LunaLua starts one (powerup 1, 1 heart)
+static Player_t &memTemplate(int character)
+{
+    Player_t &t = s_templatePlayers[character];
+    if(character >= 1 && character <= numCharacters)
+    {
+        const SavedChar_t &s = SavedChar[character];
+        t.HeldBonus = NPCID(s.HeldBonus);
+        t.State = s.State;
+        t.Mount = s.Mount;
+        t.MountType = s.MountType;
+        t.Hearts = s.Hearts;
+        t.Character = character;
+    }
+    else if(t.State == 0)
+    {
+        t.Character = character;
+        t.State = 1;
+        t.Hearts = 1;
+    }
+    return t;
+}
+
+// After a script wrote to a template: SMBX's characters keep it in SavedChar
+static void memTemplateWritten(int character)
+{
+    if(character >= 1 && character <= numCharacters)
+        SavedChar[character] = s_templatePlayers[character];
+}
+
 #define MEM_FIELDS(table) table, sizeof(table) / sizeof(table[0])
 
 static const ObjMemArray s_objMemArrays[] =
@@ -3257,7 +3289,7 @@ static double mem_get(unsigned int addr, int ftype)
         case OBJMEM_BGO:
             return (double)GetMem(&Background[index], offset, ft);
         case OBJMEM_TEMPLATE:
-            return (double)GetMem(&s_templatePlayers[index], offset, ft);
+            return (double)GetMem(&memTemplate(index), offset, ft);
         }
 
         mem_unknown("read", addr);
@@ -3339,7 +3371,8 @@ static void mem_set(unsigned int addr, int ftype, num_t value)
             MemAssign(&Background[index], offset, value, OP_Assign, ft);
             return;
         case OBJMEM_TEMPLATE:
-            MemAssign(&s_templatePlayers[index], offset, value, OP_Assign, ft);
+            MemAssign(&memTemplate(index), offset, value, OP_Assign, ft);
+            memTemplateWritten(index);
             return;
         }
 

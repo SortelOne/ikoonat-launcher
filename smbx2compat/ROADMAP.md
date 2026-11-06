@@ -966,10 +966,48 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     `-l` tests never showed it (no intro, no size change).
   - Clip planes: per-pixel in the shaders (CLAUDE.md); the map loading
     screen's chapter name wipes in.
+- *Chapter 1 sweep (2026-11-05):* all 15 Chapter 1 levels with `-l` (hold
+  right and jump, screenshots), then through `World.wld` with a debug file
+  that walks the map's level list (`GameData.menuMode` cleared, the level's
+  checkpoint and `SaveData.lastEnteredMapLevel` set, `Level.load`; a level
+  that restarts after a death is left again at once). 0 script errors and 0
+  unknown `mem()` after the fixes below. Found (Jake watched the runs):
+  - 1-3 started Mario at player 2's start: TheXTech filled the start points
+    in file order (an upstream TODO) and the LVLX lists ID 2 first. They go
+    by their ID now (`OpenLevel_PlayerStart`, `src/main/level_file.cpp`).
+  - Rainbow Ruins (1-Ep) turns the player into Peach in `onStart`;
+    `Player:transform` takes the powerup from `Player.getTemplate`
+    (`Player(id+1000)`), an empty slot that gave powerup 0 (errors, a stuck
+    player). The templates are TheXTech's `SavedChar` for SMBX's characters
+    (as LunaLua's are SMBX's), others start at powerup 1 and 1 heart, as
+    LunaLua starts them (`memTemplate`, `xtech_lua_bindings.cpp`).
+  - `-l` tests: SMATRS's loading screen reads the episode folder through
+    `mem(0x00B2C61C)` (`FileNamePath`), set only in `OpenLevel`, after the
+    loading screen starts; it starts with the folder now.
+  - NPCs popped in late at the sides: TheXTech activates NPCs on an 800x600
+    screen in the middle of a bigger one unless its dynamic camera logic is
+    on; SMBX2 resizes SMBX's own screen, so when a script set its size they
+    activate on the visible one (`ModernNPCScreenLogic`, `gfx_update.cpp`).
+    They now wake at the screen's edge (x ~958 of 960; was ~880). Other
+    levels keep 800x600 (SMBX2's screen); using TheXTech's window-sized
+    screen there broke `pausetest`'s timing.
+  - Most likely SMATRS's own, the same on Windows (not checked there):
+    enemies vanishing while they turn in 1-4,
+    1-7, 1-8 (crab, NPC 162) and 1-5 (koopas, 4 and 6). SMATRS's
+    `turningNPC.lua` draws frames past the walk frames, and those levels'
+    sprite sheets have none (12 frames; the turn asks for 12-17). SMBX's
+    level `npc-N.txt` adds to the episode's (1-4's crab sets `gfxoffsety=0`
+    to undo the episode's 4, but keeps its `framestyle=1`), and LunaLua's
+    `GLDraw::DrawSprite` skips a frame outside the image, as we do. Mario's
+    missing eye whites in the level intro (`levelStart/mario.png`, a colour
+    no palette row maps) and the plain white back card on the loading
+    screen (drawn that way, `loadscreenShared.lua`) are SMATRS's too.
+    `1-2 - Jolly Seaside.lvlx` is an unused level with no map spot (leaving
+    it puts Mario over open sea); sweeps skip it.
 - *Next:*
   - Jake checks the loading screens and the map.
-  - The Chapter 1 sweep and Jake's random-level sampling (below), now
-    through `World.wld` where a level behaves differently in episode play.
+  - The rest of the episode sweep (1-B to 1-Ep through `World.wld`) and
+    Jake's random-level sampling (below).
   - Later: SMBX2's NPC type flags above, if an episode needs them; the
     image-load hitches on Android if they show there.
 - Done when: Chapter 1 is playable start to finish on desktop, from the

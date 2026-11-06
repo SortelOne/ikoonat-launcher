@@ -300,6 +300,10 @@ How it works (details in `core/boot.lua`'s header):
   (`__xtech_onSaveGame`), as LunaLua does; SMBX2's `savedata.lua` then
   writes `<episode>/save<slot>-ext.dat`. With SMBX2's data a level without
   a player start starts anyway, at (0,0), as in SMBX (`game_main.cpp`).
+  Start points go by their ID (LVLX files can list player 2's first).
+  `Player.getTemplate(id)` (`Player(id+1000)`) is TheXTech's `SavedChar`
+  for SMBX's characters (`memTemplate` in `xtech_lua_bindings.cpp`), as
+  LunaLua's are SMBX's; `Player:transform` takes the powerup from it.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
   SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
@@ -365,7 +369,10 @@ How it works (details in `core/boot.lua`'s header):
   that builds a Lua value takes the calling `lua_State* L` as its first
   parameter (luabind fills it in), never `xtech_lua_getState()` (the level's).
 - SMATRS plays at 960x540 (`FFI_GraphicsSetMainFramebufferSize` sets the
-  engine's internal resolution for the level).
+  engine's internal resolution for the level). When a script sets the size,
+  NPCs activate on that whole screen (`ModernNPCScreenLogic`,
+  `xtech_lua_drawScriptScreenSize`), not on TheXTech's 800x600 one in its
+  middle; other levels keep the 800x600 one, SMBX's screen.
 - Every file read goes through `core.resolve`: backslashes → `/`, relative
   paths from SMBX2's data folder (its working folder on Windows), case-insensitive
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
