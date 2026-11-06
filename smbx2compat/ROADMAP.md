@@ -1225,6 +1225,33 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   mode, the detected mode and why, last played and last slot; play time
   per slot is TheXTech's own `timers<slot>.ini`. Still to do for Android:
   copy `core/` out of the APK to `<user>/smbx2core`.
+  *Library screen answers (Jake, 2026-11-06):* the app opens on the
+  library (TheXTech's options and controls screens reachable from its
+  Settings); a plain background by default, with customization options
+  (e.g. background: plain / the selected episode's picture / the title
+  level; accent colors); Continue goes straight in with the players and
+  character saved in the episode's settings (no TheXTech character
+  select; changeable on the episode page); Mac import by drag-and-drop
+  onto the window and an Import button with Finder's file picker (zips
+  through macOS's own `unzip`, no new library). The TheXTech catch-up
+  (merge of TheXTech's main) runs in its own session after the library
+  screen, since both would run test games against the same data folder.
+  *Step 2 done on the Mac (2026-11-06):* the library screen (grid with
+  filters, episode page with Continue, three slots with stars/progress/
+  time and Erase-twice to delete, Mode/Character/Players; Settings with
+  Theme Dark/Light/Midnight and Accent Leaf/Sky/Berry/Sun, Game options,
+  Classic menu, Quit), importing by drag-and-drop or Finder's panel, and
+  episode pictures captured ~45 s into play. Not yet: Back up saves,
+  Remove episode, background choices (episode picture / title level),
+  per-episode draw rate, the TheXTech asset pack import (Android).
+  *Next: restyle (Jake, 2026-11-06):* cleaner, more modern, with episode
+  cards like dribbble.com/shots/26033069-Profile-Card: tall cards with
+  big rounded corners and a soft shadow, the picture inset with rounded
+  corners (or filling the card and fading into the text), name with the
+  mode as a small pill, a gray line (author or full title), a stats row
+  (stars, play time) and a pill button (Continue/Play). Needs rounded
+  rectangles, shadows and fades the renderer lacks: small generated
+  textures (9-slice corners, blurred shadow, alpha ramp) tinted per theme.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)

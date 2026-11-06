@@ -49,6 +49,7 @@
 #include "main/screen_connect.h"
 #include "main/screen_options.h"
 #include "main/menu_controls.h"
+#include "main/screen_library.h" // smbx2compat
 #include "main/translate_episode.h"
 
 #include "message.h"
@@ -1115,6 +1116,14 @@ bool mainMenuUpdate()
                 }
             }
 
+            // smbx2compat: visiting from the episode library: Back goes back to it
+            if(menuControls.Back && MenuCursorCanMove && LibraryScreen::g_classicVisit)
+            {
+                MenuCursorCanMove = false;
+                PlaySoundMenu(SFX_Slide);
+                LibraryScreen::g_returnRequested = true;
+                return true;
+            }
             if(menuControls.Back && MenuCursorCanMove)
             {
                 int quitKeyPos = s_quitKeyPos();

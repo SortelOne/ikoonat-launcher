@@ -42,6 +42,10 @@ struct LibraryEpisode_t
     int64_t lastPlayed = 0;
     //! the save slot it was last started with (0: none, a level test)
     int lastSlot = 0;
+    //! the character player 1 starts as (1-5: Mario, Luigi, Peach, Toad, Link)
+    int character = 1;
+    //! how many players start it (1 or 2)
+    int players = 1;
 };
 
 //! The group name for an episode folder: relative to the user folder when it's inside it, else absolute
@@ -55,6 +59,10 @@ void Library_set(const std::string &key, const LibraryEpisode_t &e);
 
 //! The episode started most recently (false: none yet)
 bool Library_mostRecent(std::string &key, LibraryEpisode_t &out);
+
+//! A [library] setting (the library screen's theme, accent, ...)
+std::string Library_setting(const char *name, const std::string &def);
+void Library_setSetting(const char *name, const std::string &value);
 
 //! [library] smbx2-data: SMBX2's data folder as the library set it (empty: not set)
 std::string Library_smbx2DataDir();

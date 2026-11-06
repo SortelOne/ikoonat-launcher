@@ -52,6 +52,7 @@
 #include "xtech_lua_loadscreen.h" // smbx2compat
 #endif
 #include "main/smbx2_mode.h" // smbx2compat
+#include "main/screen_library.h" // smbx2compat
 
 #ifdef THEXTECH_ENABLE_SDL_NET
 #include "main/client_methods.h"
@@ -588,6 +589,10 @@ int GameMain(const CmdLineSetup_t &setup)
     else
         EpisodeMode_beginStartup();
 
+    // smbx2compat: the episode library is the first screen, except for
+    // command-line level tests (SMBX2COMPAT_NOLIBRARY=1: TheXTech's menu)
+    LibraryScreen::g_enabled = !cmdline_content && !std::getenv("SMBX2COMPAT_NOLIBRARY");
+
     // special case: go straight to asset pack menu
     if(g_config.pick_assets_on_start && !cmdline_content && setup.assetPack.empty() && GetAssetPacks().size() > 1)
     {
@@ -1113,6 +1118,26 @@ int GameMain(const CmdLineSetup_t &setup)
             for(int A = 1; A <= maxPlayers; ++A)
                 Player[A] = blankPlayer;
 
+            // smbx2compat: the episode library (src/main/screen_library.cpp) in
+            // place of the title menu; "Classic menu" falls through to it
+            if(LibraryScreen::g_enabled)
+            {
+                LibraryScreen::g_classicVisit = false;
+                EpisodeMode_beginMenu();
+                LibraryScreen::Init();
+                runFrameLoop(&LibraryScreen::Loop, nullptr, []()->bool{ return LibraryScreen::g_LoopActive && GameIsActive; });
+
+                if(!GameIsActive)
+                {
+                    speedRun_saveStats();
+                    return 0;
+                }
+
+                // an episode started (GameMenu is off now)
+                if(!LibraryScreen::g_classicVisit)
+                    continue;
+            }
+
             auto introPath = findIntroLevel();
             if(introPath.empty())
             {
@@ -1207,11 +1232,25 @@ int GameMain(const CmdLineSetup_t &setup)
             xtech_lua_init();
 
             // Main menu loop
-            runFrameLoop(&MenuLoop, nullptr, []()->bool{ return GameMenu;});
+            if(LibraryScreen::g_classicVisit)
+            {
+                MenuMode = MENU_MAIN; // smbx2compat: straight to its main page
+                MenuCursor = 0;
+            }
+
+            runFrameLoop(&MenuLoop, nullptr, []()->bool{ return GameMenu && !LibraryScreen::g_returnRequested;});
             if(!GameIsActive)
             {
                 speedRun_saveStats();
                 return 0;// Break on quit
+            }
+
+            // smbx2compat: Back on the classic menu's main page: the library again
+            if(LibraryScreen::g_returnRequested)
+            {
+                LibraryScreen::g_returnRequested = false;
+                LibraryScreen::g_classicVisit = false;
+                continue;
             }
 
             // Ensure everything is clear if the main menu is no longer active
@@ -2609,8 +2648,9 @@ void StartEpisode()
 
     wPath = s_prepare_episode_path(wPath);
 
-    // smbx2compat: SMBX or SMBX2 mode for this episode
+    // smbx2compat: SMBX or SMBX2 mode for this episode, and its library picture
     EpisodeMode_begin(Files::dirname(wPath), selSave);
+    LibraryScreen::thumbArm(Files::dirname(wPath));
 
     if(!OpenWorld(wPath))
     {

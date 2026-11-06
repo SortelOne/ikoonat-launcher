@@ -587,6 +587,33 @@ engine no longer sets the asset pack's logo as the Dock icon
 (`WindowSDL::updateWindowIcon`). Android's icon and app ID come with the
 episode library app (ROADMAP.md Phase 7).
 
+## Episode library (the first screen)
+
+The app opens on the episode library (`src/main/screen_library.cpp`; design
+in ROADMAP.md Phase 7), run from `GameMain`'s `GameMenu` branch in place of
+the title menu (off for command-line level tests; `SMBX2COMPAT_NOLIBRARY=1`
+shows TheXTech's menu). Settings has Theme, Accent color, Game options
+(TheXTech's `OptionsScreen`), Classic menu (Back on its main page returns)
+and Quit; Continue starts the episode straight away with the players and
+character saved for it (`library.ini`), as the command-line world start does.
+Text uses the system font (`/System/Library/Fonts/SFNS.ttf`, Android's
+Roboto): the asset pack's TTFs are pixel fonts for one size. Episode
+pictures: ~45 s into an episode a frame is saved to
+`<user>/settings/library/<key>.png` (`thumbAfterFrame` after each repaint).
+Importing (`src/main/library_import.cpp`): drag a zip or folder onto the
+window, or Import (Finder's panel, `library_picker_macos.m`); zips are
+unpacked with `/usr/bin/unzip` (no shell, no Windows programs) into
+`<user>/import-tmp`; SMBX2's data goes to `<user>/smbx2`, episodes to
+`<user>/worlds/<name>` (existing save files kept). It never follows
+symlinks. `--library-import <path>` imports without opening a window.
+Testing the screen (it only draws in `run-level.sh menu`):
+`SMBX2COMPAT_LIBKEYS="60:do,90:right"` presses keys (up/down/left/right/do/
+back/erase) on those frames, `SMBX2COMPAT_LIBSHOTS=40,100` saves
+`libshot-N.png` in the log folder, `SMBX2COMPAT_LIBDROP="60:/path.zip"`
+drops a file, `SMBX2COMPAT_THUMBFRAMES=N` captures pictures sooner. Test
+imports and settings in a scratch data folder (`XTECH_DATA`, with a symlink
+to `assets-smbx13` and a copy of `userdir/settings/thextech.ini`), not Jake's.
+
 ## Conventions
 
 - Match the surrounding code style (C++: 4-space indent, braces on new lines,

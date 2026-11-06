@@ -31,6 +31,7 @@
 #include "config.h"
 #include "frm_main.h"
 #include "game_main.h"
+#include "main/screen_library.h" // smbx2compat
 #include "sound.h"
 #include "controls.h"
 
@@ -96,6 +97,14 @@ void EventsSDL::processEvent()
     case SDL_QUIT:
         XWindow::showCursor(1);
         KillIt();
+        break;
+
+    case SDL_DROPFILE: // smbx2compat: a zip or folder dropped on the episode library
+        if(m_event.drop.file)
+        {
+            LibraryScreen::dropFile(m_event.drop.file);
+            SDL_free(m_event.drop.file);
+        }
         break;
 
 #ifdef DEBUG_BUILD

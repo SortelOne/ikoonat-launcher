@@ -823,6 +823,11 @@ if(APPLE)
     endif()
 endif()
 
+# smbx2compat: Finder's open panel for the episode library's Import button
+if(APPLE AND NOT IOS AND NOT XTECH_MACOSX_TIGER)
+    list(APPEND LIB_SRC src/main/library_picker_macos.m)
+endif()
+
 set(THEXTECH_SRC
     src/game_main.cpp
     src/globals.cpp
@@ -855,6 +860,8 @@ set(THEXTECH_SRC
     src/main/smbx2_ids.cpp
     src/main/smbx2_mode.cpp
     src/main/episode_library.cpp
+    src/main/library_import.cpp
+    src/main/screen_library.cpp
     src/main/smbx2_collision.cpp
     src/main/menu_loop.cpp
     src/main/menu_main.cpp
@@ -1430,6 +1437,7 @@ if(APPLE)
         add_custom_command(TARGET thextech POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:thextech>/../Resources/smbx2core"
             COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_CURRENT_SOURCE_DIR}/smbx2compat/core" "$<TARGET_FILE_DIR:thextech>/../Resources/smbx2core"
+            COMMAND ${CMAKE_COMMAND} -E copy "${CMAKE_CURRENT_SOURCE_DIR}/resources/ikoonat/leaf.png" "$<TARGET_FILE_DIR:thextech>/../Resources/ikoonat-leaf.png"
             COMMENT "Copying SMBX2 core scripts into bundle..."
         )
     endif()

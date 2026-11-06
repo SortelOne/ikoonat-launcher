@@ -33,6 +33,7 @@
 #include "main/game_info.h"
 #include "main/asset_pack.h"
 #include "main/smbx2_mode.h" // smbx2compat
+#include "main/library_import.h" // smbx2compat
 #include "main/translate.h"
 #include "core/language.h"
 #include "config.h"
@@ -374,6 +375,12 @@ int main(int argc, char**argv)
                                                "directory path",
                                                cmd);
 
+        TCLAP::ValueArg<std::string> libraryImport(std::string(), "library-import",
+                                                   "Import SMBX2's data and/or episodes from a folder or zip into the user folder, then quit",
+                                                   false, "",
+                                                   "folder or zip path",
+                                                   cmd);
+
         TCLAP::SwitchArg switchFrameSkip("f", "frameskip", "Enable frame skipping mode", false);
         TCLAP::SwitchArg switchDisableFrameSkip(std::string(), "no-frameskip", "Disable frame skipping mode", false);
         TCLAP::SwitchArg switchNoSound("s", "no-sound", "Disable sound", false);
@@ -574,6 +581,17 @@ int main(int argc, char**argv)
         g_smbx2DataOverride = smbx2Data.getValue();
         if(!episodeMode.getValue().empty() && !EpisodeMode_parse(episodeMode.getValue(), g_episodeModeOverride))
             std::fprintf(stderr, "Unknown --episode-mode %s (auto, smbx, smbx2); deciding per episode\n", episodeMode.getValue().c_str());
+
+        // smbx2compat: the library's importer without the game (tests, scripts)
+        if(!libraryImport.getValue().empty())
+        {
+            LibraryImportProgress progress;
+            LibraryImportResult r = LibraryImport_run(libraryImport.getValue(), &progress);
+            std::printf("%s\n", r.message.c_str());
+            for(const std::string &ep : r.episodes)
+                std::printf("episode: %s\n", ep.c_str());
+            return r.ok ? 0 : 1;
+        }
 
 #ifdef THEXTECH_INTERPROC_SUPPORTED
         if(switchPrintCapabilities.isSet() && switchPrintCapabilities.getValue())

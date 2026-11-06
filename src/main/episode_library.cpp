@@ -101,6 +101,8 @@ bool Library_get(const std::string &key, LibraryEpisode_t &out)
     ini.read("last-played", lastPlayed, 0LL);
     out.lastPlayed = (int64_t)lastPlayed;
     ini.read("last-slot", out.lastSlot, 0);
+    ini.read("character", out.character, 1);
+    ini.read("players", out.players, 1);
     ini.endGroup();
 
     return true;
@@ -117,6 +119,8 @@ void Library_set(const std::string &key, const LibraryEpisode_t &e)
     ini.setValue("detected-why", e.detectedWhy);
     ini.setValue("last-played", (long long)e.lastPlayed);
     ini.setValue("last-slot", e.lastSlot);
+    ini.setValue("character", e.character);
+    ini.setValue("players", e.players);
     ini.endGroup();
 
     ini.writeIniFile();
@@ -144,6 +148,30 @@ bool Library_mostRecent(std::string &key, LibraryEpisode_t &out)
     }
 
     return found;
+}
+
+std::string Library_setting(const char *name, const std::string &def)
+{
+    IniProcessing ini;
+    std::string v = def;
+
+    if(ini.open(s_libraryFile()) && ini.beginGroup("library"))
+    {
+        ini.read(name, v, def);
+        ini.endGroup();
+    }
+
+    return v;
+}
+
+void Library_setSetting(const char *name, const std::string &value)
+{
+    IniProcessing ini;
+    ini.open(s_libraryFile());
+    ini.beginGroup("library");
+    ini.setValue(name, value);
+    ini.endGroup();
+    ini.writeIniFile();
 }
 
 std::string Library_smbx2DataDir()

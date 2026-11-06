@@ -55,6 +55,7 @@
 #include "gfx_special_frames.h"
 
 #include "draw_planes.h"
+#include "main/screen_library.h" // smbx2compat
 
 #include <fmt_format_ne.h>
 
@@ -626,7 +627,10 @@ void UpdateGraphics2(bool skipRepaint)
     UpdateGraphicsMeta();
 
     if(!skipRepaint)
+    {
         XRender::repaint();
+        LibraryScreen::thumbAfterFrame(); // smbx2compat: the episode's library picture
+    }
 
     frameRenderEnd();
 
