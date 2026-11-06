@@ -1172,6 +1172,45 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   behavior and faster) with a per-episode override. Engine side: a
   per-episode/command-line switch where core mode is decided. TheXTech is GPLv3: an APK given to
   others has to come with the source.
+  *Design (planning session with Jake, 2026-11-06):*
+  - Where: a library screen inside the game (C++, drawn by the engine), the
+    same code on the Mac and the Odin, so it's built and tested on the Mac
+    first. Android (Java) code only for what needs Android: the file picker,
+    home-screen shortcuts, launches from frontends, the share sheet.
+  - Look: clean and modern (Jake chose it over a pixel-art menu): flat
+    cards, readable TrueType text (the engine has FreeType, `src/fontman/
+    ttf_font.cpp`), the leaf icon as the accent; 16:9, controller first
+    (d-pad moves, A opens, Y options), touch too.
+  - Library screen: a grid of episode cards (title image, name, mode
+    SMBX/SMBX2, stars and play time or "new"), filters (All, SMBX2, SMBX,
+    Recent), Import and Settings at the top, an "Add episode" card, and a
+    status line (SMBX2 data installed or not, episodes, space used).
+  - Episode page: its picture, name, author, mode; Continue (last slot and
+    where it was); the three save slots with progress; per-episode settings
+    (mode Auto/SMBX/SMBX2, draw rate, players); Add to home screen; Back up
+    saves; Remove episode.
+  - Title image: captured automatically from the episode's title screen or
+    first frame (the screenshot code exists); later maybe choose your own.
+  - Import: pick a zip or a folder and the app sorts it itself: SMBX2's data
+    (`data/scripts/base/...`), episodes (folders with a `.wld`), or both (the
+    SMATRS "Download All" zip has both). TheXTech's SMBX 1.3 asset pack is a
+    one-time import too (every episode needs it). Without SMBX2's data only
+    SMBX 1.3 episodes play. No downloading episodes from inside the app: the
+    user brings the files. Unzipping: Java's `java.util.zip` on Android; on
+    the Mac folders first (a zip library would be a new dependency: ask Jake).
+  - Storage on Android: a visible `Ikoonat/` folder (all-files permission,
+    as upstream TheXTech uses), so episodes, saves and logs survive a
+    reinstall and Jake can reach them from the Odin's file manager.
+  - First version extras (Jake picked all four): home-screen shortcuts;
+    save backup/export and restore (a zip of the episode's saves);
+    frontend support (ES-DE/Daijisho launch an episode through an intent
+    with the episode and slot); crash-log sharing (the plan above).
+  - Library data (per episode: mode override, last slot, play time, title
+    image) in one file in the user folder, not inside episode folders.
+  - Order: (1) engine side on the Mac (per-episode mode, SMBX2 data path,
+    `core/` copied out, library data file); (2) the library screen and
+    import on the Mac; (3) the Android pieces on Jake's personal machine;
+    (4) on the Odin: controls, draw-rate measurements, crash logs.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)
