@@ -251,6 +251,8 @@ void WorldLoop()
     // int A = 0;
     // int B = 0;
 
+    QuitEpisodeTestTick(); // smbx2compat: SMBX2COMPAT_QUITAFTER test runs
+
     if(SingleCoop > 0)
         SingleCoop = 1;
 

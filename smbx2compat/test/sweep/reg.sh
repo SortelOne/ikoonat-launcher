@@ -4,7 +4,8 @@
 # OK/WRONG checks, script errors and unknown mem() addresses (XTECH_DATA as
 # in run-level.sh). Expected:
 # collisiontest 3 OK, actiontest 12, eventtest 24, pausetest 12; errtest 1
-# error and bonus1 2 (on purpose); 1-1 and 2-1 none.
+# error and bonus1 2 (on purpose); 1-1 and 2-1 none. REG_SLOW=3 gives each
+# run 3 times as long (the ASan build).
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
 D=${XTECH_DATA:-$REPO/../TheXTech-data}
@@ -12,7 +13,7 @@ OUT=$1
 mkdir -p "$OUT"
 EP="$D/userdir/worlds/smbx/SMATRS Chapter 1+2"
 run() { # name level secs
-    LOG=$("$REPO/smbx2compat/run-level.sh" "$2" "$3" | tail -1)
+    LOG=$("$REPO/smbx2compat/run-level.sh" "$2" $(($3 * ${REG_SLOW:-1})) | tail -1)
     cp "$LOG" "$OUT/$1.txt"
     echo "$1: OK $(grep -c -- '-> OK' "$OUT/$1.txt") WRONG $(grep -c -- '-> WRONG' "$OUT/$1.txt") errors $(grep -c '==>' "$OUT/$1.txt") memgaps $(grep -c 'outside emulated memory' "$OUT/$1.txt")"
 }

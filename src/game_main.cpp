@@ -32,6 +32,8 @@
 #   include <signal.h>
 #endif
 
+#include <cstdlib> // smbx2compat: SMBX2COMPAT_QUITAFTER
+
 #include <Logger/logger.h>
 #include <Utils/files.h>
 #include <Utils/strings.h>
@@ -1920,6 +1922,62 @@ void GracefulQuit(bool wait)
     KillIt();
 }
 
+// smbx2compat: Misc.exitEngine / Misc.exitGame (LunaLua ends the process;
+// SMATRS's main menu "Quit" is its only way out) and SMBX2COMPAT_QUITAFTER
+// test runs. An episode goes back to the main menu (the library; a
+// command-line world start then quits, so Android shows its library app
+// again), as the pause menu's "Quit" does but without saving (LunaLua
+// doesn't save either); a level test closes the game as the pause menu's
+// "Quit testing" does. Only sets flags: the level or map ends at the end of
+// this frame.
+void QuitEpisodeToMenu(const char *who)
+{
+    if(GameMenu || !GameIsActive)
+        return;
+
+    pLogInfo("smbx2compat: %s: leaving the %s", who, TestLevel ? "level test" : "episode");
+
+    if(TestLevel)
+    {
+        EndLevel = true;
+        LevelBeatCode = BEATCODE_QUIT;
+        if(Backup_FullFileName.empty())
+            GameIsActive = false;
+        return;
+    }
+
+    speedRun_saveStats();
+
+    GameMenu = true;
+    MenuMode = MENU_INTRO;
+    MenuCursor = 0;
+
+    if(!LevelSelect)
+    {
+        LevelSelect = true;
+        EndLevel = true;
+    }
+    else
+        LevelSelect = false;
+
+    StopMusic();
+}
+
+// smbx2compat: SMBX2COMPAT_QUITAFTER=N leaves each episode (or level test)
+// N frames after it starts (frames of its levels and map, not of loading or
+// pause screens), for test runs that go back to the library again and again,
+// in SMBX mode too (no scripts there to call Misc.exitEngine)
+static int s_quitTestFrames = 0;
+
+void QuitEpisodeTestTick()
+{
+    static const char *env = std::getenv("SMBX2COMPAT_QUITAFTER");
+    if(!env || GameMenu)
+        return;
+    if(++s_quitTestFrames == std::atoi(env))
+        QuitEpisodeToMenu("SMBX2COMPAT_QUITAFTER");
+}
+
 void NextLevel()
 {
     int A = 0;
@@ -2595,6 +2653,8 @@ static void s_InitPlayersFromCharSelect()
 
 void StartEpisode()
 {
+    s_quitTestFrames = 0; // smbx2compat: SMBX2COMPAT_QUITAFTER
+
     // Update controllers and game config
     XMessage::InitSession();
 

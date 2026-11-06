@@ -198,6 +198,8 @@ void GameLoop()
         return;
     }
 
+    QuitEpisodeTestTick(); // smbx2compat: SMBX2COMPAT_QUITAFTER test runs
+
     if(g_gameLoopInterrupt.process_intro_events)
     {
         int A;

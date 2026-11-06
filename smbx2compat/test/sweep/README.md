@@ -33,6 +33,15 @@ workspace 1, and from Claude's shell they need the sandbox off.
   last; back up and restore `save3-ext.dat` as `episode.sh` does):
   `SMBX2COMPAT_DEBUG=$PWD/exittest.lua EXITTEST_FRAME=400 EXITTEST_LEVEL="World Map" SMBX2COMPAT_LIBKEYS="60:do,100:do" XTECH_BUILD=build-release run-level.sh menu 240`
   (the library's test keys start again each time it opens).
+- Engine test options for loops through the library (no debug file, so
+  SMBX-mode episodes too): `SMBX2COMPAT_QUITAFTER=N` leaves each episode N
+  frames after it starts (its levels' and map's frames; `QuitEpisodeTestTick`
+  in `game_main.cpp`), as `Misc.exitEngine` does; `SMBX2COMPAT_LIBCYCLE=
+  "a|b"` makes the library select whichever of those episode folders was
+  played least recently each time it opens. SMBX2 and SMBX episodes in
+  turn, one process (the default-sprite switch each way):
+  `SMBX2COMPAT_LIBCYCLE="SMATRS Chapter 1+2|the invasion 2" SMBX2COMPAT_QUITAFTER=900 SMBX2COMPAT_LIBKEYS="60:do,100:do" XTECH_BUILD=build-release run-level.sh menu 300`
+  (back up SMATRS's `save3-ext.dat` as above).
 - `lsprobe.lua` — finds what keeps old loading screens alive in that
   state; needs a temporary hook in `core/loadscreen.lua` (in its header).
 

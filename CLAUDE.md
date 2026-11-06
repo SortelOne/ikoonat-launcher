@@ -104,6 +104,14 @@ For performance numbers use a Release build in its own folder
 (`-B build-release -DCMAKE_BUILD_TYPE=Release`; `run-level.sh` runs it with
 `XTECH_BUILD=build-release`). Debug is much slower (1-1: ~9.4 vs ~5.8 ms a frame).
 
+Memory errors: `build-asan` is a Debug build with AddressSanitizer
+(`-DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer"`, the same
+for `CMAKE_CXX_FLAGS`, `-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address`;
+part of clang). It covers the engine and the script library, not LuaJIT
+or the external libraries. `run-level.sh` drops stderr, so run it with
+`ASAN_OPTIONS=log_path=<scratchpad>/asan XTECH_BUILD=build-asan`; a report
+lands in `asan.<pid>`. It is ~3x slower (`REG_SLOW=3 reg.sh`).
+
 `THEXTECH_ENABLE_SDL_NET` (TheXTech's netplay) stays OFF, our default since
 the 2026-11 TheXTech merge (TheXTech turns it on for macOS): with it on,
 saves load only through the netplay session's `PreloadGame`, which the
@@ -361,9 +369,10 @@ How it works (details in `core/boot.lua`'s header):
   level; TheXTech's hub code loads it next. `Misc.exitEngine`/`exitGame`
   (LunaLua ends the process; SMATRS's main-menu Quit, its only way out)
   leave the episode for the menu as TheXTech's pause-menu Quit does,
-  without saving (`exitEngine` in `xtech_lua_bindings.cpp`), so a
+  without saving (`QuitEpisodeToMenu` in `game_main.cpp`), so a
   command-line world start quits (Android's library comes back); a level
-  test closes the game. `Misc.saveGame` ->
+  test closes the game. `SMBX2COMPAT_QUITAFTER=N` does the same N frames
+  into each episode (test runs; SMBX mode too). `Misc.saveGame` ->
   `SaveGame()` (`src/main/game_save.cpp`), which sends `onSaveGame` first
   (`__xtech_onSaveGame`), as LunaLua does; SMBX2's `savedata.lua` then
   writes `<episode>/save<slot>-ext.dat`. With SMBX2's data a level without
@@ -644,7 +653,10 @@ Testing the screen (it only draws in `run-level.sh menu`):
 `SMBX2COMPAT_LIBKEYS="60:do,90:right"` presses keys (up/down/left/right/do/
 back/erase) on those frames, `SMBX2COMPAT_LIBSHOTS=40,100` saves
 `libshot-N.png` in the log folder, `SMBX2COMPAT_LIBDROP="60:/path.zip"`
-drops a file, `SMBX2COMPAT_THUMBFRAMES=N` captures pictures sooner. Test
+drops a file, `SMBX2COMPAT_THUMBFRAMES=N` captures pictures sooner,
+`SMBX2COMPAT_LIBCYCLE="a|b"` selects whichever of those episode folders
+was played least recently (with `SMBX2COMPAT_QUITAFTER`, a loop through
+episodes of both modes in one process; `test/sweep/README.md`). Test
 imports and settings in a scratch data folder (`XTECH_DATA`, with a symlink
 to `assets-smbx13` and a copy of `userdir/settings/thextech.ini`), not Jake's.
 

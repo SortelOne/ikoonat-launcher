@@ -196,6 +196,18 @@ static int s_frame = 0;
 static std::vector<std::pair<int, std::string>> s_testKeys;
 static std::vector<int> s_testShots;
 static std::vector<std::pair<int, std::string>> s_testDrops;
+// SMBX2COMPAT_LIBCYCLE="SMATRS Chapter 1+2|the invasion 2": each time the
+// library opens, the listed episode folder played least recently is selected
+// (with SMBX2COMPAT_LIBKEYS="60:do,100:do" and SMBX2COMPAT_QUITAFTER, a run
+// that alternates between them in one process)
+static std::vector<std::string> s_testCycle;
+
+static std::string s_lower(std::string s)
+{
+    for(char &ch : s)
+        ch = (char)std::tolower((unsigned char)ch);
+    return s;
+}
 static int s_testShotCount = 0;
 
 static void s_toastShow(const std::string &t)
@@ -1502,6 +1514,22 @@ static void s_parseTestEnv()
         }
     }
 
+    s_testCycle.clear();
+    if(const char *k = std::getenv("SMBX2COMPAT_LIBCYCLE"))
+    {
+        std::string c = k;
+        size_t i = 0;
+        while(i <= c.size())
+        {
+            size_t bar = c.find('|', i);
+            if(bar == std::string::npos)
+                bar = c.size();
+            if(bar > i)
+                s_testCycle.push_back(s_lower(c.substr(i, bar - i)));
+            i = bar + 1;
+        }
+    }
+
     // SMBX2COMPAT_LIBDROP="60:/path/file.zip": as if dropped on the window then
     s_testDrops.clear();
     if(const char *k = std::getenv("SMBX2COMPAT_LIBDROP"))
@@ -1588,6 +1616,28 @@ void Init()
                 s_sel = (int)k;
         }
     }
+    if(!s_testCycle.empty())
+    {
+        int best = -1;
+        for(size_t k = 0; k < s_shown.size(); k++)
+        {
+            const Card &c = s_cards[s_shown[k]];
+            std::string folder = c.dir;
+            while(!folder.empty() && folder.back() == '/')
+                folder.pop_back();
+            folder = s_lower(folder.substr(folder.find_last_of('/') + 1));
+            if(std::find(s_testCycle.begin(), s_testCycle.end(), folder) == s_testCycle.end())
+                continue;
+            if(best < 0 || c.lib.lastPlayed < s_cards[s_shown[best]].lib.lastPlayed)
+                best = (int)k;
+        }
+        if(best >= 0)
+        {
+            s_sel = best;
+            pLogInfo("Library: SMBX2COMPAT_LIBCYCLE selects %s", s_cards[s_shown[best]].dir.c_str());
+        }
+    }
+
     if(s_sel > (int)s_shown.size())
         s_sel = 0;
     s_keepSelVisible(s_layout());

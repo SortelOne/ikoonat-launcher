@@ -75,6 +75,11 @@ void EditorLoop();
 //! Cleans up the buffer before ending the program
 void KillIt();
 void GracefulQuit(bool wait = false);
+// smbx2compat: leaves the episode for the menu without saving, or closes a
+// level test (Misc.exitEngine; the pause menu's Quit without the save)
+void QuitEpisodeToMenu(const char *who);
+// smbx2compat: SMBX2COMPAT_QUITAFTER test runs; GameLoop and WorldLoop call it
+void QuitEpisodeTestTick();
 
 // OpenLevel() and ClearLevel() moved into main/level_file.h
 

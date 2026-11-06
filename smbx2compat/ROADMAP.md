@@ -1604,9 +1604,8 @@ free/reset at level unload; (4) the same soak on the Odin (Android's
   sprite overrides (`SpriteOverride_Reset` puts the backups back and frees
   the override's data), sounds (freed with the Lua state), `mem()` stores and
   folder listings (cleared per level), collision groups (cleared per level).
-- Not done: an AddressSanitizer build (use-after-free and overruns rather
-  than leaks); worth one run before release. On the Odin: read the memory
-  lines in a long session's log.
+- Not done: an AddressSanitizer build (done 2026-11-06, below). On the
+  Odin: read the memory lines in a long session's log.
 
 *After the TheXTech merge (Jake asked, 2026-11-06; done the same day):*
 on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), Release build.
@@ -1637,25 +1636,28 @@ on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), Release build.
   `CloseSave` before every reopen), `m_no_tint_program` (reset with the
   others in `render_gl_frontend.cpp`), LevelSaveEntries (every add looks
   the level up first: one entry per level file).
-- Not done: two episodes of different modes in one process (SMATRS, then
-  The Invasion 2, then SMATRS) for the SMBX/SMBX2 sprite switch: an SMBX
-  episode can only be left through the engine's pause menu, which test
-  runs can't press yet. The Odin's memory lines.
-- Next (Jake wants it, 2026-11-06): an AddressSanitizer build for memory
-  errors (use-after-free, overruns), part of clang, nothing to install.
-  Plan: its own folder, `cmake -S . -B build-asan -G Ninja
-  -DCMAKE_BUILD_TYPE=Debug -DTHEXTECH_ENABLE_LUA=ON
-  -DTHEXTECH_BUNDLE_NAME="Ikoonat Launcher" -DTHEXTECH_ENABLE_SDL_NET=OFF
-  -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
-  -DCMAKE_CXX_FLAGS=<same> -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address`
-  (check the flags reach the script library and our submodule builds;
-  LuaJIT's own makefile and allocator stay outside ASan, which is fine).
-  Run with `XTECH_BUILD=build-asan`: `reg.sh`, the soak (`episode.sh`),
-  the Quit loop (`test/sweep/exittest.lua`), the library and an import.
-  ASan prints to stderr: check where `run-level.sh` sends it, or set
-  `ASAN_OPTIONS=log_path=<scratchpad>/asan` (LeakSanitizer isn't
-  available on Apple Silicon; `leaks` covers that). Debug + ASan is ~2-3x
-  slower, so allow longer runs.
+- Two episodes of different modes in one process: done in the next round
+  (below). The Odin's memory lines: not yet.
+
+*AddressSanitizer and the SMBX/SMBX2 switch (Jake asked, 2026-11-06):*
+- Test options (`test/sweep/README.md`): `SMBX2COMPAT_QUITAFTER=N` leaves
+  each episode N frames in, as `Misc.exitEngine` does (both now call
+  `QuitEpisodeToMenu` in `game_main.cpp`), so SMBX-mode episodes can be
+  left in test runs too; `SMBX2COMPAT_LIBCYCLE="a|b"` makes the library
+  select whichever of those episodes was played least recently.
+- SMATRS (SMBX2) and The Invasion 2 (SMBX) in turn through the library,
+  Release, 15 minutes: 48 episode exits (24 SMATRS starts), default
+  sprites switched each way every time (0.4-2.5 s), no script errors.
+  Resident 174-200 MB, footprint levels at 332-340 MB after ~5 minutes,
+  textures 445-449, GL programs 71, loading screen's heap ~1.9 MB.
+- `build-asan` (Debug, `-fsanitize=address`; engine and script library,
+  not LuaJIT or the external libraries; see CLAUDE.md, Build): no reports
+  in the regression set (`REG_SLOW=3 reg.sh`; results as expected), the
+  switch loop (10 minutes, 29 exits), the map soak (`episode.sh` with
+  `levels-sample-2026-11-06.txt`, 12 levels and the map between) or 16
+  rounds of a library import (zip dropped on the window, imported over the
+  existing folder from round 2), play and Quit. A deliberate overflow in a
+  small program checked that reports reach `log_path`.
 
 ## Risks
 
