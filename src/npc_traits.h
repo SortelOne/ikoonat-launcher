@@ -146,6 +146,9 @@ struct NPCTraits_t
     int16_t YoshiTransform = 0; // NPC ID after yoshi swallow
     int16_t FrozenTransform = 0;// NPC ID after frozen
     int16_t JumpTransform = 0;  // NPC ID after jump stomp
+    // smbx2compat: SMBX2's iswalker (SMBX's NPCDefaultMovement, fixed per type in
+    // TheXTech) when a script set it: -1 = the type's own, 0/1 = off/on
+    int8_t smbx2DefaultMovement = -1;
 
     constexpr NPCTraits_t() : IsFish(false), IsACoin(false), IsABonus(false), IsAVine(false), IsAShell(false), UseDefaultCam(false), InactiveRender(SHADE), NoHammer(false), NoShell(false), NoLava(false), NoLeaf(false), NoBlockHit(false), SpinJump(true), SpinJumpHurt(false), WaterJumpHurt(false), YoshiHurt(false), InstantKill(false), Immortal(false), GroundpoundBreak(false), MegaBreak(false), TurboWeak(false), NoSectionWrap(false), NpcBlockSide(false), Float(false), NoPiercingDmg(false), Pushable(false), Stackable(false), CanMeltBlock(false), WingsForever(false), NoNPCCollision(false) {}
 };

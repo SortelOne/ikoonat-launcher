@@ -2924,7 +2924,11 @@ static const MemTypeArray s_memTypeArrays[] =
     {MEM_NPC_TABLE(0x00B25E9C, FT_WORD), MEM_NPC_FLAG(NoYoshi)},
     {MEM_NPC_TABLE(0x00B25EB8, FT_WORD), MEM_NPC_FLAG(Foreground)},
     {MEM_NPC_TABLE(0x00B25ED4, FT_WORD), MEM_NPC_CONST(NPCIsABot)},
-    {MEM_NPC_TABLE(0x00B25EF0, FT_WORD), MEM_NPC_CONST(NPCDefaultMovement)},
+    // smbx2compat: SMBX2's iswalker (Grrrol); TheXTech's own movement table is fixed, so
+    // a script's value goes into the type's traits
+    {MEM_NPC_TABLE(0x00B25EF0, FT_WORD),
+        [](int i) -> double { const int8_t o = NPCTraits[i].smbx2DefaultMovement; return (o >= 0 ? o != 0 : NPCDefaultMovement(NPCID(i))) ? -1 : 0; },
+        [](int i, double v) { NPCTraits[i].smbx2DefaultMovement = (v != 0) ? 1 : 0; }},
     {MEM_NPC_TABLE(0x00B25F0C, FT_WORD), MEM_NPC_CONST(NPCIsVeggie)},
     {MEM_NPC_TABLE(0x00B25F28, FT_WORD), MEM_NPC_FLAG(NoFireBall)},
     {MEM_NPC_TABLE(0x00B25F44, FT_WORD), MEM_NPC_FLAG(NoIceBall)},
@@ -2953,10 +2957,11 @@ static const MemTypeArray s_memTypeArrays[] =
     // SMBX's block lookup by 32-pixel column (FirstBlock/LastBlock(-8000 To 8000)) into
     // its X-sorted blocks. TheXTech uses a quadtree instead, so every column spans all
     // blocks; SMBX2's Block.iterateIntersecting still checks each one.
+    // (writes, e.g. after a block spawns, have nothing to update)
     {0x00B25758, nullptr, nullptr, FT_WORD, -8000, 8000, 8000,
-        [](int) -> double { return 1; }, nullptr},
+        [](int) -> double { return 1; }, [](int, double) {}},
     {0x00B25774, nullptr, nullptr, FT_WORD, -8000, 8000, 8000,
-        [](int) -> double { return numBlock; }, nullptr},
+        [](int) -> double { return numBlock; }, [](int, double) {}},
 
     // Sizable blocks (sBlockArray(1 To 1000)); see memSizableBlockCount
     {0x00B2BED8, nullptr, nullptr, FT_WORD, 1, 1000, 1000,

@@ -42,6 +42,15 @@
 #include <type_traits>
 #include <limits>
 
+// smbx2compat: true the first time for a field (its warning is logged once)
+static inline bool s_warnOnce(bool &warned)
+{
+    if(warned)
+        return false;
+    warned = true;
+    return true;
+}
+
 
 #if defined(arm) && !defined(__SOFTFP__) && !defined(__VFP_FP__) && !defined(__MAVERICK__)
 #   define ARM_BIDI_ENDIAN
@@ -1187,7 +1196,7 @@ protected:
         //! Lambda-type field pointer
         std::pair<Getter, Setter> field_lf;
 
-        //! smbx2compat: an unknown field's warning was logged (once each)
+        //! smbx2compat: this field's warning (unknown field, type mismatch) was logged; once each
         bool warned = false;
     };
 
@@ -1377,7 +1386,7 @@ public:
         case VT_DOUBLE:
         {
             SDL_assert(t->field.d);
-            if(ftype != FT_DFLOAT)
+            if(ftype != FT_DFLOAT && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (Double expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.d), ftype);
         }
@@ -1385,7 +1394,7 @@ public:
         case VT_FLOAT:
         {
             SDL_assert(t->field.f);
-            if(ftype != FT_FLOAT)
+            if(ftype != FT_FLOAT && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (Float expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.f), ftype);
         }
@@ -1393,7 +1402,7 @@ public:
         case VT_INT32:
         {
             SDL_assert(t->field.i32);
-            if(ftype != FT_DWORD && ftype != FT_WORD)
+            if(ftype != FT_DWORD && ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (SInt16 or SInt32 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.i32), ftype);
         }
@@ -1401,7 +1410,7 @@ public:
         case VT_INT16:
         {
             SDL_assert(t->field.i16);
-            if(ftype != FT_WORD)
+            if(ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (SInt16 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.i16), ftype);
         }
@@ -1409,7 +1418,7 @@ public:
         case VT_UINT8:
         {
             SDL_assert(t->field.u8);
-            if(ftype != FT_WORD)
+            if(ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (SInt16 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.u8), ftype);
         }
@@ -1417,7 +1426,7 @@ public:
         case VT_BOOL:
         {
             SDL_assert(t->field.b);
-            if(ftype != FT_WORD && ftype != FT_BYTE)
+            if(ftype != FT_WORD && ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Read type missmatched at %s 0x%x (Sint16 or Uint8 as boolean expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             return valueToMem(obj->*(t->field.b), ftype);
         }
@@ -1435,7 +1444,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_DOUBLE && bt.field.d);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Read type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 return (num_t)getByteX86(obj->*(bt.field.d), t->offset);
             }
@@ -1444,7 +1453,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_FLOAT && bt.field.f);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Read type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 return (num_t)getByteX86(obj->*(bt.field.f), t->offset);
             }
@@ -1453,7 +1462,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_INT16 && bt.field.i16);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Read type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 int16_t s = static_cast<int16_t>(obj->*(bt.field.i16));
                 return (num_t)getByteX86(s, t->offset);
@@ -1463,7 +1472,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_INT32 && bt.field.i32);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Read type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 int16_t s = static_cast<int16_t>(obj->*(bt.field.i32));
                 return (num_t)getByteX86(s, t->offset);
@@ -1522,7 +1531,7 @@ public:
         case VT_DOUBLE:
         {
             SDL_assert(t->field.d);
-            if(ftype != FT_DFLOAT)
+            if(ftype != FT_DFLOAT && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (Double expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.d), value, ftype);
             return;
@@ -1531,7 +1540,7 @@ public:
         case VT_FLOAT:
         {
             SDL_assert(t->field.f);
-            if(ftype != FT_FLOAT)
+            if(ftype != FT_FLOAT && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (Float expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.f), value, ftype);
             return;
@@ -1540,7 +1549,7 @@ public:
         case VT_INT32:
         {
             SDL_assert(t->field.i32);
-            if(ftype != FT_DWORD && ftype != FT_WORD)
+            if(ftype != FT_DWORD && ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (SInt16 or SInt32 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.i32), value, ftype);
             return;
@@ -1549,7 +1558,7 @@ public:
         case VT_INT16:
         {
             SDL_assert(t->field.i16);
-            if(ftype != FT_WORD)
+            if(ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (SInt16 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.i16), value, ftype);
             return;
@@ -1558,7 +1567,7 @@ public:
         case VT_UINT8:
         {
             SDL_assert(t->field.u8);
-            if(ftype != FT_WORD)
+            if(ftype != FT_WORD && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (SInt16 expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.u8), value, ftype);
             return;
@@ -1567,7 +1576,7 @@ public:
         case VT_BOOL:
         {
             SDL_assert(t->field.b);
-            if(ftype != FT_WORD && ftype != FT_BYTE)
+            if(ftype != FT_WORD && ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                 pLogWarning("MemEmu: Write type missmatched at %s 0x%x (Sint16 or Uint8 as boolean expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
             memToValue(obj->*(t->field.b), value, ftype);
             return;
@@ -1587,7 +1596,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_DOUBLE && bt.field.d);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Write type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 modifyByteX86(obj->*(bt.field.d), t->offset, f2i_cast<uint8_t>(value));
                 return;
@@ -1597,7 +1606,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_FLOAT && bt.field.f);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Write type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 modifyByteX86(obj->*(bt.field.f), t->offset, f2i_cast<uint8_t>(value));
                 return;
@@ -1607,7 +1616,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_INT16 && bt.field.i16);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Write type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 int16_t s = static_cast<int16_t>(obj->*(bt.field.i16));
                 modifyByteX86(s, t->offset, f2i_cast<uint8_t>(value));
@@ -1619,7 +1628,7 @@ public:
             {
                 auto &bt = m_type[t->baseAddress];
                 SDL_assert(bt.type == VT_INT32 && bt.field.i32);
-                if(ftype != FT_BYTE)
+                if(ftype != FT_BYTE && s_warnOnce(t->warned)) // smbx2compat: once per field
                     pLogWarning("MemEmu: Write type missmatched at %s 0x%x (byte expected, %s actually)", objName, static_cast<unsigned>(address), FieldtypeToStr(ftype));
                 int16_t s = static_cast<int16_t>(obj->*(bt.field.i32));
                 modifyByteX86(s, t->offset, f2i_cast<uint8_t>(value));

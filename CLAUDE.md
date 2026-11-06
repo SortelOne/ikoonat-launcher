@@ -41,6 +41,9 @@ project, so never prepare anything from this repo as an upstream PR.
     real `main.lua` and libraries. See "SMBX2 core mode" below.
   - `luajit.patch` — our edit inside the LuaJIT submodule (Lua 5.2 compat option).
   - `test/` — mock harness: `cd smbx2compat/test && luajit run.lua`.
+  - `test/sweep/` — many-level checks in the real game: `sweep.sh` (`-l`
+    levels), `episode.sh` (levels entered from SMATRS's map), `reg.sh` (the
+    regression set), screenshot tools. See its README.
   - `ROADMAP.md` — **the plan**: phases from here to SMATRS on Android, measured
     scale of SMATRS, and open questions for Jake. Start here.
 - `3rdparty/PGE_File_Formats` — level/world file library (see below).
@@ -344,7 +347,8 @@ How it works (details in `core/boot.lua`'s header):
   episode's modules and `SaveData`; `core.ffi` is LuaJIT's FFI (SMBX2's
   lockdown hides `require("ffi")`), e.g. to wrap the `LunaDll.dll` draw
   exports (`core.ffi.load("LunaDll.dll").FFI_GLDraw`) and log every draw.
-  Keep such files in the scratchpad.
+  Keep one-off debug files in the scratchpad (it is wiped overnight); reusable
+  ones go in `smbx2compat/test/sweep/`.
 - SMATRS's 3D world map is the level `World Map.lvlx` (hub of `World.wld`),
   drawn by the episode's `map.lua`/`lib3d.lua`. Played as an episode, a new
   save goes to `_prologue.lvlx` and a save boots to SMATRS's start menu over
@@ -428,10 +432,15 @@ How it works (details in `core/boot.lua`'s header):
   the episode list (`SelectWorld`), `Star`, Defines without an engine value,
   NPC 0x74 (`GeneratorActive`, which SMATRS sets to run a room's generators
   off screen) and 0xE0 (`NPC_t::smbx2DefaultSpecial2`, `ai2` on respawn).
-  SMBX2's NPC type flags (`isflying`, `iswalker`, ...) are fixed per type in
+  SMBX2's NPC type flags (`isflying`, `isshoe`, ...) are fixed per type in
   TheXTech (`npc_constant_traits.h`); writes are dropped, logged once.
+  `iswalker` (SMBX's `NPCDefaultMovement`; SMBX2's Grrrol rolls by it) is
+  kept in `NPCTraits_t::smbx2DefaultMovement` instead, which
+  `npc_movement_logic.cpp` checks.
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
-  memory`; MemEmu's unknown object fields log once each too. To find who reads one, temporarily log `debug.traceback()` in
+  memory`; MemEmu's unknown object fields and type mismatches (a script
+  reading SMBX's Single/Double where TheXTech keeps an integer) log once
+  per field too. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.
 - Custom params: the `CustomParams` field on `Block_t`/`Background_t`/`NPC_t`
   (set in `level_file.cpp`) + `core/extrasettings.lua` (needs SMBX2's

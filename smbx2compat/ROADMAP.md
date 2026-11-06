@@ -897,9 +897,11 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     behaves as the defaults); `Animation` setters (SMATRS's effectReplacer
     removes replaced effects by zeroing their timer; the writes were lost,
     so both effects showed). Left as known gaps: SMBX2's NPC type flags
-    `isflying`/`isshoe`/`isyoshi`/`isbot`/`iswalker`/`isvegetable`/
+    `isflying`/`isshoe`/`isyoshi`/`isbot`/`isvegetable`/
     `iscollectablegoal` (TheXTech's are fixed per type, so writes are dropped
-    and logged once; no SMATRS level places an NPC that sets one).
+    and logged once; SMBX2 only writes them false, except `isvegetable` for
+    NPC 713, which SMATRS doesn't place). `iswalker` was in this list too
+    until the random sample found Grrrol needs it (below).
   - Level loads: a level change took ~4.7 s (prologue), mostly opening files:
     ~0.4 ms per open on this Mac, 1000+ script reads and file probes, and
     each image opened twice. Now: folder listings per level answer "does this
@@ -1035,11 +1037,42 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     object fields log once each.
   - Story scenes (2-Epilogue, 3-Prelude, 2-Boss's intro) play out; in 2-1
     held-right stops at a post.
+- *Random sample (2026-11-06):* played through `World.wld` at Chapter 2
+  story progress (207): 2- Hidden Village, 2-1, 2-2, 2-A, 2-7, 2-B,
+  2-Bonus, 2-Boss, 1-6, 1-4, 1-5, 1-B, then 2-Epilogue at 209, plus the
+  map's three sections (0 and 2 on the way back from levels; 1, the
+  daredevil area, through the fast-travel option's section load and Lakitu
+  drop-off). 0 script errors. Found:
+  - Grrrols (SMBX2's NPC 531/532: 22 in 1-5, one each in 1-B and 2-1) sat
+    still: SMBX2's `grrrol.lua` sets `iswalker` (SMBX's
+    `NPCDefaultMovement`) and leaves the rolling to the engine, and
+    TheXTech's walker table is fixed per type. `NPCTraits_t` now has
+    `smbx2DefaultMovement` (-1 = the type's own), which the mem() table at
+    `0xB25EF0` reads and writes and `npc_movement_logic.cpp` checks; traits
+    reset per level (`LoadNPCDefaults`).
+  - MemEmu type mismatches logged on every read: the player's `FrameCount`
+    (0x118, a Single in SMBX, read in 2-B) and NPC `Effect2` (0x13C, a
+    Double, read in 2-7) are integers in TheXTech; values were right. Each
+    field's mismatch now logs once, like unknown fields. 2-Epilogue's
+    `Player:transform` (to Peach) copies the whole player struct word by
+    word into the template (`ffi_player.lua`), so a level with a transform
+    logs ~80 such lines once; the template keeps what `SavedChar` has.
+  - Writes to SMBX's block column lookup (`0xB25758`/`0xB25774`, SMBX2
+    updates it when a block spawns) are ignored quietly now.
+  - Looked wrong, but intended: 2-Boss's masking scene is black with
+    Starry's dialogue boxes; the loading screens' photo collages have dark
+    patches. 2-Boss's "THIS WAY" sign has a pure-black shape between the
+    words in every frame, the same black as its outline: most likely art.
 - *Next:*
   - Jake checks the loading screens and the map.
-  - Jake's random-level sampling (below).
-  - Later: SMBX2's NPC type flags above, if an episode needs them; the
-    image-load hitches on Android if they show there.
+  - The map's camera angle (Jake, 2026-11-06: on Windows it is sometimes
+    flatter). It is SMATRS's own (`map.lua`): a default tilt of -45 and
+    camera zones in `World Map.lvlx` (section 0 has 9, tilted -15 to -35)
+    that the camera eases into while the player stands in one. Here the
+    zones load with their settings and the lookup finds each one from inside
+    it, but sweeps only stand on level spots, outside every zone: walk the
+    map player into a zone and check the camera follows.
+  - Later: the image-load hitches on Android if they show there.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until

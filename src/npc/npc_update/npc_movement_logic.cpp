@@ -37,7 +37,9 @@ void NPCMovementLogic(int A, tempf_t& speedVar)
     // POSSIBLE SUBROUTINE: setSpeed
 
     // this condition was duplicated in two places in SMBX 1.3
-    bool use_default_movement = (NPCDefaultMovement(NPC[A].Type) || (NPC[A]->IsFish && NPC[A].Special != 2)) && !((NPC[A].Type == NPCID_EXT_TURTLE || NPC[A].Type == NPCID_BLU_HIT_TURTLE_S4) && NPC[A].Special > 0);
+    // smbx2compat: SMBX2 scripts can set a type's default movement (iswalker; Grrrol)
+    const bool default_movement = (NPC[A]->smbx2DefaultMovement >= 0) ? (NPC[A]->smbx2DefaultMovement != 0) : NPCDefaultMovement(NPC[A].Type);
+    bool use_default_movement = (default_movement || (NPC[A]->IsFish && NPC[A].Special != 2)) && !((NPC[A].Type == NPCID_EXT_TURTLE || NPC[A].Type == NPCID_BLU_HIT_TURTLE_S4) && NPC[A].Special > 0);
 
     // Default Movement Code
     if(use_default_movement && NPC[A].Type != NPCID_ITEM_BURIED)

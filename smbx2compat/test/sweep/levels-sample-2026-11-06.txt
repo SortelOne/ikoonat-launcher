@@ -1,0 +1,15 @@
+900
+story=207
+2- Hidden Village.lvlx
+2-1 - Warped Woods.lvlx
+2-2 - Reflected Rainfall.lvlx
+2-A - Illusory Launch.lvlx
+2-7 - Carnival Chaos.lvlx
+2-B - KO Arena.lvlx
+2-Bonus.lvlx
+2-Boss.lvlx
+1-6 - Cat Meadows.lvlx
+1-4 - Coral Coastline.lvlx
+1-5 - Thwomp Cove.lvlx
+section=1
+1-B - Breaktime.lvlx
