@@ -1300,6 +1300,31 @@ void xtech_lua_drawSwapLoadScreen()
     swap(s_drawScreen, o.drawScreen);
 }
 
+void xtech_lua_drawStats(XTechLuaDrawStats &st)
+{
+    st = XTechLuaDrawStats();
+    st.pictures = (int)s_pictures.size();
+    for(auto &it : s_pictures)
+    {
+        const StdPicture &p = *it.second.pic;
+        if(p.d.hasTexture())
+            st.pictureTextures++;
+        st.pictureBytes += p.l.raw.size() + p.l.rawMask.size();
+    }
+    st.images = (int)s_images.size();
+    st.shaders = (int)s_shaders.size();
+    st.buffers = (int)s_buffers.size();
+    st.otherImages = (int)s_otherOwner.images.size();
+    st.otherShaders = (int)s_otherOwner.shaders.size();
+    st.otherBuffers = (int)s_otherOwner.buffers.size();
+    st.keptPrograms = (int)s_keptPrograms.size();
+    for(auto &it : s_keptPrograms)
+    {
+        if(it.second.users <= 0)
+            st.idlePrograms++;
+    }
+}
+
 bool xtech_lua_drawScriptScreenSize()
 {
     return s_fbW > 0;

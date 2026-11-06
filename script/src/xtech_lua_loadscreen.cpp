@@ -332,6 +332,11 @@ void xtech_lua_loadScreenQuit()
     closeState();
 }
 
+int xtech_lua_loadScreenLuaKB()
+{
+    return s_L ? lua_gc(s_L, LUA_GCCOUNT, 0) : -1;
+}
+
 void xtech_lua_register_loadscreen(lua_State *L)
 {
     lua_register(L, "xtech_misc_loadScreenUpdate", lua_loadScreenUpdate);

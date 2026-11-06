@@ -1149,3 +1149,10 @@ void RenderGL::scriptCleanup()
 }
 
 #endif
+
+void RenderGL::scriptStats(int &textures, int &programs, int &buffers)
+{
+    textures = (int)m_loadedPictures.size();
+    programs = (int)m_script_programs.size();
+    buffers = (int)m_script_buffers.size();
+}

@@ -982,6 +982,11 @@ const luaL_Reg s_instanceMethods[] =
 
 } // namespace
 
+size_t xtech_lua_audioChunkCount()
+{
+    return s_chunks.size();
+}
+
 void xtech_lua_register_audio(lua_State *L)
 {
     luaL_newmetatable(L, CHUNK_MT);

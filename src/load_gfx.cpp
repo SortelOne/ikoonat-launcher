@@ -834,6 +834,11 @@ struct SpriteOverride_t
 
 static std::map<StdPicture*, SpriteOverride_t> s_spriteOverrides;
 
+size_t SpriteOverride_Count()
+{
+    return s_spriteOverrides.size();
+}
+
 static StdPicture *s_spriteSlot(const std::string &category, int index, vbint_t **width, vbint_t **height)
 {
     *width = *height = nullptr;

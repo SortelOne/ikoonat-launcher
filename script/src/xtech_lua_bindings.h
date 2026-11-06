@@ -37,6 +37,10 @@ void xtech_lua_memNewFrame();
 // properties (and other mem() storage) go back to their defaults
 void xtech_lua_memNewLevel();
 
+// smbx2compat: session caches for the memory log: files kept in memory
+// (xtech_misc_readFileCached) and their bytes, xtech_misc_sessionCache bytes
+void xtech_lua_cacheStats(size_t &files, size_t &fileBytes, size_t &sessionBytes);
+
 // Clear all pending delayed calls — call from xtech_lua_reset()
 void xtech_lua_clear_delayed_calls();
 

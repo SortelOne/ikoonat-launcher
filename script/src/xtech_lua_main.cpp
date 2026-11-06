@@ -53,6 +53,14 @@ extern "C"
 #include "xtech_lua_data.h"
 #include "xtech_lua_events.h" // smbx2compat
 #include "xtech_lua_loadscreen.h" // smbx2compat
+#include "load_gfx.h" // smbx2compat: SpriteOverride_Count
+#include "core/render.h" // smbx2compat: g_render (memory log)
+#if defined(__APPLE__)
+#   include <mach/mach.h> // smbx2compat: memory log
+#elif defined(__linux__)
+#   include <cstdio>
+#   include <unistd.h> // smbx2compat: memory log (sysconf)
+#endif
 
 
 // ============================================================================
@@ -472,6 +480,62 @@ void xtech_lua_smbx2NoteLevelEnd()
     s_smbx2ExitType = (LevelBeatCode > 0) ? (int)LevelBeatCode : 0;
 }
 
+// smbx2compat: the process's memory in MB: resident, and on macOS its
+// footprint (Activity Monitor's figure, which counts GPU memory too); -1 unknown
+static void processMemoryMB(double &resident, double &footprint)
+{
+    resident = footprint = -1.0;
+#if defined(__APPLE__)
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if(task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) == KERN_SUCCESS)
+    {
+        resident = (double)info.resident_size / (1024.0 * 1024.0);
+        footprint = (double)info.phys_footprint / (1024.0 * 1024.0);
+    }
+#elif defined(__linux__) // Android too
+    FILE *f = std::fopen("/proc/self/statm", "r");
+    if(f)
+    {
+        long pages = 0, rss = 0;
+        if(std::fscanf(f, "%ld %ld", &pages, &rss) == 2)
+            resident = (double)rss * (double)sysconf(_SC_PAGESIZE) / (1024.0 * 1024.0);
+        std::fclose(f);
+    }
+#endif
+}
+
+// smbx2compat: one line per core-mode level start, so a log shows whether
+// memory grows from level to level (the leak audit; ROADMAP.md, Milestones).
+// Logged after the old level's Lua state closed and before the new one starts.
+static void logMemory(int oldLuaKB)
+{
+    double resident, footprint;
+    processMemoryMB(resident, footprint);
+
+    int textures = -1, programs = -1, buffers = -1;
+    if(g_render)
+        g_render->scriptStats(textures, programs, buffers);
+
+    XTechLuaDrawStats d;
+    xtech_lua_drawStats(d);
+
+    size_t files, fileBytes, sessionBytes;
+    xtech_lua_cacheStats(files, fileBytes, sessionBytes);
+
+    const double mb = 1024.0 * 1024.0;
+    pLogInfo("[smbx2core] memory: footprint %.1f MB, resident %.1f MB; last level's Lua %d KB, "
+             "loading screen's Lua %d KB; textures %d, GL programs %d, capture buffers %d; "
+             "script pictures %d (%d with textures, %.1f MB of file data), kept programs %d (%d idle), "
+             "handles left: images %d, shaders %d, buffers %d; loading screen's: images %d, shaders %d, buffers %d; "
+             "sprite overrides %d, sounds %d; file cache %d files %.1f MB, session cache %.1f MB",
+             footprint, resident, oldLuaKB, xtech_lua_loadScreenLuaKB(),
+             textures, programs, buffers,
+             d.pictures, d.pictureTextures, (double)d.pictureBytes / mb, d.keptPrograms, d.idlePrograms,
+             d.images, d.shaders, d.buffers, d.otherImages, d.otherShaders, d.otherBuffers, (int)SpriteOverride_Count(), (int)xtech_lua_audioChunkCount(),
+             (int)files, (double)fileBytes / mb, (double)sessionBytes / mb);
+}
+
 static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreDir)
 {
     // LunaLua gives every level a new Lua state, and main.lua replaces io, os,
@@ -480,8 +544,11 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     xtech_lua_memNewLevel();
     xtech_lua_smbx2ResetFrameState();
     s_smbx2ExitType = 0;
+    const int oldLuaKB = g_L ? lua_gc(g_L, LUA_GCCOUNT, 0) : 0;
     lua_close(g_L);
     g_L = nullptr;
+    xtech_lua_drawFrameEnd(); // programs and buffers the closed state freed
+    logMemory(oldLuaKB);
     g_gameLoaded = false;
     g_compatLoaded = false;
     xtech_lua_loadScreenUpdate("old level's Lua closed");

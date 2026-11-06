@@ -866,6 +866,7 @@ public:
     void scriptDraw(const ScriptDraw_t &draw) override;
     void scriptDrawEnd() override;
     void scriptRedirect(int buffer) override;
+    void scriptStats(int &textures, int &programs, int &buffers) override;
 
 
 

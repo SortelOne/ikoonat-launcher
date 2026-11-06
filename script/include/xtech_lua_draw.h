@@ -83,6 +83,18 @@ void xtech_lua_drawReset();
 void xtech_lua_register_draw(lua_State *L, bool ownsDrawing = true);
 //! The level's script set SMBX's screen size (FFI_GraphicsSetMainFramebufferSize)
 bool xtech_lua_drawScriptScreenSize();
+//! smbx2compat: what SMBX2's drawing holds, for the memory log
+struct XTechLuaDrawStats
+{
+    int pictures = 0;       // script pictures kept for the session (by file)
+    int pictureTextures = 0; // ... with a texture loaded now
+    size_t pictureBytes = 0; // their kept file data (compressed)
+    int images = 0;         // image handles of the current state
+    int shaders = 0, buffers = 0; // shader/capture buffer handles of the current state
+    int otherImages = 0, otherShaders = 0, otherBuffers = 0; // the same, of the swapped-out state (the loading screen's)
+    int keptPrograms = 0, idlePrograms = 0; // compiled programs kept for later levels
+};
+void xtech_lua_drawStats(XTechLuaDrawStats &st);
 
 // Used by xtech_lua_loadscreen.cpp
 //! Swaps the loading screen's images, shaders, buffers and queue in or out

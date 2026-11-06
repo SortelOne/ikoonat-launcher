@@ -363,6 +363,8 @@ public:
     //! Sends the engine's draws (and script draws to the screen) to a capture buffer,
     //! the camera's view at its top-left, until called again (0: back to the screen)
     virtual void scriptRedirect(int buffer);
+    //! smbx2compat: counts for the memory log (loaded textures, script programs, capture buffers)
+    virtual void scriptStats(int &textures, int &programs, int &buffers);
 
 
 

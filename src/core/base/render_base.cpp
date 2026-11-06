@@ -955,6 +955,11 @@ void AbstractRender_t::scriptRedirect(int buffer)
     UNUSED(buffer);
 }
 
+void AbstractRender_t::scriptStats(int &textures, int &programs, int &buffers)
+{
+    textures = programs = buffers = -1; // unknown
+}
+
 
 #ifdef USE_RENDER_BLOCKING
 bool AbstractRender_t::renderBlocked()

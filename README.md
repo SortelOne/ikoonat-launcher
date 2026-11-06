@@ -1,8 +1,53 @@
+# TheXTech-Lua + smbx2compat: SMBX2 episodes on TheXTech
+
+A fork of [vkdfkc/TheXTech-Lua](https://github.com/vkdfkc/TheXTech-Lua)
+(TheXTech with LuaJIT scripting) that plays SMBX2 (LunaLua) episodes, starting
+with *Super Mario and the Rainbow Stars*, by running SMBX2's own Lua libraries
+on an emulated LunaLua host. So, unlike the upstream FAQ below says, SMBX2
+content does run here. It is a separate project built on TheXTech, not an
+official TheXTech release.
+
+- What changed, how to set up the game data, build and play:
+  [`smbx2compat/README.md`](smbx2compat/README.md)
+- The plan and status: [`smbx2compat/ROADMAP.md`](smbx2compat/ROADMAP.md)
+
+Quick start (macOS, once the data folder is set up):
+
+```bash
+cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DTHEXTECH_ENABLE_LUA=ON
+cmake --build build-release
+smbx2compat/play.sh
+```
+
+No game content is included: SMBX2's data, SMATRS and other episodes come
+from their own downloads and stay outside this repository.
+
+## Built with AI
+
+The work in this fork (the SMBX2 compatibility layer, the engine changes
+under `smbx2compat`, the docs and the tools) was written with Claude, an AI
+coding assistant, directed and tested by the repository's owner.
+
+## A note to TheXTech's developers
+
+TheXTech's own `AGENTS.md` asks that no AI-generated code be contributed
+to TheXTech. This fork respects that: it will never be offered upstream,
+no pull requests will be opened against TheXTech or vkdfkc's fork, and
+`AGENTS.md` was removed here only because this repository is separate.
+If TheXTech's developers (or vkdfkc) would rather this repository not be
+public, please open an issue saying so and it will be made private again,
+no questions asked. Thank you for TheXTech; none of this would exist
+without it.
+
+-----------
+
 <p align="center">
 <a href="https://github.com/Wohlstand/TheXTech/releases"><img src="https://raw.githubusercontent.com/Wohlstand/TheXTech/master/resources/icon/thextech_512.png" alt="TheXTech"></a>
 </p>
 
 # TheXTech
+
+*The rest of this README is upstream TheXTech's.*
 
 SMBX engine, rewritten into C++ from VisualBasic 6.
 

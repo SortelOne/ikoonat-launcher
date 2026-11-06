@@ -1073,6 +1073,12 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     it, but sweeps only stand on level spots, outside every zone: walk the
     map player into a zone and check the camera follows.
   - Later: the image-load hitches on Android if they show there.
+  - After the leak audit (Jake, 2026-11-06): play a few levels and the map
+    at SMATRS's other graphical quality levels (Low and Medium; its options
+    menu, `SaveData.general.graphicalQuality`, 1-3; sweeps so far ran at the
+    save's setting): they boot, no script errors, no drawing glitches in
+    screenshots. Low turns off the darkness shadows (`graphicalQuality.lua`)
+    and simplifies effects, so it is the setting the Odin will most likely use.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until
@@ -1116,6 +1122,29 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
      logged the first time, so problems show while playing.
   Jake puts a shared log into `../TheXTech-data/odin-logs/`; reading it is
   then the same as reading a desktop run's log.
+- Performance settings (Jake, 2026-11-06; after the leak audit, measured
+  on the Odin): an "SMBX2" section in TheXTech's own options screen
+  (`src/main/screen_options.cpp` lists `src/config.h`'s options, so a new
+  option is mostly one declaration). SMBX's logic runs at 64 ticks a second,
+  so a battery saver draws every other frame rather than slowing the game
+  (the existing frameskip only skips when behind). Ideas: that draw rate, a
+  frame-time overlay, a lower render scale for shader passes and capture
+  buffers (SMATRS sets its own 960x540, which overrides TheXTech's
+  resolution option in its levels), loading screens off. SMATRS's own
+  graphical quality option stays the main lever.
+- Episode library app (Jake, 2026-11-06; after the leak audit): the APK
+  ships no game content (as upstream TheXTech's Android build). Users import
+  SMBX2's data folder (`scripts`, `graphics`, `sound`, `music`, `costumes`)
+  from their own SMBX2 download and episodes (SMBX 1.3 or SMBX2, zip or
+  folder) into the app's folder; `core/` ships in the APK and is copied out
+  on first run (now a symlink). Engine side: a configurable SMBX2 data path
+  (now `<assets>/smbx2`). Android side (`android-project/.../Launcher.java`,
+  `GameSettings.java`): an episode list with Import, an "Import SMBX2 data"
+  step with progress, per-episode settings, and "Add to home screen"
+  (`ShortcutManager.requestPinShortcut`, starting the game with the
+  episode's world and a save slot, as `run-level.sh` does). Own app ID and
+  name, so it installs beside TheXTech. TheXTech is GPLv3: an APK given to
+  others has to come with the source.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)
@@ -1420,6 +1449,40 @@ AddressSanitizer build (`-fsanitize=address`, part of clang, no install) for
 use-after-free and overruns; (3) read each place above for a matching
 free/reset at level unload; (4) the same soak on the Odin (Android's
 `dumpsys meminfo`).
+
+*Done on the Mac (2026-11-06):*
+- Every core-mode level start logs one line, `[smbx2core] memory: ...`
+  (`logMemory` in `xtech_lua_main.cpp`): footprint and resident MB, the
+  closed level's and the loading screen's Lua heap, textures, GL programs,
+  capture buffers, the session caches, handles left over, sprite overrides,
+  sounds. On the Odin the same line goes to its log (resident from
+  `/proc/self/statm`; no footprint there), so a shared log shows growth.
+- Soak: 1-1, 2-1, 1-4 and 2-7 entered from the map four times over (33 level
+  starts, `test/sweep/episode.sh`). Caches fill in the first round and stay:
+  script pictures 1912 (9 MB of file data kept), file cache 2933 files
+  8.8 MB, session cache 2.7 MB, kept GL programs 151, textures ~100-115.
+  Each level's Lua state (~120-240 MB in SMATRS) is freed with it.
+- Found and fixed: the loading screen's Lua state grew ~0.5 MB a load (3.9
+  to 15.5 MB over 32). SMBX2's `require.lua` lists contexts in
+  `childEnvsByGlobal`, and LPegLJ keeps pattern values in `valuetable`;
+  both are tables whose entries keep themselves alive (LuaJIT's weak tables
+  aren't ephemerons), so every loading screen's context stayed. Windows
+  SMBX2 has the same state (LunaLua keeps it for the session), so it most
+  likely leaks there too. `core/loadscreen.lua` now drops both before each
+  init. After: it cycles 3.8-8 MB with the garbage collector; resident
+  memory levels at ~280 MB in rounds 3-4 (it was still rising at 289).
+- `leaks` on the running game (Release re-signed with get-task-allow): 20
+  KB, all macOS's own (Shortcuts service connections, NSUserDefaults made at
+  start), none in the engine or our layer.
+- Read for frees at level end: script pictures (textures freed each level,
+  file data kept by design), shaders/capture buffers (`drawReset` ->
+  `releaseProgram`/`scriptBufferFree`, every GL create has its delete),
+  sprite overrides (`SpriteOverride_Reset` puts the backups back and frees
+  the override's data), sounds (freed with the Lua state), `mem()` stores and
+  folder listings (cleared per level), collision groups (cleared per level).
+- Not done: an AddressSanitizer build (use-after-free and overruns rather
+  than leaks); worth one run before release. On the Odin: read the memory
+  lines in a long session's log.
 
 ## Risks
 

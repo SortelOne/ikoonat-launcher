@@ -19,6 +19,8 @@ void xtech_lua_loadScreenUpdate(const char *where);
 void xtech_lua_loadScreenEnd();
 //! Closes the loading screen's Lua state (game exit)
 void xtech_lua_loadScreenQuit();
+// smbx2compat: the loading screen state's Lua heap in KB, -1 without one (memory log)
+int xtech_lua_loadScreenLuaKB();
 
 //! xtech_misc_loadScreenUpdate(), for boot.lua's file reads
 void xtech_lua_register_loadscreen(lua_State *L);

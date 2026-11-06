@@ -26,5 +26,7 @@ struct lua_State;
 
 // smbx2compat: LunaLua's Audio namespace as the global table xtech_lunaAudio
 void xtech_lua_register_audio(lua_State *L);
+// smbx2compat: sound chunks scripts have open (memory log)
+size_t xtech_lua_audioChunkCount();
 
 #endif // XTECH_LUA_AUDIO_H

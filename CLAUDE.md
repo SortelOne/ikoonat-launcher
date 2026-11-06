@@ -455,6 +455,13 @@ How it works (details in `core/boot.lua`'s header):
   compiles: with LuaJIT's 64 KB code areas, arm64's branch range made it throw
   away all compiled code every few frames in SMATRS (ROADMAP.md, Performance
   track). Don't remove it.
+- Memory: every core-mode level start logs `[smbx2core] memory: ...`
+  (`logMemory` in `xtech_lua_main.cpp`: process memory, both Lua heaps,
+  GL objects, session caches, leftover handles); compare the lines across a
+  long run for growth (ROADMAP.md, Milestones, "Before M6"). The loading
+  screen's state lasts the session, so anything it keeps per load piles up:
+  `core/loadscreen.lua` drops SMBX2's `childEnvsByGlobal` contexts and
+  LPegLJ's `valuetable` entries made since it started before each init.
 - Timing: `SMBX2COMPAT_PROFILE=100-400[,nosample][,memcallers][,load]` turns on
   `core/profile.lua` (frame/event/listener times, `mem()` counts and, with
   `memcallers`, the lines reading most, slowest frames with their slowest

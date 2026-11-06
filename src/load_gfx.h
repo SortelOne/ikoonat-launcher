@@ -53,6 +53,8 @@ void UnloadWorldCustomGFX();
 bool SpriteOverride_Set(const std::string &category, int index, const std::string &path);
 // Restores every overridden sprite (level unload)
 void SpriteOverride_Reset();
+// smbx2compat: overridden sprites now (memory log)
+size_t SpriteOverride_Count();
 
 // Private Sub cBlockGFX(A As Integer)
 // Private Sub cNPCGFX(A As Integer)

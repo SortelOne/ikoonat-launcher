@@ -11,6 +11,7 @@
 
 local core = __smbx2core
 local traceback = debug.traceback
+local getupvalue = debug.getupvalue -- SMBX2's lockdown hides it
 
 -- InitMinimalLuaState's globals
 _smbxPath = getSMBXPath()
@@ -34,6 +35,73 @@ do
     assert(loadstring(src, "=loadscreen.lua"))()
 end
 
+-- SMBX2's require.lua lists every global context it makes in
+-- childEnvsByGlobal, a weak-keyed table whose values (the context's
+-- environments) refer back to their key (env._G). LuaJIT's weak tables
+-- aren't ephemerons, so no entry is ever collected. init() below makes a
+-- context for the episode's loadscreen.lua at every load, and this state
+-- lasts the session (as LunaLua's does), so each loading screen kept the
+-- last one's modules, fonts and images (~0.5 MB a load in SMATRS). Before
+-- each init, drop the contexts the earlier loading screens made.
+-- LPegLJ holds them too: it keeps each pattern's values (textplus's
+-- functions, from the context that made them) in valuetable until the
+-- pattern is collected, and those functions keep the pattern alive. So the
+-- patterns made since the state started go with them.
+local function upvalue(f, wanted)
+    local i = 1
+    while type(f) == "function" do
+        local name, v = getupvalue(f, i)
+        if name == nil then
+            return nil
+        elseif name == wanted then
+            return v
+        end
+        i = i + 1
+    end
+end
+
+local childEnvsByGlobal, bootContexts, lpegValues, bootPatterns
+do
+    childEnvsByGlobal = upvalue(require_utils and require_utils.makeEnvironment, "childEnvsByGlobal")
+    if type(childEnvsByGlobal) == "table" then
+        bootContexts = {} -- made while the state started (FFI and LPeg libraries): kept
+        for k in pairs(childEnvsByGlobal) do
+            bootContexts[k] = true
+        end
+    else
+        childEnvsByGlobal = nil
+        core.warn("loading screen: require.lua's childEnvsByGlobal not found; each loading screen's context will stay in memory")
+    end
+
+    lpegValues = upvalue(lpeg and lpeg.Cmt, "valuetable")
+    if type(lpegValues) == "table" then
+        bootPatterns = {}
+        for k in pairs(lpegValues) do
+            bootPatterns[k] = true
+        end
+    else
+        lpegValues = nil
+        core.warn("loading screen: LPegLJ's valuetable not found; each loading screen's patterns will stay in memory")
+    end
+end
+
+local function dropOldContexts()
+    if childEnvsByGlobal then
+        for k in pairs(childEnvsByGlobal) do
+            if not bootContexts[k] then
+                childEnvsByGlobal[k] = nil
+            end
+        end
+    end
+    if lpegValues then
+        for k in pairs(lpegValues) do
+            if not bootPatterns[k] then
+                lpegValues[k] = nil
+            end
+        end
+    end
+end
+
 -- LunaLua shows a message box for each error; we log each once
 local function call(f, ...)
     if not f then
@@ -48,6 +116,7 @@ end
 function __xtech_loadScreenInit()
     _loadingFinished = false
     frame = 0
+    dropOldContexts()
     call(init)
 end
 

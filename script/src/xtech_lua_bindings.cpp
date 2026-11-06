@@ -3839,6 +3839,17 @@ void xtech_lua_memNewFrame()
     LuaMisc::s_sizableBlocksStale = true;
 }
 
+void xtech_lua_cacheStats(size_t &files, size_t &fileBytes, size_t &sessionBytes)
+{
+    files = fileBytes = 0;
+#ifndef _WIN32
+    files = LuaMisc::s_fileCache.size();
+    for(auto &it : LuaMisc::s_fileCache)
+        fileBytes += it.second.data.size();
+#endif
+    sessionBytes = LuaMisc::s_sessionCacheBytes;
+}
+
 void xtech_lua_memNewLevel()
 {
     for(auto &s : LuaMisc::s_memTypeStores)
