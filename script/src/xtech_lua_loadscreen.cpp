@@ -229,7 +229,10 @@ bool xtech_lua_loadScreenStart()
     if(s_failed || !GameIsActive || !g_config.lua_enable_engine)
         return false;
 
-    // SMBX2COMPAT_LOADSCREEN=0: the engine's enter screen instead (to compare load times)
+    // turned off in the options (SMBX2 > Loading screens), or SMBX2COMPAT_LOADSCREEN=0:
+    // the engine's enter screen instead (to compare load times)
+    if(!g_config.smbx2_loading_screens)
+        return false;
     const char *env = std::getenv("SMBX2COMPAT_LOADSCREEN");
     if(env && std::strcmp(env, "0") == 0)
         return false;
@@ -324,6 +327,11 @@ void xtech_lua_loadScreenEnd()
 
     // LunaLua's g_ResetFrameTiming
     resetFrameTimer();
+}
+
+bool xtech_lua_loadScreenActive()
+{
+    return s_active;
 }
 
 void xtech_lua_loadScreenQuit()

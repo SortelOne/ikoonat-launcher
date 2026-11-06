@@ -17,6 +17,8 @@ void xtech_lua_loadScreenUpdate(const char *where);
 //! The level is about to be drawn: the script finishes (its closing animation
 //! may hold the game for a while, as in LunaLua) and the loading screen stops
 void xtech_lua_loadScreenEnd();
+//! smbx2compat: a loading screen is up (the level hasn't been drawn yet)
+bool xtech_lua_loadScreenActive();
 //! Closes the loading screen's Lua state (game exit)
 void xtech_lua_loadScreenQuit();
 // smbx2compat: the loading screen state's Lua heap in KB, -1 without one (memory log)

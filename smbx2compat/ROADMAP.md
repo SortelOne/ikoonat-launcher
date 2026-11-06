@@ -1140,6 +1140,16 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   buffers (SMATRS sets its own 960x540, which overrides TheXTech's
   resolution option in its levels), loading screens off. SMATRS's own
   graphical quality option stays the main lever.
+  *Done (2026-11-06, on the Mac):* Options > SMBX2 with Draw rate
+  (Full/Half), Loading screens and Frame time (avg and slowest ms next to
+  the FPS). A frame that isn't drawn still runs every SMBX2 render event
+  and the draws into nonskippable capture buffers, as LunaLua's render
+  thread does; this also fixes TheXTech's own frameskip in core mode, which
+  skipped onDraw/onTickEnd/onDrawEnd outright. 1-1 Release on the Mac:
+  6.5 -> 5.3 ms a frame (engine 2.65 -> 1.48 ms; Lua the same, as it should
+  be), plus half the GPU work and presents. *Next:* measure both rates on
+  the Odin (frame time and battery drain over ~10 minutes); then decide on
+  a render-scale option for shader passes if the GPU is the cost there.
 - Episode library app (Jake, 2026-11-06; after the leak audit): the APK
   ships no game content (as upstream TheXTech's Android build). Users import
   SMBX2's data folder (`scripts`, `graphics`, `sound`, `music`, `costumes`)
@@ -1153,7 +1163,14 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   episode's world and a save slot, as `run-level.sh` does). Own app ID and
   name, so it installs beside TheXTech: *Ikoonat Launcher*, already the
   macOS app's name (`io.github.sortelone.ikoonat`); Android's launcher icons
-  (`res/mipmap-*`, adaptive icon) from `resources/ikoonat/leaf.png`. TheXTech is GPLv3: an APK given to
+  (`res/mipmap-*`, adaptive icon) from `resources/ikoonat/leaf.png`.
+  One hub for SMBX 1.3 and SMBX2 episodes (Jake, 2026-11-06): today core
+  mode runs every level once SMBX2's data is installed (as SMBX2's
+  launcher plays old episodes); the library picks per episode instead,
+  Auto (SMBX2 mode when the episode has Lua scripts, LVLX/WLDX files or
+  SMBX2-only IDs; plain TheXTech for SMBX 1.3 episodes, exact 1.3
+  behavior and faster) with a per-episode override. Engine side: a
+  per-episode/command-line switch where core mode is decided. TheXTech is GPLv3: an APK given to
   others has to come with the source.
 - Done when: SMATRS 1-1 runs on your phone.
 

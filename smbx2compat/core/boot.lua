@@ -64,6 +64,7 @@ else
 end
 -- Testing: SMBX2COMPAT_SHOTS=300,900 saves screenshots of those frames (see the end)
 core.shotsSpec = os.getenv("SMBX2COMPAT_SHOTS")
+core.configSpec = os.getenv("SMBX2COMPAT_CONFIG") -- TheXTech options for the run (see the end)
 core.jitOptSpec = os.getenv("SMBX2COMPAT_JITOPT")
 -- Debugging: SMBX2COMPAT_DEBUG=/path/file.lua runs that file once the level's
 -- scripts have loaded (before onStart), with core passed as its argument
@@ -71,6 +72,9 @@ core.debugSpec = os.getenv("SMBX2COMPAT_DEBUG")
 -- for debug files, which SMBX2's lockdown keeps from require("ffi") and os
 core.ffi = require("ffi")
 core.getenv = os.getenv
+-- the screen's size now (the size a script asked for, else TheXTech's), for
+-- patches.lua's loading screen edit
+core.screenSize = xtech_gfx_getFramebufferSize
 
 
 -------------
@@ -764,6 +768,14 @@ end
 
 if core.profileSpec then
     runCoreFile("profile.lua")
+end
+
+-- Testing: SMBX2COMPAT_CONFIG="draw-rate=2,show-frame-time=1" sets TheXTech
+-- options (ini names; enums by number) for this run only, at each level's
+-- start; the user's settings file is left alone
+for name, value in string.gmatch(core.configSpec or "", "([%w%-_]+)=([^,]*)") do
+    xtech_misc_setConfigStr(name, value)
+    core.log("config: " .. name .. " = " .. value)
 end
 
 -- SMBX2COMPAT_SHOTS: frames counted from level start; the screenshots go into

@@ -45,6 +45,7 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #ifndef _WIN32
 #   include <sys/stat.h> // file stamps of cached pictures
@@ -164,6 +165,11 @@ bool s_hudSkipped = false;
 // Handle numbers from lunadll.lua -> the renderer's programs and capture buffers
 std::unordered_map<uintptr_t, int> s_shaders;
 std::unordered_map<uintptr_t, int> s_buffers;
+// capture buffers made "nonskippable" (renderer ids): their draws run in frames
+// that aren't drawn too (xtech_lua_drawSkipFrame), as in LunaLua
+std::unordered_set<int> s_nonskippable;
+// this frame isn't drawn (battery saver, frameskip)
+bool s_skipFrame = false;
 // SMBX2's standard.vert/frag, for script draws without a shader (0: the
 // renderer has no script draws)
 int s_standardShader = 0;
@@ -758,6 +764,26 @@ void drawScriptOp(const ScriptOp &so, double offX, double offY)
     g_render->scriptDraw(d);
 }
 
+// In a frame that isn't drawn, LunaLua's render thread still runs the draws
+// into, captures to and clears of nonskippable capture buffers
+// (GLEngineProxy::ThreadMain, isSkippable); everything for the screen waits
+bool drawsWhenSkipped(const DrawOp &op)
+{
+    switch(op.kind)
+    {
+    case OP_CAPTURE:
+    case OP_CLEAR:
+    case OP_REDIRECT:
+        return s_nonskippable.count((int)op.first) != 0;
+    case OP_UNREDIRECT:
+        return true; // ends its redirect only if that one ran
+    case OP_SCRIPT:
+        return s_nonskippable.count(s_scriptOps[op.first].target) != 0;
+    default:
+        return false;
+    }
+}
+
 void drawOp(const DrawOp &op, double camX, double camY)
 {
     double offX = op.scene ? camX : 0.0;
@@ -1195,16 +1221,23 @@ int lua_setStandardShader(lua_State *L)
     return 0;
 }
 
-// xtech_gfx_bufferCreate(handle, w, h) -> true if the renderer made it
+// xtech_gfx_bufferCreate(handle, w, h, nonskippable) -> true if the renderer made it
 int lua_bufferCreate(lua_State *L)
 {
     uintptr_t key = (uintptr_t)luaL_checknumber(L, 1);
     int w = (int)luaL_checkinteger(L, 2);
     int h = (int)luaL_checkinteger(L, 3);
+    bool nonskippable = lua_toboolean(L, 4);
 
     int id = g_render->scriptBufferCreate(w, h);
     if(id)
+    {
         s_buffers[key] = id;
+        if(nonskippable)
+            s_nonskippable.insert(id);
+        else
+            s_nonskippable.erase(id);
+    }
     lua_pushboolean(L, id != 0);
     return 1;
 }
@@ -1393,6 +1426,8 @@ void xtech_lua_drawBelow(double maxPriority)
             continue;
 
         op.drawnPass = s_pass;
+        if(s_skipFrame && !drawsWhenSkipped(op))
+            continue;
         if(op.camera == 0 || op.camera == s_drawScreen)
         {
             drawOp(op, camX, camY);
@@ -1405,13 +1440,20 @@ void xtech_lua_drawBelow(double maxPriority)
         g_render->scriptDrawEnd();
 }
 
+void xtech_lua_drawSkipFrame(bool skip)
+{
+    s_skipFrame = skip;
+}
+
 void xtech_lua_drawFrameEnd()
 {
-    if(s_shotDue)
+    // a screenshot asked for in a frame that isn't drawn waits for the next one
+    if(s_shotDue && !s_skipFrame)
     {
         s_shotDue = false;
         saveShot();
     }
+    s_skipFrame = false;
 
     s_ops.clear();
     s_vertices.clear();
@@ -1430,7 +1472,10 @@ void xtech_lua_drawFrameEnd()
         releaseProgram(id);
     s_freedShaders.clear();
     for(int id : s_freedBuffers)
+    {
         g_render->scriptBufferFree(id);
+        s_nonskippable.erase(id);
+    }
     s_freedBuffers.clear();
 }
 

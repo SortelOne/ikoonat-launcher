@@ -16,6 +16,10 @@ workspace 1, and from Claude's shell they need the sandbox off.
   random sample from ROADMAP.md Phase 6).
 - `SWEEP_QUALITY=1|2|3` (with `sweep.sh`) plays SMATRS at its Low, Medium or
   High graphics setting (`SaveData.general.graphicalQuality`).
+- `SMBX2COMPAT_CONFIG="draw-rate=2,show-frame-time=1"` (any of these
+  scripts, or `run-level.sh`) sets TheXTech options for the run only, by
+  their ini names (enums by number), without changing the user folder's
+  settings file.
 - `reg.sh <outdir>` — the regression set on the Debug build, with the
   expected results in its header.
 - `blackrects.py <png>...` — finds solid black boxes in screenshots (the

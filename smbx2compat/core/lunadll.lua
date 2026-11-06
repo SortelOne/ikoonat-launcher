@@ -668,9 +668,11 @@ do
 end
 
 -- Capture buffers: the engine's render targets
+-- (nonskippable: drawn into even in frames that aren't drawn, see xtech_lua_draw.h)
 function dll.FFI_CaptureBuffer(w, h, nonskippable)
     local handle = newHandle("CaptureBufferRef*")
-    if not xtech_gfx_bufferCreate(handleKey(handle), tonumber(w), tonumber(h)) then
+    nonskippable = nonskippable == true
+    if not xtech_gfx_bufferCreate(handleKey(handle), tonumber(w), tonumber(h), nonskippable) then
         core.missingAPI("capture buffers (this renderer has none; draws with them are skipped)")
     end
     return handle

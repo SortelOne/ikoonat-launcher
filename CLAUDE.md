@@ -261,6 +261,18 @@ How it works (details in `core/boot.lua`'s header):
   and text round with `floor(x + 0.5)`, so they land on the same pixel as
   the engine's `floor(CameraAdd + x)`. Rounding `CameraAdd + x` drew all of
   SMBX2's BGOs (betterbgo) a pixel off the engine's blocks (1-1's seams).
+- Frames that aren't drawn (Options > SMBX2 > Draw rate "Half", the battery
+  saver; TheXTech's frameskip; a blocked renderer) still send every render
+  event (`UpdateGraphicsScriptsOnly` in `gfx_update.cpp`): SMBX2's scripts
+  count on onTickEnd/onDraw/onCameraDraw/onHUDDraw/onDrawEnd each frame. The
+  queue then runs only what LunaLua's render thread never skips: draws into,
+  captures to and clears of capture buffers made nonskippable
+  (`xtech_lua_drawSkipFrame`; SMATRS's map, pause menu and Rainbowpedia use
+  them). The SMBX2 options section (`src/config.h`, `smbx2_*`) also has
+  Loading screens (off: the engine's enter screen) and Frame time (average
+  and slowest of the last 66 frames under the FPS; `g_microStats`). Keep
+  `Config_t`'s members outside `#ifdef ENABLE_XTECH_LUA`: the script library
+  is built without that define and must see the same struct.
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
@@ -362,6 +374,9 @@ How it works (details in `core/boot.lua`'s header):
   with no save, leaves the player at (0,0) over open sea; set
   `SaveData.lastEnteredMapLevel` (debug file) to start at a level's spot.
   See ROADMAP.md Phase 6.
+- `SMBX2COMPAT_CONFIG="draw-rate=2,show-frame-time=1"` sets TheXTech options
+  (ini names, enums by number) for a test run at each level start (boot.lua),
+  without touching the user folder's settings file, which Jake plays with.
 - Screenshots for checking a run: `SMBX2COMPAT_SHOTS=300,900 run-level.sh ...`
   saves those frames as `smbx2shot-N.png` in the log folder (read them with
   the Read tool). macOS doesn't let the shell's game write its own screenshot

@@ -24,6 +24,16 @@ return {
             "\tif ok then",
             "log why the episode's loading screen failed",
         },
+        {
+            -- SMBX2's default loader (the colorful X2) goes in the bottom-right
+            -- corner of LunaLua's 800x600 screen; TheXTech's screen follows the
+            -- window, so take its size (TheXTech's title screen, episodes
+            -- without a loadscreen.lua)
+            "\t\t\tGraphics.glDraw{vertexCoords={800-imgw,600-imgh,800,600-imgh,800-imgw,600,800,600},",
+            "\t\t\tlocal sw, sh = __smbx2core.screenSize()\n" ..
+            "\t\t\tGraphics.glDraw{vertexCoords={sw-imgw,sh-imgh,sw,sh-imgh,sw-imgw,sh,sw,sh},",
+            "the default loader in the screen's corner, at any screen size",
+        },
     },
 
     -- Shader preprocessor results kept for the session (lunadll.lua's

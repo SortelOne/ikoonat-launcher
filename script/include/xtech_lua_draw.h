@@ -75,6 +75,12 @@ void xtech_lua_cameraEnd();
 //! Draws the queued draws with priority < maxPriority not drawn yet in this camera
 void xtech_lua_drawBelow(double maxPriority);
 
+//! This frame isn't drawn (the battery saver's draw rate, frameskip): the render
+//! events still run, and of the queued draws only those LunaLua never skips
+//! (into, captures to and clears of "nonskippable" capture buffers) are done.
+//! Reset at the frame's end.
+void xtech_lua_drawSkipFrame(bool skip);
+
 // Used by xtech_lua_main.cpp
 void xtech_lua_drawCameraStart(int screenZ);
 void xtech_lua_drawFrameEnd();

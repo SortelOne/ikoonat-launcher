@@ -1683,6 +1683,41 @@ void GraphicsClearScreen()
 }
 
 // This draws the graphic to the screen when in a level/game menu/outro/level editor
+#ifdef ENABLE_XTECH_LUA
+// smbx2compat: a frame that isn't drawn in core mode (the battery saver's draw
+// rate, frameskip). SMBX2's scripts count on their render events every frame
+// (onTickEnd, onDraw, onCameraDraw, onHUDDraw, onDrawEnd: animations, timers,
+// menus), so they run as in a drawn frame, in the same order; only the drawing
+// is left out. LunaLua does the same: its render thread skips frames, never
+// events (GLEngineProxy).
+static void UpdateGraphicsScriptsOnly(Screen_t& screen)
+{
+    xtech_lua_drawSkipFrame(true);
+    xtech_lua_renderStart();
+
+    for(int vscreen_i = screen.active_begin(); vscreen_i < screen.active_end(); vscreen_i++)
+        xtech_lua_cameraUpdate(screen.vScreen_refs[vscreen_i]);
+    xtech_lua_drawStart();
+
+    int numScreens = screen.active_end();
+    for(int vscreen_i = screen.active_begin(); vscreen_i < screen.active_end(); vscreen_i++)
+    {
+        int Z = screen.vScreen_refs[vscreen_i];
+        xtech_lua_cameraDraw(Z, numScreens);
+        xtech_lua_render(Z);
+        if(!GameMenu && !GameOutro && ShowOnScreenHUD)
+        {
+            xtech_lua_drawBelow(XTECH_LUA_PRI_HUD);
+            xtech_lua_renderHud(Z, numScreens);
+        }
+        xtech_lua_drawBelow(XTECH_LUA_PRI_ALL);
+        xtech_lua_cameraEnd();
+    }
+
+    xtech_lua_renderEnd();
+}
+#endif
+
 void UpdateGraphics(bool skipRepaint)
 {
 //    On Error Resume Next
@@ -1716,13 +1751,34 @@ void UpdateGraphics(bool skipRepaint)
     if(XMessage::GetStatus() == XMessage::Status::replay)
         Do_FrameSkip = true;
 
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: the battery saver (Options > SMBX2 > Draw rate) draws every
+    // other frame of SMBX2 episodes; the game itself still runs 64 frames a second
+    static unsigned s_drawRateFrame = 0;
+    if(!Do_FrameSkip && SMBX2_CORE() && g_config.smbx2_draw_rate == Config_t::SMBX2_DRAW_HALF
+       && !TakeScreen && (s_drawRateFrame++ & 1) && !xtech_lua_loadScreenActive())
+    {
+        Do_FrameSkip = true;
+    }
+#endif
+
     g_microStats.start_task(MicroStats::Camera);
 
     UpdateGraphicsLogic(Do_FrameSkip);
 
     // we've now done all the logic that UpdateGraphics can do.
     if(Do_FrameSkip)
+    {
+#ifdef ENABLE_XTECH_LUA
+        // smbx2compat: SMBX2's render events run in frames that aren't drawn too
+        if(SMBX2_CORE())
+        {
+            g_microStats.start_task(MicroStats::Script);
+            UpdateGraphicsScriptsOnly(*l_screen);
+        }
+#endif
         return;
+    }
 
     g_microStats.start_task(MicroStats::Graphics);
 
@@ -3191,6 +3247,21 @@ void UpdateGraphicsMeta()
 
     if(PrintFPS > 0 && g_config.show_fps)
         SuperPrint(std::to_string(PrintFPS), 1, XRender::TargetOverscanX + 8, 8, {0, 255, 0});
+
+#ifdef ENABLE_XTECH_LUA
+    // smbx2compat: Options > SMBX2 > Frame time: the average and slowest frame of
+    // the last 66 (logic, scripts and drawing, without the wait for the next
+    // frame); under 15.6 ms keeps SMBX's 64 frames a second
+    if(g_config.smbx2_show_frame_time && g_microStats.view_total > 0)
+    {
+        // on the FPS counter's line, above episode HUDs (SMATRS's score)
+        int x = XRender::TargetOverscanX + ((PrintFPS > 0 && g_config.show_fps) ? 56 : 8);
+        double avg = g_microStats.view_total / 66.0;
+        double slow = g_microStats.view_slow_frame_time / 66.0;
+        XTColor color = slow > 15.6 ? XTColor(255, 64, 64) : avg > 11.0 ? XTColor(255, 255, 0) : XTColor(0, 255, 0);
+        SuperPrint(fmt::sprintf_ne("%.1f ms (max %.1f)", avg, slow), 3, x, 8, color);
+    }
+#endif
 
     if(g_VanillaCam && (XRender::TargetW > 800 || XRender::TargetH > 600) && GFX.Camera.inited)
         XRender::renderTextureBasic(XRender::TargetW - XRender::TargetOverscanX - GFX.Camera.w - 4, XRender::TargetH - GFX.Camera.h - 4, GFX.Camera);

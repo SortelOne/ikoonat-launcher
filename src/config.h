@@ -447,6 +447,34 @@ public:
         "sfx-spatial-audio", "Spatial audio", "Reduce volume of offscreen sounds"};
 
 
+    /* ---- SMBX2 (smbx2compat: SMBX2 episodes in core mode) ----*/
+    // Not inside #ifdef ENABLE_XTECH_LUA: the script library (XTechLua) is built
+    // without that define, and both must see the same Config_t.
+    section smbx2{this, Scope::Config, "smbx2", "SMBX2", "Options for SMBX2 episodes"};
+
+    enum
+    {
+        SMBX2_DRAW_FULL = 1,
+        SMBX2_DRAW_HALF = 2,
+    };
+
+    // SMBX's logic always runs 64 times a second; the half rate draws every
+    // other frame, while every script event still runs (xtech_lua_draw.h)
+    opt_enum<int> smbx2_draw_rate{this,
+        {
+            {SMBX2_DRAW_FULL, "full", "Full", "Draw every frame (64 a second)"},
+            {SMBX2_DRAW_HALF, "half", "Half", "Battery saver: draw every other frame; the game runs at full speed"},
+        },
+        defaults<int>(SMBX2_DRAW_FULL), {}, Scope::Config,
+        "draw-rate", "Draw rate", "Battery saver: draw fewer frames; the game runs at full speed"};
+
+    opt<bool> smbx2_loading_screens{this, defaults(true), {}, Scope::Config,
+        "loading-screens", "Loading screens", "The episode's own loading screens"};
+
+    opt<bool> smbx2_show_frame_time{this, defaults(false), {}, Scope::Config,
+        "show-frame-time", "Frame time", "Time each frame takes, average and slowest; 15.6 ms keeps full speed"};
+
+
     /* ---- Controls ----*/
     section controls{this, Scope::Config, "controls", "Controls"};
 
