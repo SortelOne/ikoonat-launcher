@@ -565,7 +565,7 @@ class SMBXMemoryEmulator
         VT_STRLAMBDA
     };
 
-    std::unordered_map<int, ValueType> m_type;
+    std::unordered_map<size_t, ValueType> m_type;
 
     void insert(size_t address, short *field)
     {
@@ -1368,7 +1368,7 @@ public:
 
         if(ftype == FT_BYTE) // byte hacking
         {
-            if(vtype != VT_BOOL && vtype != VT_UINT8 && vtype != VT_UNKNOWN)
+            if(vtype != VT_BOOL && vtype != VT_UINT8 && vtype != VT_LAMBDA && vtype != VT_UNKNOWN)
                 vtype = VT_BYTE_HACK;
         }
 
@@ -1513,7 +1513,7 @@ public:
 
         if(ftype == FT_BYTE) // byte hacking
         {
-            if(vtype != VT_BOOL && vtype != VT_UINT8 && vtype != VT_UNKNOWN)
+            if(vtype != VT_BOOL && vtype != VT_UINT8 && vtype != VT_LAMBDA && vtype != VT_UNKNOWN)
                 vtype = VT_BYTE_HACK;
         }
 
@@ -2695,7 +2695,11 @@ public:
     num_t getValue(Background_t *obj, size_t address, FIELDTYPE ftype) override
     {
         if(address >= 0x08 && address < 0x28) // Location
-            return s_spLocMem.getValue(&obj->Location, address - 0x08, ftype);
+        {
+            // smbx2compat: TheXTech keeps only the position; the size comes from the type
+            SpeedlessLocation_t loc = obj->FullLocation();
+            return s_spLocMem.getValue(&loc, address - 0x08, ftype);
+        }
         else if(address >= 0x28 && address < 0x38) // SpeedX, SpeedY
             return 0;
         return BackgroundParent::getValue(obj, address, ftype);
@@ -2712,10 +2716,13 @@ public:
         bool sync = true;
         if(address >= 0x08 && address < 0x28) // Location
         {
-            const SpeedlessLocation_t old = obj->Location;
-            s_spLocMem.setValue(&obj->Location, address - 0x08, value, ftype);
-            sync = (old.X != obj->Location.X || old.Y != obj->Location.Y
-                    || old.Width != obj->Location.Width || old.Height != obj->Location.Height);
+            // smbx2compat: TheXTech keeps only the position (the size comes from the
+            // type), so writes to Width/Height are dropped
+            SpeedlessLocation_t loc = obj->FullLocation();
+            s_spLocMem.setValue(&loc, address - 0x08, value, ftype);
+            sync = (loc.X != obj->Location.X || loc.Y != obj->Location.Y);
+            obj->Location.X = loc.X;
+            obj->Location.Y = loc.Y;
         }
         else
         {

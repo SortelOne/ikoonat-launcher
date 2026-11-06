@@ -21,6 +21,7 @@
 #include "controls.h"
 #include "message.h"
 #include "globals.h"
+#include "config.h"
 
 #include "graphics.h"
 #include "player.h"
@@ -37,11 +38,8 @@
 namespace XMessage
 {
 
-#ifdef THEXTECH_ENABLE_SDL_NET
 static std::vector<Message> s_message_submit_queue;
-#endif
-
-static std::vector<Message> s_message_vector;
+static std::vector<Message> s_message_run_queue;
 Session g_session;
 
 static Controls_t s_last_controls[maxNetplayPlayers + 1];
@@ -54,13 +52,6 @@ void Handle(const Message& m)
     {
         if(m.type == Type::add_client)
         {
-            Screen_t& screen = Screens[m.message];
-
-            // add player if there isn't any
-            if(screen.player_count == 0)
-                AddPlayer((m.message % 5) + 1, screen);
-
-            SetupScreens();
         }
         else if(m.type == Type::drop_client)
         {
@@ -130,6 +121,7 @@ void Handle(const Message& m)
         if(m.type == Type::add_player_dead)
         {
             Player[numPlayers].Dead = true;
+            Player[numPlayers].Effect = PLREFF_NORMAL; // disable PLREFF_COOP_WINGS if it was enabled
 
             // initialize ghost logic for player
             int living = CheckNearestLiving(numPlayers);
@@ -206,42 +198,63 @@ void InitSession()
 {
     for(int A = 0; A <= maxNetplayPlayers; A++)
         s_last_controls[A] = Controls_t();
+
+#ifdef THEXTECH_ENABLE_SDL_NET
+    Client_InitSession();
+#endif
+
+    UpdateConfig();
+}
+
+void EndSession()
+{
+#ifdef THEXTECH_ENABLE_SDL_NET
+    Client_EndSession();
+#endif
 }
 
 void Tick()
 {
 #ifdef THEXTECH_ENABLE_SDL_NET
-    const auto* status = GetClientStatus();
-    if(status->client_state == CLIENT_HOST_IDLE && status->knock_knock)
-        ActivateHost();
-
-    // sync state with other clients here
-    if(XMessage::GetStatus() != XMessage::Status::local)
-        ClientFrameSync(s_message_submit_queue, s_message_vector);
-    // log state for future saving or syncing
-    else
+    if(g_session.active)
     {
-        g_session.current_frame++;
+        const auto* status = GetClientStatus();
+        if(status->client_state == CLIENT_HOST_IDLE && status->knock_knock)
+            ActivateHost();
 
-        if(!s_message_submit_queue.empty())
+        // sync state with other clients here
+        if(XMessage::GetStatus() != XMessage::Status::local)
+            ClientFrameSync(s_message_submit_queue, s_message_run_queue);
+        // log state for future saving or syncing
+        else
         {
-            g_session.history.push_back(msg_from_frame_no(Type::frame_begin, g_session.current_frame));
+            g_session.current_frame++;
 
-            for(Message m : s_message_submit_queue)
+            if(!s_message_submit_queue.empty())
             {
-                g_session.history.push_back(m);
-                s_message_vector.push_back(m);
-            }
+                g_session.history.push_back(msg_from_frame_no(Type::frame_begin, g_session.current_frame));
 
-            s_message_submit_queue.clear();
+                for(Message m : s_message_submit_queue)
+                {
+                    g_session.history.push_back(m);
+                    s_message_run_queue.push_back(m);
+                }
+
+                g_session.next_message = g_session.history.size();
+                s_message_submit_queue.clear();
+            }
         }
     }
+    else
+        std::swap(s_message_submit_queue, s_message_run_queue);
+#else
+    std::swap(s_message_submit_queue, s_message_run_queue);
 #endif
 
     // update player controls based on message queue
-    for(Message m : s_message_vector)
+    for(Message m : s_message_run_queue)
         Handle(m);
-    s_message_vector.clear();
+    s_message_run_queue.clear();
 
     int numPlayers_p = numPlayers;
 
@@ -255,11 +268,7 @@ void Tick()
 
 void PushMessage_Direct(Message message)
 {
-#ifdef THEXTECH_ENABLE_SDL_NET
     s_message_submit_queue.push_back(message);
-#else
-    s_message_vector.push_back(message);
-#endif
 }
 
 void PushMessage(Message message)

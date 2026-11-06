@@ -252,6 +252,7 @@
             "lvlWarp": "Lvl Warp",
             "needFloor": "Need Floor",
             "needKey": "Need Key",
+            "needTiny": "Need Tiny",
             "needStarCount": "Need {0} {1}",
             "out": "Out",
             "placing": "Placing:",
@@ -391,6 +392,13 @@
             "statusLoadFile": "Load: {0}",
             "statusTranslations": "Translations",
             "loading": "Loading..."
+        },
+        "warning": {
+            "bitmaskEnforced": "GIFs2PNG always simulated in SDL",
+            "bitmaskFallback": "Bitmasks using GIFs2PNG in SDL",
+            "settingsStorageOverflown": "Settings storage is overflown.\nPlease remove any unneeded gamesaves,\notherwise you may lose your data.",
+            "simGIFS2PNGAct": "Simulating GIFs2PNG (active)",
+            "simGIFS2PNGInact": "Simulating GIFs2PNG (inactive)"
         }
     },
     "languageName": "English",
@@ -514,7 +522,12 @@
                     "scaleButtons": "Scale Buttons",
                     "scaleDPad": "Scale D-Pad",
                     "scaleFactor": "Scale Factor",
-                    "showCodeButton": "Show Code Button"
+                    "showCodeButton": "Show Code Button",
+                    "OffsetButtonsH": "Buttons Offset Right",
+                    "OffsetButtonsV": "Buttons Offset Bottom",
+                    "OffsetDPadH": "D-Pad Offset Left",
+                    "OffsetDPadV": "D-Pad Offset Bottom",
+                    "OffsetSStart": "S-Start Offset"
                 },
                 "style": {
                     "ABXY": "ABXY",

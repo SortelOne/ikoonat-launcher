@@ -27,6 +27,7 @@
 #include "npc.h"
 #include "npc_id.h"
 #include "main/smbx2_ids.h" // smbx2compat
+#include "blk_id.h"
 #include "npc_traits.h"
 #include "npc_special_data.h"
 #include <PGE_File_Formats/file_formats.h>
@@ -51,6 +52,9 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
     int A = 0;
     int B = 0;
     int C = 0;
+
+    // this one puts Coins first and was previously called when placing NPCs
+    NPCSort();
 
     // put NPC types 60, 62, 64, 66, and 78-83 first. (why?)
     for(A = 1; A <= numNPCs; A++)
@@ -160,7 +164,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
     {
         const auto &b = Block[i];
 
-        block.id = b.Type;
+        block.id = BlockIDToFile(b.Type); // smbx2compat
         block.x = (int32_t)b.Location.X;
         block.y = (int32_t)b.Location.Y;
         block.w = (int32_t)b.Location.Width;
@@ -189,7 +193,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
         block.exty = b.exty;
 
         // NEW: legacy behavior for spin block
-        if(b.Type == 90)
+        if(b.Type == BLKID_SPIN_BLOCK)
             block.special_data = (int)b.forceSmashable;
 
         block.meta.array_id = (out.blocks_array_id++);
@@ -355,6 +359,7 @@ void SaveLevel(const std::string& FilePath, int format, int version)   // saves 
         warp.hide_entering_scene = w.noEntranceScene;
 
         warp.stood_state_required = w.stoodRequired;
+        warp.special_state_required = w.tinyRequired;
         warp.transition_effect = w.transitEffect;
 
         // fix this to update as needed

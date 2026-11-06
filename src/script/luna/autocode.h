@@ -124,6 +124,9 @@ enum AutocodeType
 
     AT_SFX,                     //1:        2: Index        3:              4:          5: Delay        6:
     AT_PlaySFX,                 //1:        2: Index        3: Loops        4: Volume   5: Delay        6:
+    AT_PlaySFXPausable,         //1:        2: Index        3: Loops        4: Volume   5: Delay        6:
+    AT_PlaySFXSection,          //1:Section 2: Index        3: Loops        4: Volume   5: Delay        6:
+    AT_PlaySFXSctPausable,      //1:Section 2: Index        3: Loops        4: Volume   5: Delay        6:
     AT_StopSFX,                 //1:        2: Index        3:              4:          5: Delay        6:
     AT_SFXPreLoad,              //1:        2: Index        3:              4:          5: Delay        6:
     AT_SetMusic,                //1: Section2: Music #      3:              4:          5: Active time  6: Optional file name
@@ -144,6 +147,9 @@ enum AutocodeType
     AT_DebugWindow,             //1:        2:              3:              4:          5:              6: Text
 
     AT_CollisionScan,           //1:        2:              3:              4:          5: Active time  6:
+
+    AT_ShakeScreen,             //1: X rate 2: Y rate       3: Type         4: Decay    5: Duration     6: Section (in new builds!)
+    AT_SpawnEffect,             //1: ID     2: X pos        3: Y pos        4: Direct.  5: Delay        6:
 
     /// Sprite stuff ///
     AT_LoadImage,               //1: Code   2: TransColor   3:              4:          5:              6: File name

@@ -23,6 +23,18 @@
 #include <SDL2/SDL_opengl.h>
 #include <SDL2/SDL_hints.h>
 
+#if defined(__APPLE__) && defined(__MACH__)
+#   include <TargetConditionals.h>
+#endif
+
+#ifdef THEXTECH_IOS
+#   include "core/ios/extras.h"
+#endif
+
+#ifdef THEXTECH_TVOS
+#   include <AppPath/app_path.h>
+#endif
+
 #include <FreeImageLite.h>
 #include <Logger/logger.h>
 
@@ -33,6 +45,7 @@
 #include "core/render.h"
 
 #include "main/cheat_code.h"
+#include "main/game_strings.h"
 
 #include <fmt_format_ne.h>
 
@@ -116,6 +129,10 @@ bool RenderSDL::initRender(SDL_Window *window)
 
     if(!AbstractRender_t::init())
         return false;
+
+#ifdef THEXTECH_IOS
+    XRender::TargetOverscanX = ios_get_overscan_pix_size();
+#endif
 
     m_window = window;
 
@@ -236,6 +253,58 @@ void RenderSDL::close()
     m_gRenderer = nullptr;
 }
 
+void RenderSDL::drawTouchPreview()
+{
+    int w, h, off_x, off_y, wDst, hDst;
+
+    // Get the size of surface where to draw the scene
+    SDL_GetRendererOutputSize(m_gRenderer, &w, &h);
+
+    // Calculate the size difference factor
+    wDst = int(m_scale_x * ScaleWidth);
+    hDst = int(m_scale_y * ScaleHeight);
+
+    // Align the rendering scene to the center of screen
+    off_x = (w - wDst) / 2;
+    off_y = (h - hDst) / 2;
+
+    SDL_Rect sourceRect = SDL_Rect{(int)SharedCursor.X - 64, (int)SharedCursor.Y - 64, 128, 128};
+    if(sourceRect.x < 0)
+        sourceRect.x = 0;
+    if(sourceRect.x > ScaleWidth - 128)
+        sourceRect.x = ScaleWidth - 128;
+    if(sourceRect.y < 0)
+        sourceRect.y = 0;
+    if(sourceRect.y > ScaleHeight - 128)
+        sourceRect.y = ScaleHeight - 128;
+
+    SDL_Rect destRect = SDL_Rect{(int)(m_scale_x * (int)SharedCursor.X + off_x - 192 * 2 * m_scale_x), (int)(m_scale_y * (int)SharedCursor.Y + off_y - 192 * 2 * m_scale_y), (int)(128 * 2 * m_scale_x), (int)(128 * 2 * m_scale_y)};
+    if(destRect.y < 0)
+    {
+        int transition_y = (int)(192 * m_scale_y);
+        if(destRect.x < 0)
+        {
+            destRect.x *= 4;
+            if(-destRect.y < transition_y)
+                destRect.x = destRect.x * -destRect.y / transition_y;
+        }
+        destRect.y = 0;
+    }
+    else if(destRect.x < 0)
+        destRect.x = 0;
+    SDL_RenderCopyEx(m_gRenderer, m_tBuffer, &sourceRect, &destRect, 0.0, nullptr, SDL_FLIP_NONE);
+
+
+    if(destRect.x < 0)
+    {
+        destRect.x += w;
+        if(destRect.x < w - destRect.w)
+            destRect.x = w - destRect.w;
+
+        SDL_RenderCopyEx(m_gRenderer, m_tBuffer, &sourceRect, &destRect, 0.0, nullptr, SDL_FLIP_NONE);
+    }
+}
+
 void RenderSDL::repaint()
 {
 #ifdef USE_RENDER_BLOCKING
@@ -244,9 +313,15 @@ void RenderSDL::repaint()
 #endif
 
     if(XRender::g_BitmaskTexturePresent)
-        SuperPrintScreenCenter("Bitmasks using GIFs2PNG in SDL", 5, 2, XTColorF(1.0_n, 0.7_n, 0.5_n));
+        SuperPrintScreenCenter(g_gameStrings.onScreenWarningBitmaskFallback, 5, 2, XTColorF(1.0_n, 0.7_n, 0.5_n));
     else if(g_ForceBitmaskMerge)
-        SuperPrintScreenCenter("GIFs2PNG always simulated in SDL", 5, 2, XTColorF(1.0_n, 0.7_n, 0.5_n));
+        SuperPrintScreenCenter(g_gameStrings.onScreenWarningBitmaskEnforced, 5, 2, XTColorF(1.0_n, 0.7_n, 0.5_n));
+
+#ifdef APP_PATH_HAS_SETTINGS_SIZE_LIMIT
+    // FIXME: Copy this to other renderers once they gets fixed on mobile Apple platforms (iOS and tvOS)
+    if(AppPathManager::settingsSizeExceeded())
+        SuperPrintScreenCenter(g_gameStrings.onScreenWarningSettingsStorageOverflown, 5, 20, XTColorF(1.0_n, 0.2_n, 0.2_n));
+#endif
 
     int w, h, off_x, off_y, wDst, hDst;
 
@@ -297,6 +372,17 @@ void RenderSDL::repaint()
     SDL_SetTextureColorMod(m_tBuffer, 255, 255, 255);
     SDL_SetTextureAlphaMod(m_tBuffer, 255);
     SDL_RenderCopyEx(m_gRenderer, m_tBuffer, &sourceRect, &destRect, 0.0, nullptr, SDL_FLIP_NONE);
+
+    static int touch_preview_counter = 0;
+    if(LevelEditor && SharedCursor.Primary && SharedCursor.Touch)
+    {
+        touch_preview_counter += 1;
+
+        if(touch_preview_counter > 20)
+            drawTouchPreview();
+    }
+    else
+        touch_preview_counter = 0;
 
     Controls::RenderTouchControls();
 
@@ -598,8 +684,10 @@ textureTryAgain:
 
     target.d.texture = texture;
 
+#if !defined(THEXTECH_IOS) && !defined(THEXTECH_TVOS)
     target.d.nOfColors = GL_RGBA;
     target.d.format = GL_BGRA;
+#endif
 
     target.d.w_scale = static_cast<float>(width) / target.w;
     target.d.h_scale = static_cast<float>(height) / target.h;
@@ -653,8 +741,12 @@ void RenderSDL::clearAllTextures()
 
 void RenderSDL::clearBuffer()
 {
-#ifdef USE_RENDER_BLOCKING
-    SDL_assert(!m_blockRender);
+#if defined(USE_RENDER_BLOCKING)
+    if(m_blockRender)
+    {
+        m_render_queue.clear();
+        return;
+    }
 #endif
     SDL_SetRenderDrawColor(m_gRenderer, 0, 0, 0, 255);
     SDL_RenderClear(m_gRenderer);
@@ -678,7 +770,8 @@ void RenderSDL::flushRenderQueue()
 void RenderSDL::execute(const XRenderOp& op)
 {
 #ifdef USE_RENDER_BLOCKING
-    SDL_assert(!m_blockRender);
+    if(m_blockRender)
+        return;
 #endif
 
     switch(op.type)
@@ -1207,7 +1300,8 @@ void RenderSDL::renderTexture(int xDst, int yDst,
                                 XTColor color)
 {
 #ifdef USE_RENDER_BLOCKING
-    SDL_assert(!m_blockRender);
+    if(m_blockRender)
+        return;
 #endif
 
     if(!tx.inited)

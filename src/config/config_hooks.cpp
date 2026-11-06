@@ -54,6 +54,10 @@
 #include "main/cheat_code.h"
 #endif
 
+#ifdef THEXTECH_ENABLE_SDL_NET
+#include "main/client_methods.h"
+#endif
+
 
 // config_main.cpp
 extern bool g_configInTransaction;
@@ -135,7 +139,7 @@ void config_audiofx_set()
         return;
 
     if(!LevelSelect && !LevelEditor)
-        UpdateSoundFX(Player[1].Section);
+        UpdateAudioSection(Player[1].Section);
 }
 
 void config_audio_set()
@@ -146,7 +150,7 @@ void config_audio_set()
     RestartMixerX();
 
     if(GameMenu || !LevelSelect)
-        UpdateSoundFX(Player[1].Section);
+        UpdateAudioSection(Player[1].Section);
 }
 
 void config_music_volume_set()
@@ -197,3 +201,9 @@ void config_compat_changed()
         UpdateConfig();
 }
 
+#ifdef THEXTECH_ENABLE_SDL_NET
+void config_netplay_update()
+{
+    XMessage::SyncReqStatus();
+}
+#endif

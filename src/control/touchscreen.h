@@ -209,6 +209,16 @@ public:
     int m_scale_factor_buttons = 100;
     //! Spacing between Select and Start
     int m_scale_factor_ss_spacing = 100;
+    //! Offset of the D-Pad at the left side
+    int m_offset_dpad_h = 0;
+    //! Offset of the D-Pad at the bottom side
+    int m_offset_dpad_v = 0;
+    //! Offset of the buttons at the right side
+    int m_offset_buttons_h = 0;
+    //! Offset of the buttons at the top side
+    int m_offset_buttons_v = 0;
+    //! Top or Bottom offset of the Select-Start buttons depending on their placement
+    int m_offset_ss = 0;
     //! Current touchpad style
     int m_touchpad_style = TouchScreenController::style_actions;
     //! Feedback strength
@@ -234,7 +244,7 @@ public:
     int m_lastCursorY = -32;
 
     bool m_scrollActive = false;
-    bool m_wasScrolling = false;
+    int m_wasScrolling = 0;
     int m_lastMeanX = 0, m_lastMeanY = 0;
     num_t m_scrollX = 0, m_scrollY = 0;
     // needed because of an SDL bug where the frame a finger it is lifted its finger still exists at its old location
@@ -358,6 +368,11 @@ public:
     int m_default_scale_factor_dpad = 100;
     int m_default_scale_factor_buttons = 100;
     int m_default_scale_factor_ss_spacing = 100;
+    int m_default_offset_dpad_h = 0;
+    int m_default_offset_dpad_v = 0;
+    int m_default_offset_buttons_h = 0;
+    int m_default_offset_buttons_v = 0;
+    int m_default_offset_ss = 0;
 
     /* Current settings */
     //! Current layout type
@@ -370,6 +385,16 @@ public:
     int m_scale_factor_buttons = 100;
     //! Spacing between Select and Start
     int m_scale_factor_ss_spacing = 100;
+    //! Offset of the D-Pad at the left side
+    int m_offset_dpad_h = 0;
+    //! Offset of the D-Pad at the bottom side
+    int m_offset_dpad_v = 0;
+    //! Offset of the buttons at the right side
+    int m_offset_buttons_h = 0;
+    //! Offset of the buttons at the top side
+    int m_offset_buttons_v = 0;
+    //! Top or Bottom offset of the Select-Start buttons depending on their placement
+    int m_offset_ss = 0;
     //! Current touchpad style
     int m_touchpad_style = TouchScreenController::style_actions;
     float m_feedback_strength = 0.f;
@@ -413,6 +438,11 @@ public:
             scale_factor_dpad,
             scale_factor_buttons,
             scale_factor_ss_spacing,
+            offset_dpad_h,
+            offset_dpad_v,
+            offset_buttons_h,
+            offset_buttons_v,
+            offset_ss,
             reset_layout,
             style,
             fb_strength,

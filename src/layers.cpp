@@ -396,8 +396,8 @@ void SetLayerSpeed(layerindex_t L, num_t SpeedX, num_t SpeedY, bool EffectStop, 
     // relatively simple code to set the layer's speed
     if(SpeedX != 0 || SpeedY != 0 || Defective)
     {
-        Layer[L].SpeedX = (numf_t)SpeedX;
-        Layer[L].SpeedY = (numf_t)SpeedY;
+        Layer[L].SpeedX = (tempf_t)SpeedX;
+        Layer[L].SpeedY = (tempf_t)SpeedY;
 
         if(!Defective)
             Layer[L].EffectStop = EffectStop;
@@ -571,7 +571,7 @@ void ShowLayer(layerindex_t L, bool NoEffect)
         if(Background[A].Hidden)
         {
             if(!NoEffect)
-                NewEffect(EFFID_SMOKE_S3_CENTER, static_cast<Location_t>(Background[A].Location));
+                NewEffect(EFFID_SMOKE_S3_CENTER, static_cast<Location_t>(Background[A].FullLocation()));
         }
         Background[A].Hidden = false;
     }
@@ -648,7 +648,7 @@ void HideLayer(layerindex_t L, bool NoEffect)
         if(!Background[A].Hidden)
         {
             if(!NoEffect)
-                NewEffect(EFFID_SMOKE_S3_CENTER, static_cast<Location_t>(Background[A].Location));
+                NewEffect(EFFID_SMOKE_S3_CENTER, static_cast<Location_t>(Background[A].FullLocation()));
         }
         Background[A].Hidden = true;
     }
@@ -1810,8 +1810,8 @@ void UpdateLayers()
                 Layer[A].OffsetX += SpeedX;
                 Layer[A].OffsetY += SpeedY;
 
-                Layer[A].ApplySpeedX = Layer[A].SpeedX;
-                Layer[A].ApplySpeedY = Layer[A].SpeedY;
+                Layer[A].ApplySpeedX = (numf_t)Layer[A].SpeedX;
+                Layer[A].ApplySpeedY = (numf_t)Layer[A].SpeedY;
 
                 // no longer needed thanks to block quadtree, but used to reproduce some buggy behaviors
                 // move the sort invalidation out of the loop over blocks

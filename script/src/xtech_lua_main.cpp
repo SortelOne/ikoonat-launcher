@@ -333,6 +333,17 @@ bool xtech_lua_init()
     if(g_luaInitialized)
         return true;
 
+    // smbx2compat: the script library is built apart from the engine; a define
+    // only one side has gives Config_t another layout, and every option read
+    // here would be some other field (THEXTECH_ENABLE_SDL_NET did that once)
+    if(Config_engineSize() != sizeof(Config_t))
+    {
+        pLogCritical("Lua: the script library's Config_t (%d bytes) differs from the engine's (%d); "
+                     "build both with the same definitions (script/CMakeLists.txt)",
+                     (int)sizeof(Config_t), (int)Config_engineSize());
+        return false;
+    }
+
     // Check if Lua scripting is enabled in config
     if(!g_config.lua_enable_engine)
     {

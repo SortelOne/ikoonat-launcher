@@ -965,7 +965,7 @@ interrupt_Activation:
                 || NPC[A].Type == NPCID_RED_VINE_TOP_S3 || NPC[A].Type == NPCID_GRN_VINE_TOP_S3 || NPC[A].Type == NPCID_GRN_VINE_TOP_S4 || NPC[A].Type == NPCID_SPIKY_THROWER
                 || NPC[A].Type == NPCID_ITEM_THROWER || NPC[A].Type == NPCID_SAW || NPC[A].Type == NPCID_JUMP_PLANT || NPC[A].Type == NPCID_MAGIC_BOSS_BALL
                 || (NPC[A]->IsACoin && NPC[A].Special == 0) || NPC[A].Type == NPCID_SWORDBEAM || NPC[A].Type == NPCID_FIRE_DISK || NPC[A].Type == NPCID_FIRE_CHAIN
-                || NPC[A].Type == NPCID_FLAG_EXIT)
+                || NPC[A].Type == NPCID_FLAG_EXIT || NPC[A].Type == NPCID_HOMING_BULLET)
             {
                 NPC[A].Wet = 0;
                 NPC[A].Quicksand = 0;
@@ -1545,12 +1545,15 @@ interrupt_Activation:
                     if((NPC[A].Type < NPCID_TANK_TREADS || NPC[A].Type > NPCID_SLANT_WOOD_M) && NPC[A].Type != NPCID_SPRING)
                     {
                         Block[NPC[A].tempBlock].Location = NPC[A].Location;
+#if 0
+                        // checked to be false above
                         if(NPC[A].Type == NPCID_SPRING)
                         {
                             // the NPC tree accounts for this; no need to split tempBlock
                             Block[NPC[A].tempBlock].Location.Y -= 16;
                             Block[NPC[A].tempBlock].Location.Height += 16;
                         }
+#endif
 
                         // tempBlock comes back in sync with NPC
                         if(NPC[A].Location.X != prevX

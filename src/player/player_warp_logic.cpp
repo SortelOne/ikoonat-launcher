@@ -55,23 +55,25 @@
 static constexpr int plr_warp_scroll_speed = 8; // 8px / frame
 static constexpr int plr_warp_scroll_max_frames = 260; // 4 seconds
 
+static constexpr int PLREFF2_WAITING_DOOR = 199; // was previously 131, but this doesn't change any logic
+
 static void s_TriggerDoorEffects(const Location_t& loc, bool do_big_door = true)
 {
     for(Background_t& bgo : treeBackgroundQuery(loc, SORTMODE_ID))
     {
-        if(CheckCollision(loc, bgo.Location))
+        if(CheckCollision(loc, bgo))
         {
+            auto bgo_loc = static_cast<Location_t>(bgo.FullLocation());
             if(bgo.Type == 88)
-                NewEffect(EFFID_DOOR_S2_OPEN, static_cast<Location_t>(bgo.Location));
+                NewEffect(EFFID_DOOR_S2_OPEN, bgo_loc);
             else if(bgo.Type == 87)
-                NewEffect(EFFID_DOOR_DOUBLE_S3_OPEN, static_cast<Location_t>(bgo.Location));
+                NewEffect(EFFID_DOOR_DOUBLE_S3_OPEN, bgo_loc);
             else if(bgo.Type == 107)
-                NewEffect(EFFID_DOOR_SIDE_S3_OPEN, static_cast<Location_t>(bgo.Location));
+                NewEffect(EFFID_DOOR_SIDE_S3_OPEN, bgo_loc);
             else if(do_big_door && bgo.Type == 141)
             {
-                Location_t bLoc = static_cast<Location_t>(bgo.Location);
-                bLoc.set_width_center(104);
-                NewEffect(EFFID_BIG_DOOR_OPEN, bLoc);
+                bgo_loc.set_width_center(104);
+                NewEffect(EFFID_BIG_DOOR_OPEN, bgo_loc);
             }
         }
     }
@@ -378,6 +380,10 @@ void PlayerEffectWarpPipe(int A)
                 NPC[p.HoldingNPC].Location.Y = p.Location.Y + Physics.PlayerGrabSpotY[p.Character][p.State] + 32 - NPC[p.HoldingNPC].Location.Height;
                 NPC[p.HoldingNPC].Location.X = p.Location.X + (p.Location.Width - NPC[p.HoldingNPC].Location.Width) / 2;
             }
+
+            // synchronizes tiny state with other states
+            if(p.State == PLR_STATE_TINY)
+                leftToGoal_end = -24;
         }
         else if(warp_dir_enter == LevelDoor::ENTRANCE_LEFT || warp_dir_enter == LevelDoor::ENTRANCE_RIGHT)
         {
@@ -497,6 +503,10 @@ void PlayerEffectWarpPipe(int A)
 
         if(warp_dir_exit == LevelDoor::EXIT_DOWN || warp_dir_exit == LevelDoor::EXIT_UP)
         {
+            // don't use crouch height when exiting vertical pipe
+            if(p.State == PLR_STATE_AQUATIC)
+                p.Location.Height = Physics.PlayerHeight[p.Character][PLR_STATE_AQUATIC];
+
             if(warp_dir_exit == LevelDoor::EXIT_DOWN)
                 p.Location.Y = warp_exit.Y - p.Location.Height - 8;
             else
@@ -1072,7 +1082,7 @@ void PlayerEffectWarpDoor(int A)
                     CheckSection(o_A);
 
                     o_p.Effect = PLREFF_WAITING;
-                    o_p.Effect2 = 131;
+                    o_p.Effect2 = PLREFF2_WAITING_DOOR;
                     o_p.WarpCD = 40;
 
                     if(warp.NoYoshi)
@@ -1158,44 +1168,60 @@ void PlayerEffectWarpWait(int A)
 {
     Player_t& p = Player[A];
 
-    // door exit holding pattern (exit blocked)
-    if(p.Effect2 == 131)
+    // door exit holding pattern
+    if(p.Effect2 <= PLREFF2_WAITING_DOOR)
     {
-        bool tempBool = false;
-        for(int B = 1; B <= numPlayers; B++)
+        // exit blocked
+        if(p.Effect2 == PLREFF2_WAITING_DOOR)
         {
-            // Was previously only B != A. New conditions only apply in >2P
-            bool check_coll = B != A && !Player[B].Dead && (Player[B].Effect != PLREFF_WAITING || B < A) && (Player[B].Effect != PLREFF_PET_INSIDE);
-            if(check_coll && CheckCollision(p.Location, Player[B].Location))
-                tempBool = true;
+            bool player_present = false;
+            bool fully_block = false;
+            for(int B = 1; B <= numPlayers; B++)
+            {
+                // Was previously only B != A. New conditions only apply in >2P
+                bool check_coll = B != A && !Player[B].Dead && (Player[B].Effect != PLREFF_WAITING || B < A) && (Player[B].Effect != PLREFF_PET_INSIDE);
+                if(check_coll && CheckCollision(p.Location, Player[B].Location))
+                {
+                    player_present = true;
+
+                    bool allow_double_spawn = (ScreenIdxByPlayer(A) != ScreenIdxByPlayer(B)); // || numPlayers > 2 // consider always enabling in >2P, but not yet
+                    if(!allow_double_spawn || Player[B].Effect == PLREFF_WAITING)
+                        fully_block = true;
+                }
+            }
+
+            if(!fully_block)
+                p.Effect2 = (player_present) ? 198 : 130;
+        }
+        // door exit wait
+        else
+        {
+            p.Effect2 -= 1;
+            if(p.Effect2 == 100)
+            {
+                Screen_t& screen = ScreenByPlayer(A);
+
+                SharedScreenAvoidJump_Pre(screen);
+
+                p.Effect = PLREFF_NORMAL;
+                p.Effect2 = 0;
+
+                if(g_config.multiplayer_pause_controls)
+                    p.NoPlayerCollide = true;
+
+                SharedScreenAvoidJump_Post(screen, 0);
+            }
         }
 
-        if(!tempBool)
+        // door exit animation
+        if(p.Effect2 == 130)
         {
-            p.Effect2 = 130;
-
             const auto& warp_exit = p.WarpBackward ? Warp[p.Warp].Entrance : Warp[p.Warp].Exit;
 
             s_TriggerDoorEffects(static_cast<Location_t>(warp_exit), false);
 
             SoundPause[SFX_Door] = 0;
             PlaySoundSpatial(SFX_Door, p.Location);
-        }
-    }
-    // door exit wait
-    else if(p.Effect2 <= 130)
-    {
-        p.Effect2 -= 1;
-        if(p.Effect2 == 100)
-        {
-            Screen_t& screen = ScreenByPlayer(A);
-
-            SharedScreenAvoidJump_Pre(screen);
-
-            p.Effect = PLREFF_NORMAL;
-            p.Effect2 = 0;
-
-            SharedScreenAvoidJump_Post(screen, 0);
         }
     }
     // 2P holding condition for start warp (pipe exit)
@@ -1255,7 +1281,7 @@ void PlayerEffectWarpWait(int A)
             if(A >= 2 && !g_ClonedPlayerMode)
             {
                 p.Effect = PLREFF_WAITING;
-                p.Effect2 = 131;
+                p.Effect2 = PLREFF2_WAITING_DOOR;
             }
             else
                 PlaySoundSpatial(SFX_Door, p.Location);
@@ -1290,9 +1316,9 @@ void PlayerEffectWarpWait(int A)
                 {
                     WorldPlayer[1].Location.X = w.MapX;
                     WorldPlayer[1].Location.Y = w.MapY;
-
-                    // Forget about sub-hub -- it's an explicit target to the world map!
-                    FileRecentSubHubLevel.clear();
+                    // Explicitly mark the quit to the world map, and don't clear the FileRecentSubHubLevel list:
+                    // it will be checked and reset in GameLoop (#1187)
+                    QuitToWorldMap = true;
 
                     for(int l = 1; l <= numWorldLevels; ++l)
                     {
@@ -1317,6 +1343,60 @@ void PlayerEffectWarpWait(int A)
             return;
         }
     }
+}
+
+// Warp point collisions
+static bool WarpCollision(const Player_t &p, const SpeedlessLocation_t &entrance, int direction)
+{
+    const Location_t& Loc1 = p.Location;
+
+    bool hasCollision = false;
+
+    num_t X2 = 0;
+    num_t Y2 = 0;
+
+    // these values were previously hardcoded
+    if(direction == 3)
+    {
+        X2 = 0;
+        Y2 = entrance.Height; // 32
+    }
+    else if(direction == 1)
+    {
+        X2 = 0;
+        Y2 = -(entrance.Height - 2); // 30
+    }
+    else if(direction == 2)
+    {
+        X2 = -(entrance.Width - 1); // 31
+        Y2 = entrance.Height; // 32
+    }
+    else if(direction == 4)
+    {
+        X2 = (entrance.Width - 1); // 31
+        Y2 = entrance.Height; // 32
+    }
+
+    if(p.AquaticSwim && Y2 > 0)
+        Y2 -= 2;
+    else if(p.State == PLR_STATE_TINY && Y2 < 0)
+        Y2 += 2;
+
+    if(Loc1.X <= entrance.X + entrance.Width + X2)
+    {
+        if(Loc1.X + Loc1.Width >= entrance.X + X2)
+        {
+            if(Loc1.Y <= entrance.Y + entrance.Height + Y2)
+            {
+                if(Loc1.Y + Loc1.Height >= entrance.Y + Y2)
+                {
+                    hasCollision = true;
+                }
+            }
+        }
+    }
+
+    return hasCollision;
 }
 
 static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool backward)
@@ -1349,28 +1429,31 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
     if(plr.CurMazeZone && (warp.Effect == 1 || warp.Effect == 2))
         return false;
 
+    if(warp.tinyRequired && plr.State != PLR_STATE_TINY)
+        return false;
+
     bool canWarp = false;
 
     if(warp.Effect == 3) // Portal
         canWarp = true;
     else if(direction == 1 && plr.Controls.Up) // Pipe
     {
-        if(WarpCollision(plr.Location, entrance, direction) && (warp.Effect != 2 || onGround))
+        if(WarpCollision(plr, entrance, direction) && (warp.Effect != 2 || onGround))
             canWarp = true;
     }
     else if(direction == 2 && plr.Controls.Left)
     {
-        if(WarpCollision(plr.Location, entrance, direction) && onGround)
+        if(WarpCollision(plr, entrance, direction) && onGround)
             canWarp = true;
     }
     else if(direction == 3 && plr.Controls.Down)
     {
-        if(WarpCollision(plr.Location, entrance, direction) && onGround)
+        if(WarpCollision(plr, entrance, direction) && onGround)
             canWarp = true;
     }
     else if(direction == 4 && plr.Controls.Right)
     {
-        if(WarpCollision(plr.Location, entrance, direction) && onGround)
+        if(WarpCollision(plr, entrance, direction) && onGround)
             canWarp = true;
     }
     // NOTE: Would be correct to move this up, but leave this here for a compatibility to keep the same behavior
@@ -1463,8 +1546,8 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
         {
             if(Background[C].Type == 98)
             {
-                if(CheckCollision(entrance, Background[C].Location) ||
-                   (warp.twoWay && CheckCollision(exit, Background[C].Location)))
+                if(CheckCollision(entrance, Background[C]) ||
+                   (warp.twoWay && CheckCollision(exit, Background[C])))
                 {
                     // this makes Background[C] disappear and never reappear
                     Background[C].Layer = LAYER_NONE;
@@ -1617,6 +1700,10 @@ static inline bool checkWarp(Warp_t &warp, int B, Player_t &plr, int A, bool bac
 
         if(g_config.fix_fairy_stuck_in_pipe)
             plr.Effect2 = 0;
+
+        // don't use crouch height during door warp
+        if(plr.State == PLR_STATE_AQUATIC)
+            plr.Location.Height = Physics.PlayerHeight[plr.Character][PLR_STATE_AQUATIC];
 
         plr.Warp = B;
         plr.WarpBackward = backward;

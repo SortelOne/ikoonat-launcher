@@ -35,6 +35,7 @@
 #include "graphics.h"
 #include "collision.h"
 #include "npc.h"
+#include "blk_id.h"
 #include "npc_id.h"
 #include "eff_id.h"
 #include "npc_traits.h"
@@ -51,6 +52,7 @@
 #include "main/trees.h"
 #include "main/menu_main.h"
 #include "main/level_medals.h"
+#include "main/game_save.h"
 #include "core/render.h"
 #include "core/events.h"
 #include "script/luna/lunacounter.h"
@@ -580,7 +582,6 @@ void SetupPlayers()
     int B = 0;
 //    int C = 0;
 
-    InvincibilityTime = 0;
     FreezeNPCs = false;
     qScreen = false;
     qScreen_canonical = false;
@@ -681,6 +682,8 @@ void SetupPlayers()
                 Player[A].State = 2;
             if(Player[A].Hearts > 3)
                 Player[A].Hearts = 3;
+            if(Player[A].State == PLR_STATE_TINY)
+                Player[A].Hearts = 1;
             if(Player[A].Mount == 3)
                 Player[A].Mount = 0;
         }
@@ -793,6 +796,7 @@ void SetupPlayers()
         Player[A].Duck = false;
         Player[A].MountSpecial = 0;
         Player[A].YoshiTongueLength = 0;
+        Player[A].InvincibilityTime = 0;
 
 //        Player[A].Direction = 1; // Moved to above
         Player[A].Location.SpeedX = 0;
@@ -835,15 +839,16 @@ void SetupPlayers()
         Player[A].FloatTime = 0;
         Player[A].CanFloat = false;
         Player[A].CurMazeZone = 0;
+        Player[A].NoPlayerCollide = false;
 
         if(Player[A].Character == 3)
             Player[A].CanFloat = true;
 
         if(Player[A].Character == 3 || Player[A].Character == 4)
         {
-            if(Player[A].State == 1)
+            if(Player[A].State == 1 || Player[A].State == PLR_STATE_TINY)
                 Player[A].Hearts = 1;
-            if(Player[A].State > 1 && Player[A].Hearts < 2)
+            else if(Player[A].Hearts < 2)
                 Player[A].Hearts = 2;
         }
 
@@ -908,7 +913,7 @@ void PlayerHurt(const int A)
     Location_t tempLocation;
     int B = 0;
 
-    if(InvincibilityTime && !p.Pinched.Moving)
+    if(p.InvincibilityTime && !p.Pinched.Moving)
         return;
 
     if(p.Dead || p.TimeToLive > 0 || p.Stoned || p.Immune > 0 || p.Effect > 0)
@@ -1058,7 +1063,7 @@ void PlayerHurt(const int A)
                     else if(p.Hearts == 0)
                         p.State = 1;
                     // 1 heart (or invalid state) -> shrink to small
-                    else
+                    else if(p.State != PLR_STATE_AQUATIC)
                         p.State = 2;
                 }
                 else if(p.Character == 5)
@@ -1089,13 +1094,25 @@ void PlayerHurt(const int A)
                     }
                 }
 
-                if(p.State > 1)
+                if(p.State > 1 && p.State != PLR_STATE_TINY)
                 {
                     PlaySoundSpatial(SFX_PlayerShrink, p.Location);
                     p.StateNPC = NPCID_NULL;
                     p.Effect = PLREFF_TURN_SMALL;
 
-                    if(p.State > 2 && (g_config.alt_powerdown || g_config.simple_powerdown))
+                    if(p.State == PLR_STATE_AQUATIC)
+                    {
+                        p.State = 2;
+                        p.StandUp = true;
+                        SizeCheck(p);
+
+                        if(p.Character <= 2 && g_config.alt_powerdown)
+                        {
+                            p.Effect = (PlayerEffect)(PLREFF_TURN_TO_STATE + PLR_STATE_BIG);
+                            p.Effect2 = 0;
+                        }
+                    }
+                    else if(p.State > 2 && (g_config.alt_powerdown || g_config.simple_powerdown))
                     {
                         p.Effect = (PlayerEffect)(PLREFF_STATE_TO_BIG + p.State);
                         p.Effect2 = 0;
@@ -1266,6 +1283,7 @@ void PlayerDead(int A)
     p.HoldingNPC = 0;
     p.GroundPound = false;
     p.GroundPound2 = false;
+    p.NoPlayerCollide = false;
 
     PlayerDeathEffect(A);
 
@@ -1276,6 +1294,13 @@ void PlayerDead(int A)
         g_curLevelMedals.on_all_dead();
         StopMusic();
         FreezeNPCs = false;
+    }
+    else if(p.InvincibilityTime)
+    {
+        p.InvincibilityTime = 0;
+
+        if(!GameMenu && &ScreenByPlayer(A) == l_screen && !OnscreenPlayerInvincible())
+            SwitchEndResumeMusic();
     }
 
     if(A == SingleCoop)
@@ -1617,6 +1642,10 @@ void UnDuck(Player_t &p)
     if(p.AquaticSwim)
         return;
 
+    // if antizip is desired, it can be implemented with a compat flag here
+    // if(g_compat.antizip && !p.UnDuckSafe)
+    //     return;
+
     if(p.Rolling)
     {
         p.Rolling = false;
@@ -1732,7 +1761,7 @@ void CheckSection(const int A)
     {
         int B = p.Section;
 
-        UpdateSoundFX(B);
+        UpdateAudioSection(B);
 
         bool boss_track = (curMusic == 6 || curMusic == 15);
 
@@ -1855,6 +1884,13 @@ void PlayerFrame(Player_t &p)
 
     if(p.State == PLR_STATE_CYCLONE && !p.DoubleJump && (p.Jump || (p.Controls.Down && p.Location.SpeedY > Physics.PlayerTerminalVelocity * 0.9_n)))
         s_makeDust(p, 2, tempLocation);
+
+    // walk on water
+    if(p.State == PLR_STATE_TINY && p.Mount == 0 && p.MountSpecial)
+    {
+        s_makeDust(p, -4, tempLocation);
+        grounded = true;
+    }
 
     if(LevelMacro == LEVELMACRO_FLAG_EXIT && p.Location.SpeedY == 2)
     {
@@ -2161,9 +2197,9 @@ void PlayerFrame(Player_t &p)
     }
     else
     {
-        if(p.State == 1 && (p.Character == 1 || p.Character == 2)) // Small Mario & Luigi
+        if((p.State == 1 || p.State == PLR_STATE_TINY) && (p.Character == 1 || p.Character == 2)) // Small Mario & Luigi
         {
-            if(p.HoldingNPC == 0) // not holding anything
+            if(p.HoldingNPC == 0 || (p.State == PLR_STATE_TINY && p.HoldingNPC < 0)) // not holding anything
             {
                 if(wetframe && !grounded && !p.Duck && p.Quicksand == 0) // swimming
                 {
@@ -2365,7 +2401,7 @@ void PlayerFrame(Player_t &p)
         }
         else // Large Mario, Luigi, and Peach
         {
-            if(p.HoldingNPC == 0 || (p.Effect == PLREFF_WARP_PIPE && p.Character >= 3))
+            if(p.HoldingNPC == 0 || p.State == PLR_STATE_TINY || (p.Effect == PLREFF_WARP_PIPE && p.Character >= 3))
             {
                 if(wetframe && !grounded && !p.Duck && p.Quicksand == 0)
                 {
@@ -2898,6 +2934,9 @@ void UpdatePlayerBonus(const int A, const NPCID B)
     else if(p.Effect == PLREFF_TURN_BIG)
         effect_state = PLR_STATE_BIG;
 
+    if(effect_state == PLR_STATE_TINY || p.State == PLR_STATE_TINY)
+        return;
+
     if(p.State != PLR_STATE_SMALL || (effect_state == PLR_STATE_BIG || effect_state == PLR_STATE_FIRE || effect_state == PLR_STATE_LEAF))
     {
         if(B == NPCID_POWER_S3 || B == NPCID_POWER_S4 || B == NPCID_POWER_S1 || B == NPCID_POWER_S5)
@@ -2955,6 +2994,8 @@ void UpdatePlayerBonus(const int A, const NPCID B)
                 p.HeldBonus = NPCID_CYCLONE_POWER;
             else if(p.State == PLR_STATE_SHELL || effect_state == PLR_STATE_SHELL)
                 p.HeldBonus = NPCID_SHELL_POWER;
+            else if(p.State == PLR_STATE_TINY || effect_state == PLR_STATE_TINY)
+                p.HeldBonus = NPCID_TINY_POWER;
         }
     }
 
@@ -3007,6 +3048,13 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                 tailLoc.Width = 38;
                 tailLoc.Height = 6;
                 tailLoc.Y = p.Location.Y + p.Location.Height - 42;
+
+                if(p.State == PLR_STATE_TINY)
+                {
+                    tailLoc.Width = 16;
+                    tailLoc.Y += 32;
+                }
+
                 if(p.Direction == 1)
                     tailLoc.X = p.Location.X + p.Location.Width;
                 else
@@ -3049,14 +3097,14 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
             Block_t& block = *block_p;
             int A = (int)block_p;
 
-            if(!BlockIsSizable[block.Type] && !block.Hidden && (block.Type != 293 || Stab) && !block.Invis && !BlockNoClipping[block.Type])
+            if(!BlockIsSizable[block.Type] && !block.Hidden && (block.Type != BLKID_BOMB_DIRT_S2 || Stab) && !block.Invis && !BlockNoClipping[block.Type])
             {
                 if(CheckCollision(tailLoc, block.Location))
                 {
                     // if(block.ShakeY == 0 && block.ShakeY2 == 0 && block.ShakeY3 == 0)
                     if(block.ShakeCounter == 0)
                     {
-                        if(block.Special > 0 || block.Type == 55 || block.Type == 159 || block.Type == 90)
+                        if(block.Special > 0 || block.Type == BLKID_BOUNCE_BLOCK || block.Type == BLKID_HITTABLE_BLOCK || block.Type == BLKID_SPIN_BLOCK)
                             PlaySoundSpatial(SFX_BlockHit, block.Location);
 //                        if(nPlay.Online && plr - 1 == nPlay.MySlot)
 //                            Netplay::sendData Netplay::PutPlayerLoc(nPlay.MySlot) + "1g" + std::to_string(plr) + "|" + p.TailCount - 1;
@@ -3074,7 +3122,9 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                         //    BlockHit(A, false, plr);
                         //}
 
-                        BlockHitHard(A);
+                        if(p.State != PLR_STATE_TINY)
+                            BlockHitHard(A);
+
                         if(!Stab)
                         {
                             // if(block.ShakeY != 0)
@@ -3090,13 +3140,20 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                         {
                             if(StabDir == 2)
                             {
-                                if(block.Type == 293 || block.Type == 370
+                                if(block.Type == BLKID_KAIZO_HURT || block.Type == BLKID_KAIZO_KILL)
+                                {
+                                    // don't pogo these blocks
+                                }
+                                else if(block.Type == BLKID_BOMB_DIRT_S2 || block.Type == BLKID_DIG_SAND
                                     /* || block.ShakeY != 0 || block.ShakeY2 != 0 || block.ShakeY3 != 0 */
                                     || block.ShakeCounter != 0
                                     || block.Hidden || BlockHurts[block.Type])
                                 {
                                     if(BlockHurts[block.Type])
                                         PlaySoundSpatial(SFX_Spring, block.Location);
+                                    else if(p.State == PLR_STATE_TINY)
+                                        PlaySoundSpatial(SFX_BlockHit, block.Location);
+
                                     p.Location.Y -= 0.1_n;
                                     p.Location.SpeedY = Physics.PlayerJumpVelocity;
                                     p.StandingOnNPC = 0;
@@ -3105,7 +3162,7 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                                 }
                             }
 
-                            if(block.Type == 370)
+                            if(block.Type == BLKID_DIG_SAND)
                             {
                                 PlaySoundSpatial(SFX_HeroGrass, block.Location);
                                 block.Hidden = true;
@@ -3117,7 +3174,7 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                             }
 
                             // allow Char5 to stab gray bricks when it has heavy power
-                            if(block.Type == 457 && p.State == 6)
+                            if(block.Type == BLKID_GRY_BRICK && p.State == PLR_STATE_HEAVY)
                                 SafelyKillBlock(A);
                         }
                     }
@@ -3155,7 +3212,7 @@ void TailSwipe(const int plr, bool boo, bool Stab, int StabDir)
                 {
                     if(Stab)
                     {
-                        if(StabDir == 2 && ((NPC[A].Type >= NPCID_CARRY_BLOCK_A && NPC[A].Type <= NPCID_CARRY_BLOCK_D) || NPC[A].Type == NPCID_SPRING || NPC[A].Type == NPCID_COIN_SWITCH || NPC[A].Type == NPCID_TIME_SWITCH || NPC[A].Type == NPCID_EARTHQUAKE_BLOCK))
+                        if(StabDir == 2 && ((NPC[A].Type >= NPCID_CARRY_BLOCK_A && NPC[A].Type <= NPCID_CARRY_BLOCK_D) || NPC[A].Type == NPCID_SPRING || NPC[A].Type == NPCID_RED_SPRING || NPC[A].Type == NPCID_COIN_SWITCH || NPC[A].Type == NPCID_TIME_SWITCH || NPC[A].Type == NPCID_EARTHQUAKE_BLOCK))
                         {
                         }
                         else
@@ -3615,7 +3672,7 @@ void YoshiPound(const int A, int mount, bool BreakBlocks)
                     continue;
 
                 if(g_config.fix_vehicle_char_switch && mount == 2 &&
-                    ((b.Type >= 622 && b.Type <= 625) || b.Type == 631))
+                    ((b.Type >= BLKID_TO_CHAR1 && b.Type <= BLKID_TO_CHAR4) || b.Type == BLKID_TO_CHAR5))
                     continue; // Forbid playable character switch when riding a clown car
 
                 if(!CheckCollision(p.Location, b.Location))
@@ -3767,16 +3824,14 @@ void PlayerDismount(const int A, bool silent)
                     NPC[B].Projectile = true;
 
                 NPC[B].vehicleYOffset = 0;
-                if(NPC[B].Type == NPCID_CANNONITEM)
+                if(NPC[B].Type == NPCID_CANNONITEM || NPC[B].Type == NPCID_HOMING_CANNON || NPC[B].Type == NPCID_TOOTHYPIPE)
                     NPC[B].Special = 0;
-                if(NPC[B].Type == NPCID_TOOTHY)
+                else if(NPC[B].Type == NPCID_TOOTHY)
                 {
                     NPC[B].Killed = 9;
                     NPC[B].Special = 0;
                     NPCQueues::Killed.push_back(B);
                 }
-                else if(NPC[B].Type == NPCID_TOOTHYPIPE)
-                    NPC[B].Special = 0;
             }
         }
     }
@@ -3889,11 +3944,11 @@ void PlayerPush(const int A, int HitSpot)
                     }
                     else if(HitSpot == 3)
                         p.Location.Y = b.Location.Y + b.Location.Height + 0.01_n;
-                    else if(HitSpot == 4)
+                    else if(HitSpot == 4 || (HitSpot == 6 && !b.Location.to_right_of(p.Location))) // push right, or "push horizontally" when the block is to the left of the player
                         p.Location.X = b.Location.X + b.Location.Width + 0.01_n;
                     else if(HitSpot == 1) // new-added
                         p.Location.Y = b.Location.Y - p.Location.Height - 0.01_n;
-                    else if(HitSpot == 5) // non-bugged 2
+                    else if(HitSpot == 5 || HitSpot == 6) // non-bugged 2 (push left), or "push horizontally"
                         p.Location.X = b.Location.X - p.Location.Width - 0.01_n;
 
                     q.update(p.Location, it);
@@ -3901,6 +3956,49 @@ void PlayerPush(const int A, int HitSpot)
             }
         }
     }
+}
+
+int CalcPlayerHeight(Player_t& p, bool Duck)
+{
+    if(p.Character == 5 && p.Rolling && Duck)
+        return 30;
+
+    if(p.Fairy)
+        return 26;
+
+    if(p.Mount == 1)
+    {
+        if(Duck)
+            return Physics.PlayerDuckHeight[p.Character][2];
+        else if(p.State == PLR_STATE_TINY)
+            return 44;
+        else if(p.Character == 2 && p.State > 1)
+            return Physics.PlayerHeight[p.Character][p.State];
+        else
+            return Physics.PlayerHeight[1][2];
+    }
+    else if(p.Mount == 2)
+        return 128;
+    else if(p.Mount == 3)
+    {
+        if(Duck)
+            return 31;
+        else if(p.State == PLR_STATE_SMALL)
+            return Physics.PlayerHeight[1][2];
+        else if(p.State == PLR_STATE_TINY)
+            return Physics.PlayerHeight[2][2] - 16;
+        else
+            return Physics.PlayerHeight[2][2];
+    }
+
+    if(Duck)
+        return Physics.PlayerDuckHeight[p.Character][p.State];
+
+    // aquatic power crouch
+    if(p.State == PLR_STATE_AQUATIC && p.HoldingNPC == 0 && p.Character != 5)
+        return Physics.PlayerHeight[p.Character][p.State] - 12;
+
+    return Physics.PlayerHeight[p.Character][p.State];
 }
 
 void SizeCheck(Player_t &p)
@@ -3914,83 +4012,32 @@ void SizeCheck(Player_t &p)
     if(p.Character == 0)
         p.Character = 1;
 
-    if(p.Character == 5 && p.Rolling)
-    {
-        p.Location.set_height_floor(30);
-        return;
-    }
-
+    // fairy can't duck
     if(p.Fairy)
     {
-        if(p.Duck)
-        {
-            UnDuck(p);
-        }
+        UnDuck(p);
 
-        if(p.Location.Width != 22)
-            p.Location.set_width_center(22);
+        // VB6 bug: this was always overridden by the code below, which sets Width without checking Fariy
+        // if(p.Location.Width != 22)
+        //     p.Location.set_width_center(22);
+    }
 
-        if(p.Location.Height != 26)
-            p.Location.set_height_floor(26);
-    }
-    else if(p.Mount == 0)
+    int new_height = CalcPlayerHeight(p, p.Duck);
+
+    if(p.Location.Height != new_height)
     {
-        if(!p.Duck)
-        {
-            if(p.Location.Height != Physics.PlayerHeight[p.Character][p.State])
-                p.Location.set_height_floor(Physics.PlayerHeight[p.Character][p.State]);
-        }
-        else
-        {
-            if(p.Location.Height != Physics.PlayerDuckHeight[p.Character][p.State])
-                p.Location.set_height_floor(Physics.PlayerDuckHeight[p.Character][p.State]);
-        }
+        // fixes clips when the player exits the aquatic crouch
+        if(p.State == PLR_STATE_AQUATIC && p.Mount == 0 && !p.Duck && p.Character != 5 && p.HoldingNPC != 0)
+            p.StandUp = true;
+
+        p.Location.set_height_floor(new_height);
     }
-    else if(p.Mount == 1)
-    {
-        if(p.Duck)
-        {
-            if(p.Location.Height != Physics.PlayerDuckHeight[p.Character][2])
-                p.Location.set_height_floor(Physics.PlayerDuckHeight[p.Character][2]);
-        }
-        else if(p.Character == 2 && p.State > 1)
-        {
-            if(p.Location.Height != Physics.PlayerHeight[1][2])
-                p.Location.set_height_floor(Physics.PlayerHeight[p.Character][p.State]);
-        }
-        else
-        {
-            if(p.Location.Height != Physics.PlayerHeight[1][2])
-                p.Location.set_height_floor(Physics.PlayerHeight[1][2]);
-        }
-    }
-    else if(p.Mount == 2)
-    {
-        if(p.Location.Height != 128)
-            p.Location.set_height_floor(128);
-    }
-    else if(p.Mount == 3)
-    {
-        if(!p.Duck)
-        {
-            if(p.State == 1)
-            {
-                if(p.Location.Height != Physics.PlayerHeight[1][2])
-                    p.Location.set_height_floor(Physics.PlayerHeight[1][2]);
-            }
-            else
-            {
-                if(p.Location.Height != Physics.PlayerHeight[2][2])
-                    p.Location.set_height_floor(Physics.PlayerHeight[2][2]);
-            }
-        }
-        else
-        {
-            if(p.Location.Height != 31)
-                p.Location.set_height_floor(31);
-        }
-    }
-// width
+
+    // adjust drawing of tiny player on pet mount
+    if(p.State == PLR_STATE_TINY && p.Mount == 3 && !p.Duck)
+        p.MountOffsetY += 16;
+
+    // width
     if(p.Mount == 2)
     {
         if(p.Location.Width != 127.9_n)
@@ -4396,8 +4443,9 @@ void RespawnPlayerTo(int A, int TargetPlayer)
             Player[A].Location.Y -= 100;
             Player[A].Dead = true;
             Player[A].Effect = PLREFF_COOP_WINGS;
-            Player[A].Effect2 = 0;
+            Player[A].Effect2 = TargetPlayer;
             Player[A].RespawnY = 0;
+            Player[A].Vine = 0;
         }
         // respawn them to the target player's warp otherwise
         else
@@ -4693,7 +4741,7 @@ void WaterCheck(const int A)
     if(p.Wet > 0)
     {
         p.Wet -= 1;
-        if(!InvincibilityTime)
+        if(!p.InvincibilityTime)
             p.Multiplier = 0;
     }
 
@@ -4734,6 +4782,8 @@ void WaterCheck(const int A)
     if(p.AquaticSwim)
         query_loc.set_height_floor(Physics.PlayerHeight[p.Character][p.State]);
 
+    bool water_contact = false;
+
     for(int B : treeWaterQuery(query_loc, SORTMODE_NONE))
     {
         if(!Water[B].Hidden)
@@ -4745,7 +4795,7 @@ void WaterCheck(const int A)
                     if(p.CurMazeZone && (already_in_maze || p.CurMazeZone < B))
                         continue;
 
-                    if(p.Mount == 2 || p.Fairy)
+                    if(p.Mount == 2 || p.Fairy || !p.UnDuckSafe)
                         continue;
 
                     if(query_loc.Y + query_loc.Height - Physics.PlayerGravity < Water[B].Location.Y)
@@ -4757,7 +4807,7 @@ void WaterCheck(const int A)
 
                     std::array<bool, 4> maze_controls = {Player[A].Controls.Left, Player[A].Controls.Up, Player[A].Controls.Right, Player[A].Controls.Down};
 
-                    if(maze_controls[p.MazeZoneStatus] || (p.Rolling && !maze_controls[0] && !maze_controls[1] && !maze_controls[2] && !maze_controls[3]))
+                    if(maze_controls[p.MazeZoneStatus] || ((p.Rolling || p.Stoned) && !maze_controls[0] && !maze_controls[1] && !maze_controls[2] && !maze_controls[3]))
                         PlaySoundSpatial(SFX_HeroDash, p.Location);
                     else
                         p.CurMazeZone = 0;
@@ -4765,8 +4815,34 @@ void WaterCheck(const int A)
                     continue;
                 }
 
+                water_contact = true;
+
                 if(p.Wet == 0 && p.Mount != 2)
                 {
+                    if(p.Mount == 0 && p.State == PLR_STATE_TINY && !p.Pinched.Top3 && Water[B].Type != PHYSID_QUICKSAND)
+                    {
+                        bool controls_press = (p.Controls.Left || p.Controls.Right);
+                        if(controls_press && num_t::abs(p.Location.SpeedX - (num_t)Layer[Water[B].Layer].SpeedX) >= 3_n && p.Location.Y + p.Location.Height - p.Location.SpeedY <= Water[B].Location.Y - (num_t)Layer[Water[B].Layer].SpeedY)
+                            p.MountSpecial = 60;
+
+                        if(p.MountSpecial > 0)
+                        {
+                            if(!controls_press)
+                                p.MountSpecial -= 2;
+                            p.MountSpecial--;
+                        }
+
+                        if(p.MountSpecial > 0)
+                        {
+                            p.WetFrame = false;
+                            p.Location.Y = Water[B].Location.Y - p.Location.Height;
+                            p.Location.SpeedY = 0;
+                            continue;
+                        }
+                        else
+                            p.MountSpecial = 0;
+                    }
+
                     p.FlyCount = 0;
                     p.CanFly = false;
                     p.CanFly2 = false;
@@ -4810,6 +4886,9 @@ void WaterCheck(const int A)
             }
         }
     }
+
+    if((!water_contact || p.Wet) && p.State == PLR_STATE_TINY && !p.Mount)
+        p.MountSpecial = 0;
 
     if(p.Mount == 2)
     {
@@ -4899,6 +4978,7 @@ void PlayerCollide(const int A)
     Location_t tempLocation3;
     int HitSpot = 0;
     auto &p1 = Player[A];
+    bool found_collision = false;
 
 // Check player collisions
     for(int B = 1; B <= numPlayers; B++)
@@ -4908,6 +4988,7 @@ void PlayerCollide(const int A)
         // smbx2compat: also SMBX2's noplayerinteraction and collision groups
         if(B != A && !p2.Dead && p2.TimeToLive == 0 &&
            (p2.Effect == PLREFF_NORMAL || p2.Effect == PLREFF_WARP_PIPE) &&
+           (!p2.NoPlayerCollide) &&
            !(p2.Mount == 2 || p1.Mount == 2) &&
            (!BattleMode || (p1.Immune == 0 && p2.Immune == 0)) &&
            SMBX2Collision_PlayerPlayer(A, B))
@@ -4924,6 +5005,12 @@ void PlayerCollide(const int A)
 
             if(CheckCollision(tempLocation, tempLocation3))
             {
+                if(p1.NoPlayerCollide)
+                {
+                    found_collision = true;
+                    break;
+                }
+
                 HitSpot = FindCollision(tempLocation, tempLocation3);
                 if(HitSpot == 5)
                 {
@@ -4935,12 +5022,12 @@ void PlayerCollide(const int A)
 
                 if(BattleMode)
                 {
-                    if(p2.SlideKill)
+                    if(p2.SlideKill || (p2.InvincibilityTime && !p1.InvincibilityTime))
                     {
                         HitSpot = 0;
                         PlayerHurt(A);
                     }
-                    if(p1.SlideKill)
+                    if(p1.SlideKill || (p1.InvincibilityTime && !p2.InvincibilityTime))
                     {
                         HitSpot = 0;
                         PlayerHurt(B);
@@ -4953,6 +5040,20 @@ void PlayerCollide(const int A)
                     {
                         PlayerHurt(A);
                     }
+                }
+                else if(p1.InvincibilityTime != p2.InvincibilityTime)
+                {
+                    bool was_onscreen_invincible = OnscreenPlayerInvincible();
+
+                    if(p1.InvincibilityTime > p2.InvincibilityTime)
+                        p2.InvincibilityTime = p1.InvincibilityTime;
+                    else
+                        p1.InvincibilityTime = p2.InvincibilityTime;
+
+                    PlaySoundSpatial(SFX_NewPath, p1.Location);
+
+                    if(!was_onscreen_invincible && OnscreenPlayerInvincible())
+                        StartMusic(-1);
                 }
 
                 if(p1.Stoned || p2.Stoned)
@@ -5070,6 +5171,9 @@ void PlayerCollide(const int A)
             }
         }
     }
+
+    if(!found_collision)
+        p1.NoPlayerCollide = false;
 }
 
 void PlayerGrabCode(const int A, bool DontResetGrabTime)
@@ -5594,6 +5698,9 @@ void LinkFrame(Player_t &p)
     bool grounded = (p.Location.SpeedY == 0) || (p.StandingOnNPC != 0) || (p.Slope > 0);
     //auto &p = Player[A];
 
+    if(p.State == PLR_STATE_TINY && p.Mount == 0 && p.MountSpecial)
+        grounded = true;
+
     p.MountOffsetY = 0;
 
     // Hurt frame
@@ -5829,7 +5936,7 @@ void PlayerEffects(const int A)
                 SharedScreenAvoidJump_Pre(s);
                 p.Dead = true;
                 p.Effect = PLREFF_COOP_WINGS;
-                p.Effect2 = 0;
+                p.Effect2 = O;
                 SizeCheck(p);
                 SharedScreenAvoidJump_Post(s, 0);
                 return;
@@ -6275,7 +6382,12 @@ void PlayerEffects(const int A)
 
         if(p.Effect2 == 0)
         {
-            if(p.State == 1 && p.Mount == 0)
+            if(target_state == PLR_STATE_TINY)
+            {
+                p.State = target_state;
+                SizeCheck(p);
+            }
+            else if(p.State == 1 && p.Mount == 0)
             {
                 p.Location.X += (-Physics.PlayerWidth[p.Character][2] + Physics.PlayerWidth[p.Character][1]) / 2;
                 p.Location.Y += -Physics.PlayerHeight[p.Character][2] + Physics.PlayerHeight[p.Character][1];
@@ -6570,6 +6682,10 @@ void PlayerEffects(const int A)
         p.Location.X = Player[p.Effect2].Location.X + (Player[p.Effect2].Location.Width - p.Location.Width) / 2;
         p.Location.Y = Player[p.Effect2].Location.Y + (Player[p.Effect2].Location.Height - p.Location.Height) / 2;
 
+        // fixes ghost NPC targeting
+        if(g_config.fix_multiplayer_targeting)
+            p.Direction = Player[p.Effect2].Direction;
+
         if(Player[p.Effect2].YoshiPlayer != A)
         {
             p.Effect = PLREFF_NORMAL;
@@ -6577,7 +6693,7 @@ void PlayerEffects(const int A)
         }
 
         // new logic: allow escape!
-        if(BattleMode && g_config.multiplayer_pause_controls)
+        if(g_config.multiplayer_pause_controls)
         {
             if(p.Effect == PLREFF_NORMAL)
             {
@@ -6677,6 +6793,17 @@ bool AllPlayersNormal()
     }
 
     return true;
+}
+
+bool OnscreenPlayerInvincible()
+{
+    for(int i = 0; i < l_screen->player_count; i++)
+    {
+        if(Player[l_screen->players[i]].InvincibilityTime)
+            return true;
+    }
+
+    return false;
 }
 
 // NEW: ensures the players on a screen are nearby if the screen is shared
@@ -6861,7 +6988,7 @@ void KeyholeCheck(const int A, const Location_t& loc)
 
         if(Background[B].Type == 35)
         {
-            SpeedlessLocation_t tempLocation = Background[B].Location;
+            SpeedlessLocation_t tempLocation = Background[B].FullLocation();
             tempLocation.Width = 16;
             tempLocation.X += 8;
             tempLocation.Height = 26;

@@ -88,14 +88,21 @@ void s_drawBlockExtra(int Z, num_t camX, num_t camY, const Block_t& b)
     }
 
     // new: indicate that blocks have events
-    if(b.TriggerHit != EVENT_NONE || b.TriggerDeath != EVENT_NONE || b.TriggerLast != EVENT_NONE)
+    bool b_has_event = b.TriggerHit != EVENT_NONE || b.TriggerDeath != EVENT_NONE || b.TriggerLast != EVENT_NONE;
+    if(b_has_event || b.Slippy)
     {
         if(vScreenCollision(Z, b.Location))
         {
-            int sX = num_t::floor(camX + b.Location.X + b.Location.Width / 2) - GFX.Chat.w / 2;
-            int sY = num_t::floor(camY + b.Location.Y) - GFX.Chat.h - 8;
+            int sX = num_t::floor(camX + b.Location.X);
+            int sY = num_t::floor(camY + b.Location.Y);
 
-            XRender::renderTextureBasic(sX, sY, GFX.Chat, XTColorF(1.0_n, 0.0_n, 0.0_n, 0.7_n));
+            int w = num_t::floor(b.Location.Width);
+
+            if(b.Slippy)
+                XRender::renderRect(sX, sY, w, 4, XTColor{127, 127, 255});
+
+            if(b_has_event)
+                XRender::renderTextureBasic(sX + (w - GFX.Chat.w) / 2, sY - GFX.Chat.h - 8, GFX.Chat, XTColorF(1.0_n, 0.0_n, 0.0_n, 0.7_n));
         }
     }
 }
@@ -246,6 +253,15 @@ void DrawEditorLevel(int Z)
     num_t camY = vScreen[Z].CameraAddY();
     int camX_i = num_t::floor(camX);
     int camY_i = num_t::floor(camY);
+
+    if(!MagicHand || (EditorCursor.Mode != OptCursor_t::LVL_SELECT && EditorCursor.Mode != OptCursor_t::LVL_ERASER))
+    {
+        int vScreenX = (camX_i >> 5) * 32;
+        int vScreenY = ((camY_i + 8) >> 5) * 32;
+
+        if(EditorCursor.CurrentGrid && EditorCursor.ShowGrid)
+            XRender::renderGrid(EditorCursor.CurrentGrid, camX_i - vScreenX, camY_i - vScreenY);
+    }
 
 #ifdef __3DS__
     XRender::setTargetLayer(2);
@@ -425,11 +441,11 @@ void DrawEditorLevel(int Z)
         else if(e.Mode == OptCursor_t::LVL_BGOS) // BGOs
         {
             auto &b = e.Background;
-            if(vScreenCollision(Z, b.Location))
+            if(vScreenCollision(Z, b))
             {
                 XRender::renderTextureBasic(num_t::floor(camX + b.Location.X),
                                       num_t::floor(camY + b.Location.Y),
-                                      BackgroundWidth[b.Type],
+                                      GFXBackground[b.Type].w,
                                       BackgroundHeight[b.Type],
                                       GFXBackground[b.Type], 0,
                                       BackgroundHeight[b.Type] * BackgroundFrame[b.Type]);
@@ -556,6 +572,12 @@ void DrawEditorWorld()
     int camX = vScreen[Z].CameraAddX_i() + XRender::TargetOverscanX;
     int camY = vScreen[Z].CameraAddY_i();
 
+    int vScreenX = (camX >> 5) * 32;
+    int vScreenY = (camY >> 5) * 32;
+
+    if(EditorCursor.CurrentGrid && EditorCursor.ShowGrid)
+        XRender::renderGrid(EditorCursor.CurrentGrid, camX - vScreenX, camY - vScreenY);
+
 #ifdef __3DS__
     // disable cursor rendering on inactive screen of 3DS
     if(editorScreen.active) {}
@@ -570,8 +592,8 @@ void DrawEditorWorld()
     {
         XRender::renderTextureBasic(camX + EditorCursor.Tile.Location.X,
             camY + EditorCursor.Tile.Location.Y,
-            EditorCursor.Tile.Location.Width,
-            EditorCursor.Tile.Location.Height,
+            TileWidth[EditorCursor.Tile.Type],
+            TileHeight[EditorCursor.Tile.Type],
             GFXTile[EditorCursor.Tile.Type],
             0,
             TileHeight[EditorCursor.Tile.Type] * TileFrame[EditorCursor.Tile.Type]);
@@ -580,8 +602,8 @@ void DrawEditorWorld()
     {
         XRender::renderTextureBasic(camX + EditorCursor.Scene.Location.X,
             camY + EditorCursor.Scene.Location.Y,
-            EditorCursor.Scene.Location.Width,
-            EditorCursor.Scene.Location.Height,
+            SceneWidth[EditorCursor.Scene.Type],
+            SceneHeight[EditorCursor.Scene.Type],
             GFXScene[EditorCursor.Scene.Type],
             0,
             SceneHeight[EditorCursor.Scene.Type] * SceneFrame[EditorCursor.Scene.Type]);
@@ -624,8 +646,8 @@ void DrawEditorWorld()
     {
         XRender::renderTextureBasic(camX + EditorCursor.WorldPath.Location.X,
             camY + EditorCursor.WorldPath.Location.Y,
-            EditorCursor.WorldPath.Location.Width,
-            EditorCursor.WorldPath.Location.Height,
+            32,
+            32,
             GFXPath[EditorCursor.WorldPath.Type],
             0, 0);
     }

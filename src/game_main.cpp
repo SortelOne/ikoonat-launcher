@@ -80,6 +80,7 @@
 #include "editor.h"
 #include "editor/new_editor.h"
 #include "custom.h"
+#include "main/game_save.h"
 #include "main/world_globals.h"
 #include "main/cheat_code.h"
 #include "main/game_globals.h"
@@ -150,8 +151,6 @@ static int loadingThread(void *waiter_ptr)
 //    GFX.load(); // load the graphics form // Moved to before sound load
     SizableBlocks();
     LoadGFX(); // load the graphics from file
-
-    Controls::LoadTouchScreenGFX();
 
     SetupVars(); //Setup Variables
 
@@ -305,7 +304,7 @@ static void s_ExpandSectionForMenu()
 
     for(int A : treeBackgroundQuery(tempLocation, SORTMODE_NONE))
     {
-        if(CheckCollision(Background[A].Location, tempLocation))
+        if(CheckCollision(tempLocation, Background[A]))
             return;
     }
 
@@ -316,9 +315,6 @@ static void s_ExpandSectionForMenu()
 
 void ReportLoadFailure(const std::string& filename, bool isIPC)
 {
-#ifdef THEXTECH_ENABLE_SDL_NET
-    XMessage::Disconnect();
-#endif
 #if !defined(THEXTECH_INTERPROC_SUPPORTED)
     UNUSED(isIPC);
 #endif
@@ -369,6 +365,7 @@ void MainLoadAll()
     LoaderUpdateDebugString("Fonts");
 
     FontManager::initFull();
+    Controls::LoadTouchScreenGFX();
 
 #ifndef PGE_NO_THREADING
     {
@@ -732,12 +729,12 @@ int GameMain(const CmdLineSetup_t &setup)
                 for(int i = 0; i < numPlayers; i++)
                 {
                     if(testPlayer[i + 1].Character != 0)
-                        l_screen->charSelect[i] = testPlayer[i + 1].Character;
+                        ConnectScreen::g_charSelect[i] = testPlayer[i + 1].Character;
                     else
-                        l_screen->charSelect[i] = i + 1;
+                        ConnectScreen::g_charSelect[i] = i + 1;
 
                     // replace blocked characters
-                    if(blockCharacter[l_screen->charSelect[i]])
+                    if(blockCharacter[ConnectScreen::g_charSelect[i]])
                     {
                         for(int new_char = 1; new_char <= numCharacters; new_char++)
                         {
@@ -749,14 +746,14 @@ int GameMain(const CmdLineSetup_t &setup)
                             int j = 0;
                             for(; j < i; j++)
                             {
-                                if(l_screen->charSelect[j] == new_char)
+                                if(ConnectScreen::g_charSelect[j] == new_char)
                                     break;
                             }
 
                             // if loop ended naturally, character is unused
                             if(j == i)
                             {
-                                l_screen->charSelect[i] = new_char;
+                                ConnectScreen::g_charSelect[i] = new_char;
                                 break;
                             }
                         }
@@ -764,13 +761,15 @@ int GameMain(const CmdLineSetup_t &setup)
 
                     if(i <= (int)Controls::g_InputMethods.size())
                         Controls::g_InputMethods.push_back(nullptr);
+
+                    XMessage::g_session.init_char_select = ConnectScreen::g_charSelect;
                 }
 
                 QuickReconnectScreen::g_active = true;
 
-                // smbx2compat: StartEpisode() takes the players from the session, as the menu sets it
-                XMessage::g_session.init_char_select = l_screen->charSelect;
-
+#ifdef THEXTECH_ENABLE_SDL_NET
+                XMessage::g_session.init_save_configs = (SelectWorld[selWorld].bugfixes_on_by_default) ? 1 : 2; // modern (1) or classic (2) depending on defaults
+#endif
                 StartEpisode();
             }
         }
@@ -1027,6 +1026,9 @@ int GameMain(const CmdLineSetup_t &setup)
             Integrator::clearLevelName();
             Integrator::clearEditorFile();
             FontManager::clearAllCustomFonts();
+            XMessage::EndSession();
+
+            CloseSave();
 
             BattleIntro = 0;
             BattleOutro = 0;
@@ -1103,9 +1105,8 @@ int GameMain(const CmdLineSetup_t &setup)
             Screens[0] = *l_screen;
             l_screen = &Screens[0];
 
-            // reset non-local screens' charSelect
-            for(int s = 1; s < maxNetplayClients; s++)
-                Screens[s].charSelect = {};
+            // reset charSelect
+            ConnectScreen::g_charSelect = {};
 
             // reinitialize the screens (resets multiplayer preferences and restores state disrupted by reassigning Screens[0])
             InitScreens();
@@ -1213,8 +1214,6 @@ int GameMain(const CmdLineSetup_t &setup)
             // Update graphics before loop begin (to process inital lazy-unpacking of used sprites)
             GraphicsLazyPreLoad();
             resetFrameTimer();
-            // Clear the speed-runner timer
-            speedRun_resetTotal();
 
             lunaLoad();
 #ifdef ENABLE_XTECH_LUA
@@ -1824,6 +1823,12 @@ int GameMain(const CmdLineSetup_t &setup)
 
 void EditorLoop()
 {
+    if(GamePaused != PauseCode::None)
+    {
+        PauseLoop();
+        return;
+    }
+
     Controls::Update();
     Integrator::sync();
     UpdateEditor();
@@ -2584,13 +2589,19 @@ static void s_InitPlayersFromCharSelect()
         }
     }
 
-    for(int i = (int)Controls::g_InputMethods.size() - 1; i >= l_screen->player_count; i--)
+    for(int i = (int)Controls::g_InputMethods.size() - 1; i >= 0 && ConnectScreen::g_charSelect[i] == 0; i--)
         Controls::DeleteInputMethodSlot(i);
 }
 
 void StartEpisode()
 {
+    // Update controllers and game config
     XMessage::InitSession();
+
+#ifdef THEXTECH_ENABLE_SDL_NET
+    const auto& status = *XMessage::GetClientStatus();
+    l_screen = &Screens[status.client_index];
+#endif
 
     For(A, 1, numCharacters)
     {
@@ -2639,6 +2650,12 @@ void StartEpisode()
     std::string recentWorldIntroPrev = g_recentWorldIntro;
     bool doSaveConfig = false;
 
+#ifdef THEXTECH_ENABLE_SDL_NET
+    if(status.client_state >= XMessage::CLIENT_GUEST)
+    {
+        // don't change anything if joining a game
+    } else
+#endif
     if((numPlayers == 1 || g_config.compatibility_mode != Config_t::COMPAT_SMBX13) && g_recentWorld1p != wPath)
     {
         g_recentWorld1p = wPath;
@@ -2757,6 +2774,9 @@ void StartEpisode()
 
 void StartBattleMode()
 {
+#ifdef THEXTECH_ENABLE_SDL_NET
+    XMessage::g_session.init_save_configs = 1; // init to modern mode
+#endif
     XMessage::InitSession();
 
     int A = 0;
@@ -2770,6 +2790,10 @@ void StartBattleMode()
     }
 
     s_InitPlayersFromCharSelect();
+
+    // update resolution for session
+    UpdateInternalRes();
+    XMessage::PushMessage({XMessage::Type::multiplayer_prefs, (uint8_t)g_config.two_screen_mode.m_value, (uint8_t)g_config.four_screen_mode.m_value});
 
     for(int i = 1; i <= numPlayers; i++)
     {

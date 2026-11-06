@@ -59,6 +59,7 @@
 #include "npc_traits.h"
 #include "npc_special_data.h"
 #include "main/smbx2_ids.h" // smbx2compat
+#include "phys_env.h"
 #include "graphics/gfx_camera.h"
 #include "graphics/gfx_update.h"
 #include "npc/npc_activation.h"
@@ -104,11 +105,7 @@ static const char* s_improper_rect_warning = "Attempted to set %s %d %s to %d, s
 static const char* s_destroy_event_warning = "Block 186 or 457 has a destroy event. TheXTech does not match SMBX 1.3 logic in this case. A vanilla speedrun is not fully valid.";
 
 // used to signal a total failure in a callback
-#ifdef PGEFL_CALLBACK_API
 using callback_error = PGE_FileFormats_misc::callback_error;
-#else
-using callback_error = std::runtime_error;
-#endif
 
 [[ noreturn ]] void priv_FeatureLevelError(const std::string& errMsg, int reqFeatureLevel, int curFeatureLevel)
 {
@@ -192,7 +189,6 @@ struct LevelLoad
     SaveInfoInit si;
 
     int numPlayerStart = 0;
-    bool playerStartSet[3] = {false, false, false}; // smbx2compat: by player number
 
     layerindex_t layers_finalized = 0;
     eventindex_t events_finalized = 0;
@@ -290,11 +286,7 @@ struct LevelLoad
     }
 };
 
-#ifdef PGEFL_CALLBACK_API
 LevelLoadCallbacks OpenLevel_SetupCallbacks(LevelLoad& load);
-#else
-bool OpenLevel_Unpack(LevelLoad& load, LevelData& lvl);
-#endif
 
 void OpenLevel_FixLayersEvents(const LevelLoad& load);
 
@@ -385,7 +377,6 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
 
     load.si.begin(g_curLevelMedals.should_initialize());
 
-#ifdef PGEFL_CALLBACK_API
     LevelLoadCallbacks callbacks = OpenLevel_SetupCallbacks(load);
     if(!FileFormats::OpenLevelFileT(input, callbacks))
     {
@@ -393,22 +384,6 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
         load.si.on_error();
         return false;
     }
-#else
-    LevelData lvl;
-    if(!FileFormats::OpenLevelFileT(input, lvl))
-    {
-        pLogWarning("Error of level \"%s\" file loading: %s (line %ld).",
-                    FilePath.c_str(),
-                    lvl.meta.ERROR_info.c_str(),
-                    lvl.meta.ERROR_linenum);
-        load.si.on_error();
-        return false;
-    }
-
-    LOAD_SCREEN_UPDATE("level file read"); // smbx2compat
-    if(!OpenLevel_Unpack(load, lvl))
-        return false;
-#endif
 
     LOAD_SCREEN_UPDATE("level objects"); // smbx2compat
     OpenLevel_FixLayersEvents(load);
@@ -416,7 +391,6 @@ bool OpenLevelData(PGE_FileFormats_misc::TextInput& input, const std::string Fil
     return true;
 }
 
-#ifdef PGEFL_CALLBACK_API
 void OpenLevel_Error(void*, FileFormatsError& e)
 {
     pLogWarning("Error of level file loading: %s (line %ld).",
@@ -425,13 +399,8 @@ void OpenLevel_Error(void*, FileFormatsError& e)
 
     MessageText = std::move(e.ERROR_info);
 }
-#endif
 
-#ifdef PGEFL_CALLBACK_API
 bool OpenLevel_Head(void* userdata, LevelHead& head)
-#else
-bool OpenLevel_Head(void* userdata, LevelData& head)
-#endif
 {
     LevelLoad& load = *static_cast<LevelLoad*>(userdata);
 
@@ -441,13 +410,9 @@ bool OpenLevel_Head(void* userdata, LevelData& head)
 
     constexpr unsigned int engineFeatureLevel = V_FEATURE_LEVEL;
 
-#ifdef PGEFL_CALLBACK_API
     FileFormat = head.RecentFormat;
     unsigned int reqFeatureLevel = head.engineFeatureLevel;
-#else
-    FileFormat = head.meta.RecentFormat;
-    unsigned int reqFeatureLevel = head.meta.engineFeatureLevel;
-#endif
+    LevelTargetsEngine = (head.configPackId == "TheXTech" || head.configPackId == "SMBXT");
 
     if(reqFeatureLevel > engineFeatureLevel)
         priv_FeatureLevelError(g_gameStrings.errorTooOldEngine, reqFeatureLevel, engineFeatureLevel);
@@ -606,72 +571,76 @@ bool OpenLevel_PlayerStart(void* userdata, PlayerPoint& p)
 {
     LevelLoad& load = *static_cast<LevelLoad*>(userdata);
 
-    if(load.numPlayerStart == 2)
-        return false;
+    int A = p.id;
 
+    // smbx2compat: also a point without a player number (SMBX2 and PGE go by ID too)
+    if(A > 2 || A < 1)
     {
-        // smbx2compat: use the startpoint's ID field, as SMBX2 and PGE do. LVLX files
-        // can list player 2's point first (SMATRS 1-3), which put player 1 there.
-        int A;
-        if((p.id == 1 || p.id == 2) && !load.playerStartSet[p.id])
-            A = (int)p.id;
-        else
-            A = load.playerStartSet[1] ? 2 : 1;
-
-        load.playerStartSet[A] = true;
-        load.numPlayerStart++;
-
-        PlayerStart[A].X = p.x;
-        PlayerStart[A].Y = p.y;
-        PlayerStart[A].Width = p.w;
-        PlayerStart[A].Height = p.h;
-
-        // don't allow improper rects
-        if(PlayerStart[A].Width < 0)
-        {
-            pLogWarning(s_improper_rect_warning, "PlayerStart", A, "Width", (int)p.w);
-            PlayerStart[A].Width = 0;
-        }
-
-        if(PlayerStart[A].Height < 0)
-        {
-            pLogWarning(s_improper_rect_warning, "PlayerStart", A, "Height", (int)p.h);
-            PlayerStart[A].Height = 0;
-        }
-
-        // Width and height are zero in LVLX files
-        // This indicates SMBX-based values for height, not the values of the actual asset pack
-        if(PlayerStart[A].Width == 0)
-            PlayerStart[A].Width = 24;
-
-        if(PlayerStart[A].Height == 0)
-        {
-            if(A == 1)
-                PlayerStart[A].Height = 54;
-            else if(A == 2)
-                PlayerStart[A].Height = 60;
-            else
-                PlayerStart[A].Height = 32;
-        }
-
-        // turn into size compatible with in-game editor UI
-        if(LevelEditor)
-        {
-            PlayerStart[A].X += PlayerStart[A].Width / 2;
-            PlayerStart[A].Y += PlayerStart[A].Height;
-
-            PlayerStart[A].Width = Physics.PlayerWidth[A][2];
-            PlayerStart[A].Height = Physics.PlayerHeight[A][2];
-
-            PlayerStart[A].X -= PlayerStart[A].Width / 2;
-            PlayerStart[A].Y -= PlayerStart[A].Height;
-        }
-
-        PlayerStart[A].Direction = p.direction;
-
-        if(load.numPlayerStart == 2)
+        // If player 1 is not set, forward this extra point to Player 1
+        if(PlayerStart[1].Width != 0 || PlayerStart[1].Height != 0)
             return false;
+
+        // Set data to first player
+        A = 1;
     }
+
+    // Set maximum of A
+    if(A > load.numPlayerStart)
+        load.numPlayerStart = A;
+
+    auto &plr = PlayerStart[A];
+
+    plr.X = p.x;
+    plr.Y = p.y;
+    plr.Width = p.w;
+    plr.Height = p.h;
+
+    // don't allow improper rects
+    if(plr.Width < 0)
+    {
+        pLogWarning(s_improper_rect_warning, "PlayerStart", A, "Width", (int)p.w);
+        plr.Width = 0;
+    }
+
+    if(plr.Height < 0)
+    {
+        pLogWarning(s_improper_rect_warning, "PlayerStart", A, "Height", (int)p.h);
+        plr.Height = 0;
+    }
+
+    // Width and height are zero in LVLX files
+    // This indicates SMBX-based values for height, not the values of the actual asset pack
+    if(plr.Width == 0)
+        plr.Width = 24;
+
+    if(plr.Height == 0)
+    {
+        if(p.id == 1)
+            plr.Height = 54;
+        else if(p.id == 2)
+            plr.Height = 60;
+        else
+            plr.Height = 32;
+    }
+
+    // turn into size compatible with in-game editor UI
+    if(LevelEditor)
+    {
+        plr.X += plr.Width / 2;
+        plr.Y += plr.Height;
+
+        plr.Width = Physics.PlayerWidth[A][2];
+        plr.Height = Physics.PlayerHeight[A][2];
+
+        plr.X -= plr.Width / 2;
+        plr.Y -= plr.Height;
+    }
+
+    plr.Direction = p.direction;
+
+    // If Player 1 was not yet set, copy player 2's value to Player 1 (A fallback for levels where Player 2 is only set)
+    if(A == 2 && PlayerStart[1].Width == 0 && PlayerStart[1].Height == 0)
+        PlayerStart[1] = PlayerStart[2];
 
     return true;
 }
@@ -828,6 +797,7 @@ bool OpenLevel_Event(void* userdata, LevelSMBX64Event& e)
     return true;
 }
 
+
 bool OpenLevel_Block(void* userdata, LevelBlock& b)
 {
     LevelLoad& load = *static_cast<LevelLoad*>(userdata);
@@ -864,7 +834,7 @@ bool OpenLevel_Block(void* userdata, LevelBlock& b)
             block.Location.Height = 0;
         }
 
-        block.Type = int(b.id);
+        block.Type = BlockIDFromFile(int(b.id)); // smbx2compat: TheXTech's own blocks (smbx2_ids.h)
         block.DefaultType = block.Type;
 
         if(b.npc_id > 0)
@@ -907,7 +877,7 @@ bool OpenLevel_Block(void* userdata, LevelBlock& b)
         block.TriggerHit = load.FindEvent(b.event_hit);
         block.TriggerLast = load.FindEvent(b.event_emptylayer);
 
-        if((block.Type == 186 || block.Type == 457) && (block.TriggerDeath != EVENT_NONE || block.TriggerLast != EVENT_NONE))
+        if((block.Type == BLKID_RED_BRICK || block.Type == BLKID_GRY_BRICK) && (block.TriggerDeath != EVENT_NONE || block.TriggerLast != EVENT_NONE))
         {
             pLogWarningS(s_destroy_event_warning);
 
@@ -918,7 +888,13 @@ bool OpenLevel_Block(void* userdata, LevelBlock& b)
             }
         }
 
-        if(IF_OUTRANGE(block.Type, 0, maxBlockType) || block.Type == BLKID_CONVEYOR_L_CONV || block.Type == BLKID_CONVEYOR_R_CONV) // Drop ID to 1 for blocks of out of range IDs
+        if(block.Type >= BLKID_MAZE_START && block.Type <= BLKID_MAZE_END && !LevelEditor)
+        {
+            if(!PhysEnv_CreateMazeZone(block))
+                return false;
+        }
+
+        if(IF_OUTRANGE(block.Type, 0, BLKID_NORMAL_END)) // Drop ID to 1 for blocks of out of range IDs
         {
             pLogWarning("Block-%d ID is out of range (max types %d), reset to Block-1", block.Type, maxBlockType);
             block.Type = 1;
@@ -965,8 +941,8 @@ bool OpenLevel_Background(void* userdata, LevelBGO& b)
         bgo.Layer = load.FindLayer(b.layer);
         bgo.extx = (vbint_t)b.extx;
         bgo.exty = (vbint_t)b.exty;
-        bgo.Location.Width = GFXBackground[bgo.Type].w;
-        bgo.Location.Height = BackgroundHeight[bgo.Type];
+        // bgo.Location.Width = GFXBackground[bgo.Type].w;
+        // bgo.Location.Height = BackgroundHeight[bgo.Type];
 
         bgo.SetSortPriority(b.z_mode, std::round(b.z_offset));
         bgo.CustomParams = keepObjectCustomParams(b.meta.custom_params); // smbx2compat
@@ -1237,6 +1213,7 @@ bool OpenLevel_Warp(void* userdata, LevelDoor& w)
         warp.noEntranceScene = w.hide_entering_scene;
 
         warp.stoodRequired = w.stood_state_required;
+        warp.tinyRequired = w.special_state_required;
         warp.transitEffect = w.transition_effect;
 
         warp.Entrance.Height = w.height_i;
@@ -1298,6 +1275,16 @@ bool OpenLevel_Water(void* userdata, LevelPhysEnv& w)
 
 void OpenLevel_FixLayersEvents(const LevelLoad& load)
 {
+    // Add the blank section. In old versions of PGE-FL, numSections
+    // was automatically padded to 21. This meant that objects with
+    // position (0, 0) would go to the blank section (with the index
+    // one above the last real section).
+    // Fixes a bug where the music would not play properly in a level
+    // where the player has no start point, and initalizes to a Warps
+    // in Section 0.
+    if(numSections < 21)
+        numSections++;
+
     // Everything is loaded.
     // Now we fix the layers and events that got temporary indexes.
     // We also do some NPC logic that depends on the section boundaries.
@@ -1466,8 +1453,6 @@ void OpenLevel_FixLayersEvents(const LevelLoad& load)
     LAYER_USED_P_SWITCH = FindLayer(LAYER_USED_P_SWITCH_TITLE);
 }
 
-#ifdef PGEFL_CALLBACK_API
-
 LevelLoadCallbacks OpenLevel_SetupCallbacks(LevelLoad& load)
 {
     LevelLoadCallbacks callbacks;
@@ -1488,75 +1473,6 @@ LevelLoadCallbacks OpenLevel_SetupCallbacks(LevelLoad& load)
 
     return callbacks;
 }
-
-#else // #ifdef PGEFL_CALLBACK_API
-
-bool OpenLevel_Unpack(LevelLoad& load, LevelData& lvl)
-{
-    try
-    {
-        OpenLevel_Head(&load, lvl);
-
-        for(auto &s : lvl.sections)
-        {
-            if(!OpenLevel_Section(&load, s))
-                break;
-        }
-        for(auto &p : lvl.players)
-        {
-            if(!OpenLevel_PlayerStart(&load, p))
-                break;
-        }
-        for(auto &b : lvl.blocks)
-        {
-            if(!OpenLevel_Block(&load, b))
-                break;
-        }
-        for(auto &b : lvl.bgo)
-        {
-            if(!OpenLevel_Background(&load, b))
-                break;
-        }
-        for(auto &n : lvl.npc)
-        {
-            if(!OpenLevel_NPC(&load, n))
-                break;
-        }
-        for(auto &w : lvl.doors)
-        {
-            if(!OpenLevel_Warp(&load, w))
-                break;
-        }
-        for(auto &w : lvl.physez)
-        {
-            if(!OpenLevel_Water(&load, w))
-                break;
-        }
-        for(auto &l : lvl.layers)
-        {
-            if(!OpenLevel_Layer(&load, l))
-                break;
-        }
-        for(auto &e : lvl.events)
-        {
-            if(!OpenLevel_Event(&load, e))
-                break;
-        }
-    }
-    catch(const callback_error& e)
-    {
-        pLogWarning("Error of level \"%s\" file loading: %s.",
-                    lvl.meta.filename.c_str(),
-                    e.what());
-
-        MessageText = e.what();
-
-        return false;
-    }
-
-    return true;
-}
-#endif // #else // #ifdef PGEFL_CALLBACK_API
 
 void OpenLevelDataPost()
 {
@@ -1662,6 +1578,8 @@ void OpenLevelDataPost()
     else
         qSortBackgrounds(1, numBackground, false);
 
+    CalcBGOSize();
+
     // FindBlocks();
     UpdateBackgrounds();
     // FindSBlocks();
@@ -1679,7 +1597,11 @@ void OpenLevelDataPost()
         // check if layer is a saved layer
         for(int i = 0; i < numSavedLayers; i++)
         {
-            if(SDL_strcasecmp(Layer[A].Name.c_str(), SavedLayers[i].Name.data()) == 0)
+            // SavedLayer_t::Name is a buffer but not necessarily a valid C string
+            if(Layer[A].Name.size() > sizeof(SavedLayer_t::Name))
+                break;
+
+            if(SDL_strncasecmp(Layer[A].Name.c_str(), SavedLayers[i].Name.data(), sizeof(SavedLayer_t::Name)) == 0)
             {
                 Layer[A].SavedLayer = i + 1;
                 if(!LevelEditor)
@@ -1696,6 +1618,9 @@ void OpenLevelDataPost()
 
     if(LevelEditor)
     {
+        BlockFrame[BLKID_TRANSPARENT] = 1;
+        BlockFrame[BLKID_TRANSPARENT_SEMISOLID] = 1;
+
         if(numSections < 21)
             numSections = 21;
 
@@ -1704,6 +1629,9 @@ void OpenLevelDataPost()
     }
     else
     {
+        BlockFrame[BLKID_TRANSPARENT] = 0;
+        BlockFrame[BLKID_TRANSPARENT_SEMISOLID] = 0;
+
         FindStars();
         LevelMacro = LEVELMACRO_OFF;
         for(int A = 0; A < numSections; A++) // Automatically correct 608 section height to 600
@@ -1727,10 +1655,10 @@ void OpenLevelDataPost()
                 bgo = Background_t();
                 bgo.Layer = w.Layer;
                 bgo.Hidden = w.Hidden;
-                bgo.Location.Width = 24;
-                bgo.Location.Height = 24;
-                bgo.Location.Y = w.Entrance.Y - bgo.Location.Height;
-                bgo.Location.X = w.Entrance.X + (w.Entrance.Width - bgo.Location.Width) / 2;
+                // bgo.Location.Width = 24;
+                // bgo.Location.Height = 24;
+                bgo.Location.Y = w.Entrance.Y - 24;
+                bgo.Location.X = w.Entrance.X + (w.Entrance.Width - 24) / 2;
                 bgo.Type = 160;
                 syncLayers_BGO(B);
 
@@ -1741,8 +1669,8 @@ void OpenLevelDataPost()
                     auto &bgo2 = Background[B];
                     bgo2 = bgo;
                     bgo2.Location = bgo.Location;
-                    bgo2.Location.Y = w.Exit.Y - bgo2.Location.Height;
-                    bgo2.Location.X = w.Exit.X + (w.Exit.Width - bgo2.Location.Width) / 2;
+                    bgo2.Location.Y = w.Exit.Y - 24;
+                    bgo2.Location.X = w.Exit.X + (w.Exit.Width - 24) / 2;
                     syncLayers_BGO(B);
                 }
             }
@@ -1754,9 +1682,10 @@ void OpenLevelDataPost()
                 bgo = Background_t();
                 bgo.Layer = w.Layer;
                 bgo.Hidden = w.Hidden;
-                bgo.Location = w.Entrance;
+                bgo.Location.X = w.Entrance.X;
+                bgo.Location.Y = w.Entrance.Y;
                 bgo.Type = 98;
-                bgo.Location.Width = 16;
+                // bgo.Location.Width = 16;
                 syncLayers_BGO(B);
 
                 if(w.twoWay)
@@ -1765,8 +1694,9 @@ void OpenLevelDataPost()
                     numLocked++;
                     auto &bgo2 = Background[B];
                     bgo2 = bgo;
-                    bgo2.Location = w.Exit;
-                    bgo2.Location.Width = 16;
+                    bgo2.Location.X = w.Exit.X;
+                    bgo2.Location.Y = w.Exit.Y;
+                    // bgo2.Location.Width = 16;
                     syncLayers_BGO(B);
                 }
             }
@@ -1811,6 +1741,7 @@ void ClearLevel()
     IsHubLevel = false;
     // default file format if level header is missing
     FileFormat = FileFormats::LVL_PGEX;
+    LevelTargetsEngine = true;
     // removed because the same logic is called inside of LoadCustomConfig()
     // ResetCustomConfig();
     SetupPhysics();
@@ -1835,6 +1766,7 @@ void ClearLevel()
 #endif
 
     UnloadCustomGFX();
+    ResetBGOSize();
     doShakeScreenClear();
     ResetCameraPanning();
     treeLevelCleanAll();
@@ -1877,7 +1809,6 @@ void ClearLevel()
     // maxStars = 0;
     g_curLevelMedals.reset_lvl();
 
-    InvincibilityTime = 0;
     PSwitchTime = 0;
     PSwitchStop = 0;
     PSwitchScript(0); // smbx2compat
@@ -2004,30 +1935,12 @@ void FindStars()
                     warp.curStars++;
             }
 
-            if(warp.save_info().inited())
-                continue;
-
             // set the warp's save info index
 
-            // check world levels
-            for(uint16_t idx = 1; idx != 0x7FFF && idx <= numWorldLevels; ++idx)
+            // check existing level save entries
+            for(uint16_t idx = 0; idx != 0xFFFF && idx < LevelSaveEntries.size(); ++idx)
             {
-                const auto& l = WorldLevel[idx];
-
-                if(l.FileName == lFile)
-                {
-                    warp.save_info_idx = 0x8000 + idx;
-                    break;
-                }
-            }
-
-            if(warp.save_info().inited())
-                continue;
-
-            // check existing level warp save entries
-            for(uint16_t idx = 0; idx != 0x7FFF && idx < LevelWarpSaveEntries.size(); ++idx)
-            {
-                const auto& e = LevelWarpSaveEntries[idx];
+                const auto& e = LevelSaveEntries[idx];
 
                 if(e.levelPath == lFile)
                 {
@@ -2039,8 +1952,8 @@ void FindStars()
             if(warp.save_info().inited())
                 continue;
 
-            // don't overflow the LevelWarpSaveEntries array
-            if(LevelWarpSaveEntries.size() >= 0x7FFF)
+            // don't overflow the LevelSaveEntries array
+            if(warp.save_info_idx == 0xFFFF && LevelSaveEntries.size() >= 0xFFFF)
                 continue;
 
             // add a new save entry if the file exists
@@ -2052,8 +1965,13 @@ void FindStars()
 
                 if(info.inited())
                 {
-                    warp.save_info_idx = LevelWarpSaveEntries.size();
-                    LevelWarpSaveEntries.push_back({lFile, info});
+                    if(warp.save_info_idx != 0XFFFF)
+                        LevelSaveEntries[warp.save_info_idx].save_info = info;
+                    else
+                    {
+                        warp.save_info_idx = LevelSaveEntries.size();
+                        LevelSaveEntries.push_back({lFile, info});
+                    }
                 }
             }
         }

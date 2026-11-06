@@ -31,6 +31,7 @@
 #include "lunamisc.h"
 #include "sprite_funcs.h"
 #include "csprite.h"
+#include "effect.h"
 #include "globals.h"
 #include "global_dirs.h"
 #include "player.h"
@@ -351,6 +352,9 @@ void Autocode::Do(bool init)
         }
 
         case AT_PlaySFX:
+        case AT_PlaySFXPausable:
+        case AT_PlaySFXSection:
+        case AT_PlaySFXSctPausable:
         {
             if(this->Length <= 1) // Play once when delay runs out
             {
@@ -364,7 +368,12 @@ void Autocode::Do(bool init)
                     {
                         //char* dbg = "CUSTOM SOUND PLAY DBG";
                         std::string full_path = g_dirCustom.resolveFileCaseAbs(GetS(MyString));
-                        PlayExtSound(full_path, (int)Param2, (int)(Param3 <= 0 ? 128 : Param3));
+                        PlayExtSound(full_path,
+                                    (int)Param2,
+                                    (int)(Param3 <= 0.0_n ? 128 : Param3),
+                                    m_Type == AT_PlaySFXPausable || m_Type == AT_PlaySFXSctPausable,
+                                    (m_Type == AT_PlaySFXSection || m_Type == AT_PlaySFXSctPausable) ? (int)Target : -1
+                        );
                     }
 
                 }
@@ -957,13 +966,13 @@ void Autocode::Do(bool init)
                 deccel = num_t::abs(deccel);
                 if(layer->SpeedX > 0)
                 {
-                    layer->SpeedX = numf_t((num_t)layer->SpeedX - deccel);
+                    layer->SpeedX = tempf_t((num_t)layer->SpeedX - deccel);
                     if(layer->SpeedX < 0)
                         LayerF::Stop(layer);
                 }
                 else if(layer->SpeedX < 0)
                 {
-                    layer->SpeedX = numf_t((num_t)layer->SpeedX + deccel);
+                    layer->SpeedX = tempf_t((num_t)layer->SpeedX + deccel);
                     if(layer->SpeedX > 0)
                         LayerF::Stop(layer);
                 }
@@ -981,13 +990,13 @@ void Autocode::Do(bool init)
                 deccel = num_t::abs(deccel);
                 if(layer->SpeedY > 0)
                 {
-                    layer->SpeedY = numf_t((num_t)layer->SpeedY - deccel);
+                    layer->SpeedY = tempf_t((num_t)layer->SpeedY - deccel);
                     if(layer->SpeedY < 0)
                         LayerF::Stop(layer);
                 }
                 else if(layer->SpeedY < 0)
                 {
-                    layer->SpeedY = numf_t((num_t)layer->SpeedY + deccel);
+                    layer->SpeedY = tempf_t((num_t)layer->SpeedY + deccel);
                     if(layer->SpeedY > 0)
                         LayerF::Stop(layer);
                 }
@@ -1227,6 +1236,46 @@ void Autocode::Do(bool init)
             break;
         }
 
+        case AT_ShakeScreen:
+        {
+            if(this->Length >= 1)
+            {
+                int section = SDL_atoi(GetS(MyString).data());
+                const auto &s = level[section >= 0 && section <= maxSections ? section : 0];
+                Location_t e;
+                e.X = s.X + 2;
+                e.Y = s.Y + 2;
+                e.Width = (s.Width - s.X) - 4;
+                e.Height = (s.Height - s.Y) - 4;
+                doShakeScreen((int)Target, (int)Param1, (int)Param2, (int)this->Length, (int)((double)Param3 * 1000.0), e);
+                expire();
+            }
+            break;
+        }
+
+        case AT_SpawnEffect:
+        {
+            if(this->Length <= 1) // Play once when delay runs out
+            {
+                vbint_t id = (vbint_t)Target;
+
+                if(id < 0 || id >= maxEffectType)
+                {
+                    expire();
+                    return; // Invalid!
+                }
+
+                Location_t target;
+                target.Width = EffectWidth[id];
+                target.Height = EffectHeight[id];
+                target.X = Param1;
+                target.Y = Param2;
+                NewEffect((EFFID)(int)Target, target, (int)Param3);
+                expire();
+            }
+            break;
+        }
+
         // SPRITE FUNCTIONS
         case AT_LoadImage:
         {
@@ -1328,7 +1377,7 @@ void Autocode::DoPredicate(int target, int predicate)
     }
 
     // Else, do predicate
-    auto pred = (AutocodePredicate)predicate;
+    int pred = predicate;
     short tempint = 1;
 
     switch(pred)
@@ -1623,6 +1672,9 @@ static const std::unordered_map<std::string, AutocodeType> s_commandMap =
 
     {"SFX", AT_SFX},
     {"PlaySFX", AT_PlaySFX},
+    {"PlaySFXPausable", AT_PlaySFXPausable},
+    {"PlaySFXSection", AT_PlaySFXSection},
+    {"PlaySFXSctPausable", AT_PlaySFXSctPausable},
     {"StopSFX", AT_StopSFX},
     {"SFXPreLoad", AT_SFXPreLoad},
     {"SetMusic", AT_SetMusic},
@@ -1644,6 +1696,9 @@ static const std::unordered_map<std::string, AutocodeType> s_commandMap =
     {"DebugWindow", AT_DebugWindow},
 
     {"CollisionScan", AT_CollisionScan},
+
+    {"ShakeScreen", AT_ShakeScreen},
+    {"SpawnEffect", AT_SpawnEffect},
 
     {"LoadImage", AT_LoadImage},
     {"SpriteBlueprint", AT_SpriteBlueprint},

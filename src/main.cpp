@@ -36,10 +36,15 @@
 #include "main/library_import.h" // smbx2compat
 #include "main/screen_library.h" // smbx2compat
 #include "main/translate.h"
+#include "main/game_save.h"
 #include "core/language.h"
 #include "config.h"
 #include "controls.h"
 #include <AppPath/app_path.h>
+
+#if defined(THEXTECH_IOS) || defined(THEXTECH_TVOS)
+#   include "core/ios/extras.h"
+#endif
 
 #ifdef THEXTECH_INTERPROC_SUPPORTED
 #   include "capabilities.h"
@@ -80,8 +85,6 @@
 
 #ifdef __WII__
 #include <gccore.h>
-#include <ogc/if_config.h>
-#include <Logger/logger.h>
 #endif
 
 #ifdef __WIIU__
@@ -330,7 +333,7 @@ int main(int argc, char**argv)
 #   endif
 #endif
 
-    seedRandom(std::time(NULL));
+    seedRandom((int)std::time(NULL));
 
     testPlayer.fill(Player_t());
     for(int i = 1; i <= maxLocalPlayers; i++)
@@ -524,14 +527,6 @@ int main(int argc, char**argv)
         TCLAP::SwitchArg switchVerboseLog(std::string(), "verbose", "Enable log output into the terminal", false);
 
         TCLAP::UnlabeledMultiArg<std::string> inputFileNames("levelpath", "Path to level file or replay data to run the test", false, std::string(), "path to file");
-
-#ifdef THEXTECH_ENABLE_SDL_NET
-        TCLAP::ValueArg<std::string> server(std::string(), "server", "Server address", false, "", "");
-        cmd.add(&server);
-
-        TCLAP::ValueArg<std::string> room_key(std::string(), "room-key", "Room key", false, "", "");
-        cmd.add(&room_key);
-#endif
 
         cmd.add(&switchFrameSkip);
         cmd.add(&switchDisableFrameSkip);
@@ -727,7 +722,7 @@ int main(int argc, char**argv)
         if(switchVSync.isSet())
             g_config.render_vsync    = switchVSync.getValue();
 
-#ifndef NO_WINDOW_FOCUS_TRACKING
+#if !defined(NO_WINDOW_FOCUS_TRACKING) && !defined(MOBILE_WINDOW_FOCUS_TRACKING)
         if(switchNoPause.isSet())
             g_config.background_work = switchNoPause.getValue();
 
@@ -820,19 +815,6 @@ int main(int argc, char**argv)
 
         if(lang.isSet())
             g_config.language = lang;
-
-#ifdef THEXTECH_ENABLE_SDL_NET
-        if(!setup.testLevel.empty() && server.isSet())
-        {
-            XMessage::Connect(server.getValue().c_str());
-
-            uint32_t room_key_int = XMessage::RoomFromString(room_key.getValue());
-            if(!room_key_int)
-                XMessage::JoinNewRoom(XMessage::RoomInfo{});
-            else
-                XMessage::JoinRoom(room_key_int);
-        }
-#endif
     }
     catch(TCLAP::ArgException &e)   // catch any exceptions
     {
@@ -872,17 +854,6 @@ int main(int argc, char**argv)
         return 1;
     }
 
-
-#if defined(__WII__) && defined(THEXTECH_ENABLE_SDL_NET)
-    char localip[16] = {0};
-    char gateway[16] = {0};
-    char netmask[16] = {0};
-
-    // Configure the network interface
-    int if_ret = if_config ( localip, netmask, gateway, true, 20);
-    pLogInfo("Network init: %d %s", if_ret, localip);
-#endif
-
 #ifdef __APPLE__
     macosReceiveOpenFile();
     if(!g_fileToOpen.empty())
@@ -915,6 +886,8 @@ int main(int argc, char**argv)
 
     Integrator::quitIntegrations();
 
+    CloseSave();
+
 #ifdef ENABLE_XTECH_LUA
     if(!xtech_lua_quit())
         ret = 1;
@@ -944,6 +917,14 @@ int main(int argc, char**argv)
             window.close();
         }, 250);
     );
+#endif
+
+#if defined(THEXTECH_IOS)
+    ios_quit(ret); // Apple hates this, but we need it!
+#endif
+
+#if  defined(THEXTECH_TVOS)
+    tvos_quit(ret);
 #endif
 
     return ret;

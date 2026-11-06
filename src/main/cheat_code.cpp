@@ -165,7 +165,7 @@ static void moonWalk()
 
     for(int B = 1; B <= numWorldPaths; B++)
     {
-        tempLocation = WorldPath[B].Location;
+        tempLocation = WorldPath[B].FullLocation();
         tempLocation.X += 4;
         tempLocation.Y += 4;
         tempLocation.Width -= 8;
@@ -174,7 +174,7 @@ static void moonWalk()
 
         for(int C = 1; C <= numScenes; C++)
         {
-            if(CheckCollision(tempLocation, Scene[C].Location))
+            if(CheckCollision(tempLocation, Scene[C].FullLocation()))
                 Scene[C].Active = false;
         }
     }
@@ -517,6 +517,11 @@ static void sushiTime()
     grantPowerup(NPCID_AQUATIC_POWER, PLR_STATE_AQUATIC);
 }
 
+static void shrinkflation()
+{
+    grantPowerup(NPCID_TINY_POWER, PLR_STATE_TINY);
+}
+
 static void grantItemBox(NPCID npcid)
 {
     PlaySound(SFX_GotItem);
@@ -567,6 +572,11 @@ static void needAPlant()
 static void needAGun()
 {
     grantItemBox(NPCID_CANNONITEM);
+}
+
+static void deadeye()
+{
+    grantItemBox(NPCID_HOMING_CANNON);
 }
 
 static void needASwitch()
@@ -1465,10 +1475,10 @@ static void foundMyCarKey()
 
         bgo.Type = 35;
 
-        bgo.Location.Width = BackgroundWidth[35];
-        bgo.Location.Height = BackgroundHeight[35];
-        bgo.Location.X = pLoc.X + (pLoc.Width - bgo.Location.Width) / 2;
-        bgo.Location.Y = pLoc.Y + pLoc.Height - bgo.Location.Height;
+        // bgo.Location.Width = BackgroundWidth[35];
+        // bgo.Location.Height = BackgroundHeight[35];
+        bgo.Location.X = pLoc.X + (num_t::floor(pLoc.Width) - bgo.Width()) / 2;
+        bgo.Location.Y = pLoc.Y + pLoc.Height - bgo.Height();
 
         LevelMacroWhich = numBackground + numLocked + 1;
     }
@@ -1566,48 +1576,50 @@ static void setResDyn()
     setRes(0, 0);
 }
 
+static int s_custom_width, s_custom_height;
+
+static void s_heightCallback()
+{
+    if(TextEntryScreen::Text.empty())
+        return;
+
+    s_custom_height = 0; // just to suppress an unneeded warning
+
+    if((s_custom_height = (int)atol(TextEntryScreen::Text.c_str())) > 0)
+    {
+        setRes(s_custom_width, s_custom_height);
+    }
+    else
+        TextEntryScreen::Init("Invalid input. Game height:", s_heightCallback);
+}
+
+static void s_widthCallback()
+{
+    if(TextEntryScreen::Text.empty())
+        return;
+
+    s_custom_width = 0; // just to suppress an unneeded warning
+
+    if(TextEntryScreen::Text == "dyn" || (s_custom_width = (int)atol(TextEntryScreen::Text.c_str())) > 0)
+        TextEntryScreen::Init("Game height:", s_heightCallback);
+    else
+        TextEntryScreen::Init("Invalid input. Game width:", s_widthCallback);
+}
+
 static void setResCustom()
 {
-    int w, h;
-
-    std::string s = TextEntryScreen::Run("Game width:");
-    if(s.empty())
-        return;
-
-    w = 0; // just to suppress an unneeded warning
-
-    while(s != "dyn" && (w = atol(s.c_str())) <= 0)
-    {
-        s = TextEntryScreen::Run("Invalid input. Game width:");
-        if(s.empty())
-            return;
-    }
-
-    if(s == "dyn")
-        w = 0;
-
-    s = TextEntryScreen::Run("Game height:");
-    if(s.empty())
-        return;
-
-    while((h = atol(s.c_str())) <= 0)
-    {
-        s = TextEntryScreen::Run("Invalid input. Game height:");
-        if(s.empty())
-            return;
-    }
-
-    setRes(w, h);
+    TextEntryScreen::Init("Game width:", s_widthCallback);
 }
 
 
 
 
+static const uint8_t LOCAL_TWEAK = 2;
 struct CheatCodeDefault_t
 {
-    const char*key;
+    const char* key;
     void (*call)();
-    bool isCheat;
+    uint8_t isCheat; // special value 2 is for local-only tweaks
 };
 
 struct CheatCode_t
@@ -1615,7 +1627,7 @@ struct CheatCode_t
     char key[25];
     size_t keyLen;
     void (*call)();
-    bool isCheat;
+    uint8_t isCheat;
 };
 
 static const CheatCodeDefault_t s_cheatsListGlobalDefault[] =
@@ -1627,31 +1639,26 @@ static const CheatCodeDefault_t s_cheatsListGlobalDefault[] =
 #endif
     {"\x77\x6f\x68\x6c\x73\x74\x61\x6e\x64\x69\x73\x74\x73\x65\x68\x72\x67\x75\x74", redigitIsCool, false},
 
-    {"gifs2png", gifs2png, false},
+    {"gifs2png", gifs2png, LOCAL_TWEAK},
 
     // cheat to show the logical screens
-    {"logicscreen", logicScreen, false},
+    {"logicscreen", logicScreen, LOCAL_TWEAK},
 
     // cheat to allow editing any setting
-    {"edityourfriends", editYourFriends, false},
+    {"edityourfriends", editYourFriends, LOCAL_TWEAK},
 
     // resolution cheats
-    {"gameboyview", setResGb, false},
-    {"tinyview", setResGba, false},
-    {"gbaview", setResGba, false},
-    {"superbdemoadvance", setResGba, false},
-    {"ndsview", setResNds, false},
-    {"snesview", setResSnes, false},
-    {"vgaview", setResVga, false},
-    {"helloview", setResHello, false},
-    {"3dsview", setRes3ds, false},
-    {"smbxview", setResClassic, false},
-    {"aodview", setResClassic, false},
-    {"classicview", setResClassic, false},
-    {"hdview", setResHD, false},
-    {"dynview", setResDyn, false},
-    {"debugview", setResCustom, false},
-    {"customview", setResCustom, false},
+    {"gameboyview", setResGb, LOCAL_TWEAK},
+    {"gbaview", setResGba, LOCAL_TWEAK},
+    {"ndsview", setResNds, LOCAL_TWEAK},
+    {"snesview", setResSnes, LOCAL_TWEAK},
+    {"vgaview", setResVga, LOCAL_TWEAK},
+    {"helloview", setResHello, LOCAL_TWEAK},
+    {"3dsview", setRes3ds, LOCAL_TWEAK},
+    {"smbxview", setResClassic, LOCAL_TWEAK},
+    {"hdview", setResHD, LOCAL_TWEAK},
+    {"dynview", setResDyn, LOCAL_TWEAK},
+    {"customview", setResCustom, LOCAL_TWEAK},
 
     {nullptr, nullptr, false}
 };
@@ -1690,6 +1697,7 @@ static const CheatCodeDefault_t s_cheatsListLevelDefault[] =
     {"needanegg", needANegg, true},
     {"needaplant", needAPlant, true},
     {"needagun", needAGun, true},
+    {"deadeye", deadeye, true},
     {"needaswitch", needASwitch, true},
     {"needaclock", needAClock, true},
     {"needabomb", needABomb, true},
@@ -1745,8 +1753,8 @@ static const CheatCodeDefault_t s_cheatsListLevelDefault[] =
     {"wingman", wingMan, true},
     {"tooslow", tooSlow, true},
     {"ahippinandahoppin", ahippinAndAHopping, true}, {"jumpman", ahippinAndAHopping, true},
-    {"framerate", frameRate, false},
-    {"speeddemon", speedDemon, false},
+    {"framerate", frameRate, LOCAL_TWEAK},
+    {"speeddemon", speedDemon, LOCAL_TWEAK},
 
     {"getmeouttahere", getMeOuttaHere, true},
     {"newleaf", newLeaf, true},
@@ -1756,6 +1764,7 @@ static const CheatCodeDefault_t s_cheatsListLevelDefault[] =
     {"canttouchthis", cantTouchThis, true},
     {"waypastcool", wayPastCool, true},
     {"sushitime", sushiTime, true},
+    {"shrinkflation", shrinkflation, true},
 
     {"holytrinity", holyTrinity, true}, {"passerby", holyTrinity, true},
     {"essentials", essentials, true}, {"holyfour", essentials, true},
@@ -2145,7 +2154,7 @@ void run_cheat(XMessage::Message message)
 
     c.call();
 
-    if(c.isCheat)
+    if(c.isCheat == 1)
     {
         pLogDebug("Cheating detected!!! [%s]\n", c.key);
         Cheater = true;
@@ -2172,7 +2181,7 @@ static void processCheats(bool instant)
 
             XMessage::Message cheat_message{XMessage::Type::enter_code, set, (uint8_t)i};
 
-            if(instant)
+            if(instant || c.isCheat == LOCAL_TWEAK)
                 run_cheat(cheat_message);
             else
                 XMessage::PushMessage(cheat_message);

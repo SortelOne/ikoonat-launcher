@@ -57,6 +57,8 @@ protected:
     static bool m_blockRender;
 #endif
 
+    StdPicture m_gridTexture;
+
     virtual void getViewportSize(int* viewport_w, int* viewport_h) = 0;
 
     virtual void compileShaders(StdPicture &target);
@@ -100,6 +102,10 @@ public:
      */
     virtual void close();
 
+protected:
+    virtual void drawTouchPreview() = 0;
+
+public:
     /*!
      * \brief Call the repaint
      */
@@ -322,9 +328,10 @@ public:
 
     void renderSizableBlock(int xDst, int yDst, int wDst, int hDst, StdPicture &tx);
 
-    virtual void renderParticleSystem(StdPicture &tx,
-                                      double camX,
-                                      double camY);
+    virtual void renderGrid(int size, int xOff, int yOff);
+
+    virtual void renderParticleSystem(StdPicture &tx);
+    virtual void setCameraPos(int camX, int camY);
 
     // smbx2compat: textured triangles for SMBX2's Graphics.glDraw. xy: 2 floats per
     // vertex (viewport coordinates); uv: 2 floats per vertex in 0..1 of the picture,

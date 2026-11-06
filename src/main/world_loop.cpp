@@ -43,6 +43,7 @@
 #include "main/world_globals.h"
 #include "main/level_file.h"
 #include "main/speedrunner.h"
+#include "main/game_save.h"
 #include "main/screen_quickreconnect.h"
 #include "main/screen_connect.h"
 #include "main/screen_pause.h"
@@ -127,7 +128,7 @@ static inline bool s_worldUpdateMusic(const TinyLocation_t &loc)
     for(auto t : treeWorldMusicQuery(loc, false))
     {
         WorldMusic_t &mus = *t;
-        if(CheckCollision(loc, mus.Location))
+        if(CheckCollision(loc, mus.FullLocation()))
         {
             if(g_isWorldMusicNotSame(mus))
             {
@@ -465,7 +466,7 @@ resume_from_pause:
             for(auto t : treeWorldPathQuery(tempLocation, SORTMODE_ID))
             {
                 WorldPath_t &path = *t;
-                if(CheckCollision(tempLocation, path.Location) && path.Active)
+                if(CheckCollision(tempLocation, path.FullLocation()) && path.Active)
                 {
                     WorldPlayer[1].Move = 1;
                     break;
@@ -504,7 +505,7 @@ resume_from_pause:
             for(auto t : treeWorldPathQuery(tempLocation, SORTMODE_ID))
             {
                 WorldPath_t &path = *t;
-                if(CheckCollision(tempLocation, path.Location) && path.Active)
+                if(CheckCollision(tempLocation, path.FullLocation()) && path.Active)
                 {
                     WorldPlayer[1].Move = 2;
                     break;
@@ -542,7 +543,7 @@ resume_from_pause:
             for(auto t : treeWorldPathQuery(tempLocation, SORTMODE_ID))
             {
                 WorldPath_t &path = *t;
-                if(CheckCollision(tempLocation, path.Location) && path.Active)
+                if(CheckCollision(tempLocation, path.FullLocation()) && path.Active)
                 {
                     WorldPlayer[1].Move = 3;
                     break;
@@ -580,7 +581,7 @@ resume_from_pause:
             for(auto t : treeWorldPathQuery(tempLocation, SORTMODE_ID))
             {
                 WorldPath_t &path = *t;
-                if(CheckCollision(tempLocation, path.Location) && path.Active)
+                if(CheckCollision(tempLocation, path.FullLocation()) && path.Active)
                 {
                     WorldPlayer[1].Move = 4;
                     break;
@@ -899,7 +900,7 @@ void LevelPath(const WorldLevel_t &Lvl, int Direction, bool Skp)
             WorldPath_t &path = *t;
             if(!path.Active)
             {
-                if(CheckCollision(tempLocation, path.Location))
+                if(CheckCollision(tempLocation, path.FullLocation()))
                 {
                     PathPath(path, Skp);
                     hit = true;
@@ -927,7 +928,7 @@ void LevelPath(const WorldLevel_t &Lvl, int Direction, bool Skp)
             WorldPath_t &path = *t;
             if(!path.Active)
             {
-                if(CheckCollision(tempLocation, path.Location))
+                if(CheckCollision(tempLocation, path.FullLocation()))
                 {
                     PathPath(path, Skp);
                     hit = true;
@@ -955,7 +956,7 @@ void LevelPath(const WorldLevel_t &Lvl, int Direction, bool Skp)
             WorldPath_t &path = *t;
             if(!path.Active)
             {
-                if(CheckCollision(tempLocation, path.Location))
+                if(CheckCollision(tempLocation, path.FullLocation()))
                 {
                     PathPath(path, Skp);
                     hit = true;
@@ -983,7 +984,7 @@ void LevelPath(const WorldLevel_t &Lvl, int Direction, bool Skp)
             WorldPath_t &path = *t;
             if(!path.Active)
             {
-                if(CheckCollision(tempLocation, path.Location))
+                if(CheckCollision(tempLocation, path.FullLocation()))
                 {
                     PathPath(path, Skp);
                     hit = true;
@@ -1060,7 +1061,7 @@ void PlayerPath(WorldPlayer_t &p)
         for(auto t : treeWorldPathQuery(tempLocation, false))
         {
             WorldPath_t& path = *t;
-            if(CheckCollision(tempLocation, path.Location) && path.Active)
+            if(CheckCollision(tempLocation, path.FullLocation()) && path.Active)
             {
                 p.Move = B;
                 n_moves ++;
@@ -1095,7 +1096,7 @@ void PathPath(WorldPath_t &Pth, bool Skp)
     int B = 0;
 
     TinyLocation_t tempLocation;
-    tempLocation = Pth.Location;
+    tempLocation = Pth.FullLocation();
     tempLocation.X += 4;
     tempLocation.Y += 4;
     tempLocation.Width -= 8;
@@ -1107,7 +1108,7 @@ void PathPath(WorldPath_t &Pth, bool Skp)
         Scene_t &scene = *t;
         if(scene.Active)
         {
-            if(CheckCollision(tempLocation, scene.Location))
+            if(CheckCollision(tempLocation, scene.FullLocation()))
                 scene.Active = false;
         }
     }
@@ -1117,12 +1118,12 @@ void PathPath(WorldPath_t &Pth, bool Skp)
         Pth.Active = true;
 
         // set a temporary vScreen focus
-        vScreen[Z].tempX = Pth.Location.X + Pth.Location.Width / 2;
-        vScreen[Z].TempY = Pth.Location.Y + Pth.Location.Height / 2;
+        vScreen[Z].tempX = Pth.Location.X + 32 / 2; // Pth.Location.Width / 2
+        vScreen[Z].TempY = Pth.Location.Y + 32 / 2; // Pth.Location.Height / 2
         vScreen[Z].TempDelay = 1;
 
         // update section (no cam sound)
-        s_worldCheckSection(WorldPlayer[1], Pth.Location);
+        s_worldCheckSection(WorldPlayer[1], Pth.FullLocation());
         g_worldPlayCamSound = false;
 
         // force qScreen in modern mode
@@ -1171,7 +1172,7 @@ void PathPath(WorldPath_t &Pth, bool Skp)
             if(!path->Active)
             {
                 D_pLogDebugNA("Collision with path...");
-                if(CheckCollision(tempLocation, path->Location))
+                if(CheckCollision(tempLocation, path->FullLocation()))
                 {
                     D_pLogDebugNA("Collision with path FOUND...");
                     found = path;

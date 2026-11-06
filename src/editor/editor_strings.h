@@ -60,6 +60,7 @@ struct EditorContent
     std::string warpNeedStarCount;
     std::string warpNeedKey;
     std::string warpNeedFloor;
+    std::string warpNeedTiny;
     std::string warpStarLockMessage;
     std::string warpToMap;
     std::string warpLvlWarp;
@@ -133,6 +134,7 @@ struct EditorContent
     std::string letterCoordY;
 
     std::string toggleMagicBlock;
+    std::string gridSize;
 
     std::string testMagicHand;
     std::string testChar;
@@ -140,11 +142,6 @@ struct EditorContent
     std::string testBoot;
     std::string testPet;
 
-    std::string gridSnap;
-    std::string gridSnap32;
-    std::string gridSnap16;
-    std::string gridSnap8;
-    std::string gridSnap1;
     std::string objName;
 
     std::string eventsHeader;

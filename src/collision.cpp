@@ -21,6 +21,75 @@
 #include "globals.h"
 #include "collision.h"
 
+SpeedlessLocation_t Background_t::FullLocation() const
+{
+    SpeedlessLocation_t ret;
+    ret.X = Location.X;
+    ret.Y = Location.Y;
+    ret.Width = this->Width();
+    ret.Height = this->Height();
+    return ret;
+}
+
+TinyLocation_t Tile_t::FullLocation() const
+{
+    TinyLocation_t ret;
+    ret.X = Location.X;
+    ret.Y = Location.Y;
+    ret.Width = TileWidth[this->Type];
+    ret.Height = TileHeight[this->Type];
+    return ret;
+}
+
+TinyLocation_t Scene_t::FullLocation() const
+{
+    TinyLocation_t ret;
+    ret.X = Location.X;
+    ret.Y = Location.Y;
+    ret.Width = SceneWidth[this->Type];
+    ret.Height = SceneHeight[this->Type];
+    return ret;
+}
+
+TinyLocation_t WorldPath_t::FullLocation() const
+{
+    TinyLocation_t ret;
+    ret.X = Location.X;
+    ret.Y = Location.Y;
+    ret.Width = 32;
+    ret.Height = 32;
+    return ret;
+}
+
+TinyLocation_t WorldMusic_t::FullLocation() const
+{
+    TinyLocation_t ret;
+    ret.X = Location.X;
+    ret.Y = Location.Y;
+    ret.Width = 30;
+    ret.Height = 30;
+
+    if(LevelEditor)
+    {
+        ret.Width = 32;
+        ret.Height = 32;
+    }
+
+    return ret;
+}
+
+template<class T1>
+bool CheckCollision(const T1 &Loc1, const Background_t &bgo)
+{
+    return (Loc1.Y + Loc1.Height >= bgo.Location.Y) &&
+           (Loc1.Y <= bgo.Location.Y + bgo.Height()) &&
+           (Loc1.X + Loc1.Width >= bgo.Location.X) &&
+           (Loc1.X <= bgo.Location.X + bgo.Width());
+}
+
+template bool CheckCollision<Location_t>(const Location_t &Loc1, const Background_t &bgo);
+template bool CheckCollision<SpeedlessLocation_t>(const SpeedlessLocation_t &Loc1, const Background_t &bgo);
+
 // Intersect collisions
 bool CheckCollisionIntersect(const Location_t &Loc1, const Location_t &Loc2)
 {
@@ -103,52 +172,6 @@ bool NPCStartCollision(const Location_t &Loc1, const Location_t &Loc2)
     return tempNPCStartCollision;
 }
 #endif
-
-// Warp point collisions
-bool WarpCollision(const Location_t &Loc1, const SpeedlessLocation_t &entrance, int direction)
-{
-    bool hasCollision = false;
-
-    num_t X2 = 0;
-    num_t Y2 = 0;
-
-    if(direction == 3)
-    {
-        X2 = 0;
-        Y2 = 32;
-    }
-    else if(direction == 1)
-    {
-        X2 = 0;
-        Y2 = -30;
-    }
-    else if(direction == 2)
-    {
-        X2 = -31;
-        Y2 = 32;
-    }
-    else if(direction == 4)
-    {
-        X2 = 31;
-        Y2 = 32;
-    }
-
-    if(Loc1.X <= entrance.X + entrance.Width + X2)
-    {
-        if(Loc1.X + Loc1.Width >= entrance.X + X2)
-        {
-            if(Loc1.Y <= entrance.Y + entrance.Height + Y2)
-            {
-                if(Loc1.Y + Loc1.Height >= entrance.Y + Y2)
-                {
-                    hasCollision = true;
-                }
-            }
-        }
-    }
-
-    return hasCollision;
-}
 
 // Whats side the collision happened
 int FindCollision(const Location_t &Loc1, const Location_t &Loc2)
@@ -441,6 +464,17 @@ bool vScreenCollision(int A, const TinyLocation_t &Loc2)
            (-vScreen[A].X + vScreen[A].Width >= Loc2.X) &&
            (-vScreen[A].Y <= Loc2.Y + Loc2.Height) &&
            (-vScreen[A].Y + vScreen[A].Height >= Loc2.Y);
+}
+
+bool vScreenCollision(int A, const Background_t &bgo)
+{
+    if(A == 0)
+        return true;
+
+    return (-vScreen[A].X + vScreen[A].Width >= bgo.Location.X) &&
+           (-vScreen[A].X <= bgo.Location.X + bgo.Width()) &&
+           (-vScreen[A].Y + vScreen[A].Height >= bgo.Location.Y) &&
+           (-vScreen[A].Y <= bgo.Location.Y + bgo.Height());
 }
 
 #if 0

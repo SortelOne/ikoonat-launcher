@@ -65,6 +65,7 @@ extern "C"
 #include "config.h"
 #include "core/msgbox.h"
 #include "game_main.h"
+#include "main/game_save.h" // smbx2compat: SaveGame()
 #include "npc_traits.h"
 #include "npc_constant_traits.h" // smbx2compat: mem() NPC type arrays
 #include "screen.h" // smbx2compat: mem() camera arrays
@@ -1101,6 +1102,18 @@ static void forEach(int type, luabind::object callback)
 }
 
 // getPermID: returns the 1-based array index of this BGO
+// smbx2compat: TheXTech keeps only a BGO's position; its size comes from the type
+static SpeedlessLocation_t bgo_getLocation(const Background_t *b)
+{
+    return b->FullLocation();
+}
+
+static void bgo_setLocation(Background_t *b, const SpeedlessLocation_t &loc)
+{
+    b->Location.X = loc.X;
+    b->Location.Y = loc.Y;
+}
+
 static int bgo_getPermID(Background_t *b)
 {
     if(!b) return -1;
@@ -1905,16 +1918,42 @@ static void worldmap_ensureSaveInfo(int idx)
 {
     if(idx < 1 || idx > numWorldLevels) return;
     auto &l = WorldLevel[idx];
-    if(l.save_info.inited()) return;
+    if(l.save_info().inited()) return;
     if(l.FileName.empty()) return;
 
     std::string lFile = l.FileName;
     addMissingLvlSuffix(lFile);
+
+    // smbx2compat: TheXTech keeps save info in LevelSaveEntries (world_file.cpp)
+    if(l.save_info_idx == 0xFFFF)
+    {
+        for(uint16_t i = 0; i != 0xFFFF && i < LevelSaveEntries.size(); ++i)
+        {
+            if(LevelSaveEntries[i].levelPath == lFile)
+            {
+                l.save_info_idx = i;
+                break;
+            }
+        }
+    }
+
+    if(l.save_info().inited()) return;
+    if(l.save_info_idx == 0xFFFF && LevelSaveEntries.size() >= 0xFFFF) return;
+
     std::string fullPath = g_dirEpisode.resolveFileCaseExistsAbs(lFile);
     if(fullPath.empty()) return;
 
     LevelData tempData;
-    l.save_info = InitLevelSaveInfo(fullPath, tempData);
+    LevelSaveInfo_t info = InitLevelSaveInfo(fullPath, tempData);
+    if(!info.inited()) return;
+
+    if(l.save_info_idx != 0xFFFF)
+        LevelSaveEntries[l.save_info_idx].save_info = info;
+    else
+    {
+        l.save_info_idx = (uint16_t)LevelSaveEntries.size();
+        LevelSaveEntries.push_back({lFile, info});
+    }
 }
 
 // Returns the filename of the world level the player is standing on, or empty string
@@ -1932,7 +1971,7 @@ static int worldmap_getLevelMedalCount(const std::string &levelName)
     int idx = worldmap_findLevelIdx(levelName);
     if(idx < 0) return 0;
     worldmap_ensureSaveInfo(idx);
-    auto &info = WorldLevel[idx].save_info;
+    const auto info = WorldLevel[idx].save_info();
     return info.inited() ? info.max_medals : 0;
 }
 
@@ -1942,7 +1981,7 @@ static bool worldmap_isLevelMedalGotten(const std::string &levelName, int varian
     int idx = worldmap_findLevelIdx(levelName);
     if(idx < 0) return false;
     worldmap_ensureSaveInfo(idx);
-    auto &info = WorldLevel[idx].save_info;
+    const auto info = WorldLevel[idx].save_info();
     if(!info.inited()) return false;
     int vi = variant - 1;
     if(vi < 0 || vi >= 8) return false;
@@ -3494,7 +3533,7 @@ static luabind::object bgo_queryIntersecting(lua_State* L, double x1, double y1,
         const auto &loc = Background[i].Location;
         double bx = (double)loc.X;
         double by = (double)loc.Y;
-        if(x2 > bx && y2 > by && bx + (double)loc.Width > x1 && by + (double)loc.Height > y1)
+        if(x2 > bx && y2 > by && bx + Background[i].Width() > x1 && by + Background[i].Height() > y1)
             ret[n++] = i - 1;
     }
 
@@ -4508,7 +4547,7 @@ void xtech_lua_register_bindings(lua_State *L)
             .def_readwrite("Hidden", &Background_t::Hidden)
             .def_readwrite("Layer", &Background_t::Layer)
             .def_readwrite("SortPriority", &Background_t::SortPriority)
-            .def_readwrite("Location", &Background_t::Location)
+            .property("Location", &LuaBGO::bgo_getLocation, &LuaBGO::bgo_setLocation)
             .def_readwrite("extx", &Background_t::extx)
             .def_readwrite("exty", &Background_t::exty)
             .def("getPermID", &LuaBGO::bgo_getPermID),

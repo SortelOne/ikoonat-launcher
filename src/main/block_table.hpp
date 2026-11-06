@@ -330,9 +330,39 @@ inline Location_t extract_loc(MyRef_t obj)
 }
 
 template<>
+inline Location_t extract_loc(TileRef_t obj)
+{
+    return static_cast<Location_t>(obj->FullLocation());
+}
+
+template<>
+inline Location_t extract_loc(SceneRef_t obj)
+{
+    return static_cast<Location_t>(obj->FullLocation());
+}
+
+template<>
+inline Location_t extract_loc(WorldPathRef_t obj)
+{
+    return static_cast<Location_t>(obj->FullLocation());
+}
+
+template<>
+inline Location_t extract_loc(WorldMusicRef_t obj)
+{
+    return static_cast<Location_t>(obj->FullLocation());
+}
+
+template<>
 inline Location_t extract_loc(WorldLevelRef_t obj)
 {
     return obj->LocationOnscreen();
+}
+
+template<>
+inline Location_t extract_loc(BackgroundRef_t obj)
+{
+    return static_cast<Location_t>(obj->FullLocation());
 }
 
 template<>
@@ -366,7 +396,7 @@ inline Location_t extract_loc(NPCRef_t obj)
 template<class MyRef_t>
 inline Location_t extract_loc_layer(MyRef_t obj)
 {
-    Location_t loc = static_cast<Location_t>(obj->Location);
+    Location_t loc = extract_loc(obj);
 
     if(obj->Layer != LAYER_NONE)
     {

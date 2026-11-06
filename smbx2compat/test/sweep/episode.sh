@@ -7,7 +7,7 @@
 # the sweep's progress, errors and MemEmu warnings.
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
-D=$REPO/../TheXTech-data
+D=${XTECH_DATA:-$REPO/../TheXTech-data}
 E="$D/userdir/worlds/smbx/SMATRS Chapter 1+2"
 OUT=$1; SECS=$2; LIST=$3
 mkdir -p "$OUT"

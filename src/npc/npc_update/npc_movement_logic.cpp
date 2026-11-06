@@ -121,9 +121,9 @@ void NPCMovementLogic(int A, tempf_t& speedVar)
             NPC[A].Location.SpeedX = 2.5_n * NPC[A].Direction;
     }
     // Slow things down that shouldnt move
-    else if(NPC[A].Type == NPCID_CANNONENEMY || NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_JUMPER_S3 || NPC[A].Type == NPCID_SPRING ||
+    else if(NPC[A].Type == NPCID_CANNONENEMY || NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_JUMPER_S3 || NPC[A].Type == NPCID_SPRING || NPC[A].Type == NPCID_RED_SPRING ||
             NPC[A].Type == NPCID_KEY || NPC[A].Type == NPCID_COIN_SWITCH || NPC[A].Type == NPCID_TIME_SWITCH || NPC[A].Type == NPCID_TNT ||
-            NPC[A].Type == NPCID_GRN_BOOT || NPC[A].Type == NPCID_RED_BOOT || NPC[A].Type == NPCID_BLU_BOOT ||
+            NPC[A].Type == NPCID_GRN_BOOT || NPC[A].Type == NPCID_RED_BOOT || NPC[A].Type == NPCID_BLU_BOOT || NPC[A].Type == NPCID_HOMING_CANNON ||
             (NPC[A].Type == NPCID_SPIT_BOSS_BALL && NPC[A].Projectile) || NPC[A].Type == NPCID_TOOTHYPIPE || NPC[A].Type == NPCID_METALBARREL ||
             NPC[A].Type == NPCID_HPIPE_SHORT || NPC[A].Type == NPCID_HPIPE_LONG || NPC[A].Type == NPCID_VPIPE_SHORT || NPC[A].Type == NPCID_VPIPE_LONG ||
             (NPCIsVeggie(NPC[A].Type) && !NPC[A].Projectile) ||
@@ -182,7 +182,8 @@ void NPCMovementLogic(int A, tempf_t& speedVar)
     else if(NPC[A].Type == NPCID_POWER_S3 || NPC[A].Type == NPCID_SWAP_POWER || NPC[A].Type == NPCID_LIFE_S3 ||
             NPC[A].Type == NPCID_POISON || NPC[A].Type == NPCID_POWER_S1 || NPC[A].Type == NPCID_POWER_S4 ||
             NPC[A].Type == NPCID_LIFE_S1 || NPC[A].Type == NPCID_LIFE_S4 || NPC[A].Type == NPCID_BRUTE_SQUISHED ||
-            NPC[A].Type == NPCID_BIG_GUY || NPC[A].Type == NPCID_INVINCIBILITY_POWER || NPC[A].Type == NPCID_CYCLONE_POWER)
+            NPC[A].Type == NPCID_BIG_GUY || NPC[A].Type == NPCID_INVINCIBILITY_POWER || NPC[A].Type == NPCID_CYCLONE_POWER ||
+            NPC[A].Type == NPCID_TINY_POWER)
     {
         if(NPC[A].Direction == 0) // Move toward the closest player
         {
@@ -344,7 +345,7 @@ void NPCMovementLogic(int A, tempf_t& speedVar)
        NPC[A].Type != NPCID_CONVEYOR && NPC[A].Type != NPCID_YEL_PLATFORM && NPC[A].Type != NPCID_BLU_PLATFORM && NPC[A].Type != NPCID_GRN_PLATFORM &&
        NPC[A].Type != NPCID_RED_PLATFORM && NPC[A].Type != NPCID_STATUE_S3 && NPC[A].Type != NPCID_STATUE_S4 && NPC[A].Type != NPCID_STATUE_FIRE &&
        NPC[A].Type != NPCID_CANNONITEM && NPC[A].Type != NPCID_TOOTHYPIPE && NPC[A].Type != NPCID_TOOTHY && !(NPC[A].Type >= NPCID_PLATFORM_S3 &&
-       NPC[A].Type <= NPCID_PLATFORM_S1))
+       NPC[A].Type <= NPCID_PLATFORM_S1) && NPC[A].Type != NPCID_HOMING_CANNON)
     {
         if(NPC[A].Location.SpeedX < 0) // Find the NPCs direction
             NPC[A].Direction = -1;
@@ -467,7 +468,7 @@ void NPCMovementLogic(int A, tempf_t& speedVar)
                 NPC[A].Type != NPCID_STATUE_FIRE && !(NPC[A]->IsACoin && NPC[A].Special == 0) &&
                 NPC[A].Type != NPCID_CHECKER_PLATFORM && NPC[A].Type != NPCID_PLATFORM_S1 && NPC[A].Type != NPCID_PET_FIRE &&
                 NPC[A].Type != NPCID_GOALTAPE && NPC[A].Type != NPCID_LAVA_MONSTER && NPC[A].Type != NPCID_FLIER &&
-                NPC[A].Type != NPCID_ROCKET_FLIER &&
+                NPC[A].Type != NPCID_ROCKET_FLIER && NPC[A].Type != NPCID_HOMING_BULLET &&
                 ((NPC[A].Type != NPCID_WALL_BUG && NPC[A].Type != NPCID_WALL_SPARK && NPC[A].Type != NPCID_WALL_TURTLE)) &&
                 NPC[A].Type != NPCID_BOSS_FRAGILE && NPC[A].Type != NPCID_ITEM_BURIED &&
                 NPC[A].Type != NPCID_MAGIC_BOSS_BALL && NPC[A].Type != NPCID_JUMP_PLANT && NPC[A].Type != NPCID_LOCK_DOOR)

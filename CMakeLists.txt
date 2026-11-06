@@ -26,7 +26,7 @@ include(FindBacktrace)
 include(TestBigEndian)
 include(CheckIncludeFile)
 
-
+include(cmake/build_platforms.cmake)
 include(cmake/git_info.cmake)
 message("== Current GIT hash [${GIT_COMMIT_HASH}], branch [${GIT_BRANCH}], package [${PACKAGE_SUFFIX}] ==")
 
@@ -55,7 +55,46 @@ if(EMSCRIPTEN)
 endif()
 
 if(APPLE)
-    if(CMAKE_HOST_SYSTEM_VERSION VERSION_LESS 9)
+    if(MACOS)
+        option(BUILD_MACOS_FORCE_TIGER "Force build as for Mac OS X 10.4 (primarily when performing a cross-compilation)" OFF)
+
+        if(CMAKE_HOST_SYSTEM_VERSION VERSION_LESS 9 OR BUILD_MACOS_FORCE_TIGER)
+            message("-- MacOS X 10.4 Tiger detected!")
+            set(XTECH_MACOSX_TIGER TRUE)
+        endif()
+    endif()
+
+    if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
+        if(IOS)
+            set(THEXTECH_MACOS_MIN_VERSION "12.0")
+        elseif(TVOS)
+            set(THEXTECH_MACOS_MIN_VERSION "10.0")
+        else()
+            if(XTECH_MACOSX_TIGER)
+                set(THEXTECH_MACOS_MIN_VERSION "10.4")
+            else()
+                set(THEXTECH_MACOS_MIN_VERSION "10.9")
+            endif()
+        endif()
+    else()
+        set(THEXTECH_MACOS_MIN_VERSION "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    endif()
+
+    if(IOS)
+        if(CMAKE_GENERATOR STREQUAL "Xcode")
+            set(XTECH_PLIST_NAME "ios/thextech.plist.ios.xcode.in")
+        else()
+            set(XTECH_PLIST_NAME "ios/thextech.plist.ios.in")
+        endif()
+        set(XTECH_DEFAULT_ICNS "resources/thextech.icns")
+    elseif(TVOS)
+        set(XTECH_PLIST_NAME "ios/thextech.plist.tvos.in")
+        set(XTECH_DEFAULT_ICNS "resources/thextech.icns")
+    elseif(VISIONOS)
+        message(FATAL_ERROR "visionOS is not yet supported (And will be? This device is too expensive and inconvenient. There are gossips that Apple attempts to make a cheap and lightweight thing, but no any related news right now).")
+    elseif(WATCHOS)
+        message(FATAL_ERROR "watchOS is not supported, touchscreen is too limited to play a game here, and no way to plug any Blueooth gamepads at all (Please play Doom here instead!).")
+    elseif(XTECH_MACOSX_TIGER)
         set(XTECH_PLIST_NAME "thextech.plist.tiger.in")
         set(XTECH_DEFAULT_ICNS "resources/tiger/thextech.icns")
     else()
@@ -64,17 +103,13 @@ if(APPLE)
         set(XTECH_DEFAULT_ICNS "resources/ikoonat/thextech.icns")
     endif()
 
-    if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
-        if(CMAKE_HOST_SYSTEM_VERSION VERSION_LESS 9)
-            set(THEXTECH_MACOS_MIN_VERSION "10.4")
-        else()
-            set(THEXTECH_MACOS_MIN_VERSION "10.9")
-        endif()
+    if(IOS)
+        message("-> iOS minimal version: ${THEXTECH_MACOS_MIN_VERSION}")
+    elseif(TVOS)
+        message("-> tvOS minimal version: ${THEXTECH_MACOS_MIN_VERSION}")
     else()
-        set(THEXTECH_MACOS_MIN_VERSION "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+        message("-> Mac OS X / macOS minimal version: ${THEXTECH_MACOS_MIN_VERSION}")
     endif()
-
-    message("-> Mac OS X minimal version: ${THEXTECH_MACOS_MIN_VERSION}")
 endif()
 
 if(ANDROID)
@@ -95,7 +130,7 @@ foreach(OUTPUTCONFIG ${CMAKE_CONFIGURATION_TYPES})
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${CMAKE_ARCHIVE_OUTPUT_DIRECTORY}")
     set(CMAKE_LIBRARY_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${OUTPUTCONFIG} "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
-endforeach( OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES )
+endforeach(OUTPUTCONFIG CMAKE_CONFIGURATION_TYPES)
 
 set(PGE_INSTALL_DIRECTORY "TheXTech")
 
@@ -116,9 +151,11 @@ if(UNIX)
 endif()
 
 string(TOLOWER "${CMAKE_BUILD_TYPE}" CMAKE_BUILD_TYPE_LOWER)
+add_library(A2XT_GlobalDefs INTERFACE)
 
 if(CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")
     add_definitions(-DDEBUG_BUILD)
+    target_compile_definitions(A2XT_GlobalDefs INTERFACE $<$<CONFIG:Debug>:DEBUG_BUILD>)
     if(CMAKE_COMPILER_IS_GNUCXX)
         add_definitions(-D_GLIBCXX_DEBUG=1 -D_GLIBCXX_ASSERTIONS=1)
     endif()
@@ -146,7 +183,7 @@ endif()
 set(USE_SYSTEM_LIBS_DEFAULT OFF)
 
 
-if(UNIX)
+if(UNIX AND NOT APPLE)
     option(PORTMASTER "Make a special build for PortMaster" OFF)
 endif()
 
@@ -181,7 +218,7 @@ if(NINTENDO_3DS)
     option(THEXTECH_CUSTOM_AUDIO_LIBRARY "Use the custom audio library instead of MixerX" OFF)
 endif()
 
-if(ANDROID OR VITA OR NINTENDO_DS OR NINTENDO_3DS OR NINTENDO_WII OR NINTENDO_WIIU OR NINTENDO_SWITCH OR PGE_MIN_PORT OR THEXTECH_NO_SDL_BUILD OR PORTMASTER)
+if(ANDROID OR IOS OR TVOS OR VITA OR NINTENDO_DS OR NINTENDO_3DS OR NINTENDO_WII OR NINTENDO_WIIU OR NINTENDO_SWITCH OR PGE_MIN_PORT OR THEXTECH_NO_SDL_BUILD OR PORTMASTER)
     set(THEXTECH_FORCE_FULLSCREEN ON)
 else()
     option(THEXTECH_FORCE_FULLSCREEN "Force the game to only use fullscreen mode" OFF)
@@ -194,8 +231,22 @@ else()
     set(THEXTECH_BUILD_GL_DESKTOP_DEFAULT ON)
 endif()
 
+if(IOS OR TVOS)
+    message("-- OpenGL ES build will be disabled on iOS and tvOS until the support will be fixed")
+    set(THEXTECH_BUILD_GL_ES_MODERN_DEFAULT OFF)
+else()
+    set(THEXTECH_BUILD_GL_ES_MODERN_DEFAULT ON)
+endif()
+
+# only test SDL_Net build on supported platforms
+if((APPLE AND NOT XTECH_MACOSX_TIGER) OR WIN32 OR ((CMAKE_SYSTEM_NAME STREQUAL "Linux") AND NOT FLATPAK_BUILD) OR ANDROID OR PORTMASTER OR NINTENDO_3DS OR NINTENDO_WII OR VITA OR PORTMASTER)
+    set(THEXTECH_ENABLE_SDL_NET_DEFAULT ON)
+else()
+    set(THEXTECH_ENABLE_SDL_NET_DEFAULT OFF)
+endif()
+
 option(THEXTECH_BUILD_GL_DESKTOP_MODERN "On SDL builds, include the OpenGL 2.0+ Core/Compatibility renderer" ${THEXTECH_BUILD_GL_DESKTOP_DEFAULT})
-option(THEXTECH_BUILD_GL_ES_MODERN "On SDL builds, include the OpenGL ES 2.0+ renderer" ON)
+option(THEXTECH_BUILD_GL_ES_MODERN "On SDL builds, include the OpenGL ES 2.0+ renderer" ${THEXTECH_BUILD_GL_ES_MODERN_DEFAULT})
 option(THEXTECH_BUILD_GL_DESKTOP_LEGACY "On SDL builds, include the OpenGL 1.1+ renderer" ${THEXTECH_BUILD_GL_DESKTOP_DEFAULT})
 option(THEXTECH_BUILD_GL_ES_LEGACY "On SDL builds, include the OpenGL ES 1.1 renderer" OFF)
 
@@ -212,7 +263,13 @@ option(THEXTECH_ENABLE_LUA "Enable lua scripting support" OFF)
 option(THEXTECH_ENABLE_LUAU "Enable luau build testing" OFF)
 option(THEXTECH_ENABLE_LUNA_AUTOCODE "Enable LunaDLL Autocode scripting support" ON)
 
-option(THEXTECH_ENABLE_SDL_NET "Enable SDL_net build testing" OFF)
+# smbx2compat: no netplay in this app. With it, LoadGame reads only the save that
+# PreloadGame put in the netplay session, which the episode library's Continue
+# and command-line world starts (--save-slot) never call: they'd start without
+# the save and overwrite it.
+set(THEXTECH_ENABLE_SDL_NET_DEFAULT OFF)
+
+option(THEXTECH_ENABLE_SDL_NET "Enable SDL_net build testing" ${THEXTECH_ENABLE_SDL_NET_DEFAULT})
 
 option(THEXTECH_ENABLE_EDITOR "Enable runtime support for editor features" ON)
 
@@ -232,6 +289,13 @@ option(THEXTECH_FIXED_POINT "Experimental: use fixed-point arithmetic for gamepl
 
 option(ENABLE_ADDRESS_SANITIZER "Enable the Address Sanitizer GCC feature" OFF)
 
+if(THEXTECH_NO_SDL_BUILD)
+    if(THEXTECH_ENABLE_SDL_NET)
+        message("== Warning: cannot build SDL_net due to conflicting option THEXTECH_NO_SDL_BUILD ==")
+        set(THEXTECH_ENABLE_SDL_NET OFF CACHE BOOL "" FORCE)
+    endif()
+endif()
+
 # ============ Customization ==============
 set(LIB_SRC_EXTRA)
 
@@ -241,12 +305,23 @@ set(THEXTECH_DIRECTORY_PREFIX "TheXTech" CACHE STRING "Name used for directories
 set(THEXTECH_INSTALLER_PACKAGE_NAME "${THEXTECH_EXECUTABLE_NAME}" CACHE STRING "The package name for the package manager")
 
 if(APPLE)
-    set(THEXTECH_PRELOAD_ENVIRONMENT "" CACHE STRING "Path to resources root to pack")
-    option(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY "Make application look for assets inside the bundle, but don't actually put any assets. The 'Template' app will be produced for manual addition of assets." OFF)
+    if(MACOS OR TVOS)
+        set(THEXTECH_PRELOAD_ENVIRONMENT "" CACHE STRING "Path to resources root to pack. When building for macOS, it should be one single game pack. But when building for tvOS, the directory may contain multiple games as well as extra episodes.")
+
+        if(TVOS)
+            set(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY ON)  # Always allow to inject assets into the IPA
+        else()
+            option(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY "Make application look for assets inside the bundle, but don't actually put any assets. The 'Template' app will be produced for manual addition of assets." OFF)
+        endif()
+    endif()
+
     # smbx2compat: our app's name; Finder and the Dock show the bundle folder's
     set(THEXTECH_BUNDLE_NAME "Ikoonat Launcher" CACHE STRING "Name of bundle folder")
+    # smbx2compat: not upstream's app
+    set(THEXTECH_MACOS_APP_IDENTIFIER "io.github.sortelone.ikoonat" CACHE STRING "An application identifier for macOS/iOS/tvOS. Change it if having troubles to sign and sideload.")
     set(THEXTECH_ICON_NAME "thextech.icns" CACHE STRING "Name of bundle icon file")
     set(THEXTECH_CUSTOM_ICON_PATH "" CACHE STRING "Name of icon file to pack into the bundle")
+
     if(NOT THEXTECH_CUSTOM_ICON_PATH STREQUAL "")
         message("Use custom macOS icon: ${THEXTECH_CUSTOM_ICON_PATH}")
         list(APPEND LIB_SRC_EXTRA
@@ -255,7 +330,7 @@ if(APPLE)
     endif()
 endif()
 
-if(NOT APPLE AND NOT ANDROID AND NOT EMSCRIPTEN)
+if(NOT APPLE AND NOT ANDROID AND NOT IOS AND NOT TVOS AND NOT EMSCRIPTEN)
     set(THEXTECH_UNIX_INSTALL TRUE)
 endif()
 
@@ -363,8 +438,13 @@ if(ANDROID)
 endif()
 
 if(APPLE OR WIN32)
-    set(THEXTECH_BUILD_GL_ES_MODERN OFF CACHE BOOL "" FORCE)
-    set(THEXTECH_BUILD_GL_ES_LEGACY OFF CACHE BOOL "" FORCE)
+    if(IOS OR TVOS)
+        set(THEXTECH_BUILD_GL_DESKTOP_MODERN OFF CACHE BOOL "" FORCE)
+        set(THEXTECH_BUILD_GL_DESKTOP_LEGACY OFF CACHE BOOL "" FORCE)
+    else()
+        set(THEXTECH_BUILD_GL_ES_MODERN OFF CACHE BOOL "" FORCE)
+        set(THEXTECH_BUILD_GL_ES_LEGACY OFF CACHE BOOL "" FORCE)
+    endif()
 endif()
 
 # 32-bit Android special case, temporarily disabled for some experiments
@@ -425,6 +505,11 @@ if(EMSCRIPTEN)
 
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions") # bump to -fwasm-exceptions once widely supported
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fexceptions") # bump to -fwasm-exceptions once widely supported
+
+    # allow exceptions in PGE-FL routines that use them for interrupts
+    set(_EXC_FUNCS_FLAG "-sEXCEPTION_CATCHING_ALLOWED=['_ZN12MDX_BaseFile9load_fileERN20PGE_FileFormats_misc9TextInputERKNS0_13LoadCallbacksE','_ZN11FileFormats17ReadSMBX64LvlFileERN20PGE_FileFormats_misc9TextInputERK18LevelLoadCallbacks','_ZN11FileFormats17ReadSMBX64WldFileERN20PGE_FileFormats_misc9TextInputERK18WorldLoadCallbacks']")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${_EXC_FUNCS_FLAG}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${_EXC_FUNCS_FLAG}")
 endif()
 
 # ============ Platform-conf ==end=========
@@ -462,6 +547,9 @@ include(lib/md5/md5.cmake)
 include(lib/sdl_proxy/sdl_proxy.cmake)
 if(WIN32)
     include(lib/CrashHandler/StackWalker/StackWalker.cmake)
+endif()
+if(TVOS)
+    include(lib/miniz/miniz.cmake)
 endif()
 
 include(cmake/library_zlib.cmake)
@@ -670,10 +758,15 @@ if(THEXTECH_ENABLE_SDL_NET)
     message("== Building SDL_net... but it doesn't do anything! ==")
     set(SDL_NET_PGE_DEPENDENT_BUILD ON)
     add_subdirectory(3rdparty/SDL_net EXCLUDE_FROM_ALL)
-    target_link_libraries(SDL2_net PRIVATE A2XT_Int)
+    add_dependencies(SDL2_net AudioCodecs_Local)
+    target_include_directories(SDL2_net PRIVATE ${A2XT_INCS})
     target_compile_definitions(A2XT_Int INTERFACE
         -DTHEXTECH_ENABLE_SDL_NET
     )
+
+    if(ANDROID)
+        set_property(TARGET SDL2_net PROPERTY POSITION_INDEPENDENT_CODE ON)
+    endif()
 endif()
 
 if(THEXTECH_ENABLE_LUAU)
@@ -725,6 +818,7 @@ set(LIB_SRC
     ${UTILS_SRCS}
     ${LIB_SRC_EXTRA}
     ${SDLPROXY_SRCS}
+    ${MINIZ_SRC}
 )
 
 if(THEXTECH_FIXED_POINT)
@@ -747,6 +841,8 @@ list(APPEND LIB_SRC
 endif()
 
 if(NOT ANDROID
+   AND NOT IOS
+   AND NOT TVOS
    AND NOT EMSCRIPTEN
    AND NOT VITA
    AND NOT NINTENDO_3DS
@@ -803,7 +899,7 @@ if(PGE_ENABLE_VIDEO_REC)
     list(APPEND LIB_SRC ${VIDEO_REC_SRCS})
 endif()
 
-if(APPLE)
+if(APPLE AND MACOS)
     file(GLOB PGE_FILE_ICONS "${CMAKE_CURRENT_SOURCE_DIR}/resources/file_icons/*.icns")
     list(APPEND LIB_SRC
         ${XTECH_DEFAULT_ICNS}
@@ -823,8 +919,34 @@ if(APPLE)
     endif()
 endif()
 
+if(IOS)
+    if(CMAKE_GENERATOR STREQUAL "Xcode")
+        list(APPEND LIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/Assets.xcassets")
+
+        set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/Assets.xcassets"
+            PROPERTIES MACOSX_PACKAGE_LOCATION Resources
+        )
+    else()
+        set(XTECH_MACOS_ASSETS_PACK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/Assets.xcassets")
+        set(XTECH_MACOS_ASSETS_ICON "AppIcon")
+        set(XTECH_MACOS_ASSETS_PLATFORM "iphoneos")
+    endif()
+elseif(TVOS)
+    if(CMAKE_GENERATOR STREQUAL "Xcode")
+        list(APPEND LIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/TVAssets.xcassets")
+
+        set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/TVAssets.xcassets"
+            PROPERTIES MACOSX_PACKAGE_LOCATION Resources
+        )
+    else()
+        set(XTECH_MACOS_ASSETS_PACK_PATH "${CMAKE_CURRENT_SOURCE_DIR}/resources/ios/TVAssets.xcassets")
+        set(XTECH_MACOS_ASSETS_ICON "TVIcon")
+        set(XTECH_MACOS_ASSETS_PLATFORM "tvos")
+    endif()
+endif()
+
 # smbx2compat: Finder's open panel for the episode library's Import button
-if(APPLE AND NOT IOS AND NOT XTECH_MACOSX_TIGER)
+if(APPLE AND MACOS AND NOT XTECH_MACOSX_TIGER)
     list(APPEND LIB_SRC src/main/library_picker_macos.m)
 endif()
 
@@ -887,6 +1009,7 @@ set(THEXTECH_SRC
     src/graphics/gfx_update2.cpp
     src/graphics/gfx_update.cpp
     src/graphics/gfx_background.cpp
+    src/graphics/gfx_background_xt.cpp
     src/graphics/gfx_print.cpp
     src/graphics/gfx_message.cpp
     src/graphics/gfx_editor.cpp
@@ -962,6 +1085,49 @@ set(THEXTECH_SRC
     src/fontman/hardcoded_font.cpp
     src/fontman/utf8_helpers.cpp
 )
+
+if(IOS)
+    list(APPEND THEXTECH_SRC
+        src/core/ios/extras.h
+        src/core/ios/extras_ios.m
+    )
+endif()
+
+if(TVOS)
+    list(APPEND THEXTECH_SRC
+        src/core/ios/extras.h
+        src/core/ios/extras_tvos.m
+    )
+endif()
+
+if(IOS)
+    set(IOS_STORYBOARD_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/core/ios/LaunchScreen.storyboard")
+    set(IOS_STORYBOARD_BIN "${CMAKE_CURRENT_BINARY_DIR}/LaunchScreen.storyboardc")
+
+    add_custom_target(
+        IOSLaunchScreen
+        COMMAND ibtool --compile ${IOS_STORYBOARD_BIN} ${IOS_STORYBOARD_SRC}
+        DEPENDS
+            ${IOS_STORYBOARD_SRC}
+        BYPRODUCTS
+            ${IOS_STORYBOARD_BIN}
+    )
+
+    list(APPEND THEXTECH_SRC ${IOS_STORYBOARD_SRC} ${IOS_STORYBOARD_BIN})
+
+    set_property(SOURCE ${IOS_STORYBOARD_SRC} PROPERTY HEADER_FILE_ONLY TRUE)
+    set_source_files_properties(${IOS_STORYBOARD_BIN} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+    if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.15)
+        set_property(TARGET IOSLaunchScreen APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${IOS_STORYBOARD_BIN}")
+    endif()
+
+    # Touch buttons fallback
+    file(GLOB TOUCH_BUTTONS android-project/thextech/src/main/assets/buttons/*.png)
+    list(APPEND THEXTECH_SRC ${TOUCH_BUTTONS})
+    set_property(SOURCE ${TOUCH_BUTTONS} PROPERTY HEADER_FILE_ONLY TRUE)
+    set_source_files_properties(${TOUCH_BUTTONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources/buttons)
+endif()
+
 
 if(NOT CMAKE_BUILD_TYPE_LOWER STREQUAL "debug")
     # some performance-critical files get special treatment, even though the executable overall is normally -Os
@@ -1272,6 +1438,9 @@ set(THEXTECH_EXTRA_RESOURCES
     README.ESP.md
     resources/thextech.plist.in
     resources/thextech.plist.tiger.in
+    resources/ios/thextech.plist.ios.in
+    resources/ios/thextech.plist.ios.xcode.in
+    resources/ios/thextech.plist.tvos.in
     resources/emscripten/manifest.json.in
     resources/emscripten/shell_minimal.html
     resources/emscripten/sw.js.in
@@ -1283,7 +1452,7 @@ set(THEXTECH_EXTRA_RESOURCES
     resources/vita/frag.cgf
     resources/vita/vert.cgv
     resources/vita/sce_sys/icon0.png
-    resources/vita/sce_sys/livearea/contents/bg.png
+    resources/vita/sce_sys/livearea/contents/bg0.png
     resources/vita/sce_sys/livearea/contents/startup.png
     resources/vita/sce_sys/livearea/contents/template.xml.in
     resources/nds/icon.bmp
@@ -1393,22 +1562,43 @@ if(APPLE)
         set(THEXTECH_EXECUTABLE_NAME_OUT ${THEXTECH_EXECUTABLE_NAME})
     endif()
 
+    if(IOS)
+        target_compile_definitions(thextech PRIVATE -DTHEXTECH_IOS)
+    endif()
+
+    if(TVOS)
+        target_compile_definitions(thextech PRIVATE -DTHEXTECH_TVOS)
+    endif()
+
     set_target_properties(thextech PROPERTIES
         OUTPUT_NAME "${THEXTECH_BUNDLE_NAME}"
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/${XTECH_PLIST_NAME}"
         MACOSX_BUNDLE_BUNDLE_NAME "${THEXTECH_BUNDLE_NAME}"
         MACOSX_BUNDLE_EXECUTABLE_NAME "${THEXTECH_EXECUTABLE_NAME_OUT}"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.sortelone.ikoonat" # smbx2compat: not upstream's app
+        MACOSX_BUNDLE_GUI_IDENTIFIER "${THEXTECH_MACOS_APP_IDENTIFIER}"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${THEXTECH_VERSION_STRING}"
         MACOSX_BUNDLE_LONG_VERSION_STRING "${THEXTECH_VERSION_STRING}"
         MACOSX_BUNDLE_ICON_FILE "${THEXTECH_ICON_NAME}"
         CPACK_BUNDLE_NAME "${THEXTECH_BUNDLE_NAME}"
         MACOSX_BUNDLE_INFO_STRING "TheXTech classic game engine"
     )
+
     set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/${XTECH_DEFAULT_ICNS}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
     set_source_files_properties(${PGE_FILE_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/resources/PkgInfo PROPERTIES MACOSX_PACKAGE_LOCATION "")
+
+    if(IOS OR TVOS)
+        set_target_properties(thextech PROPERTIES XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "${THEXTECH_MACOS_APP_IDENTIFIER}")
+    endif()
+
+    if(IOS)
+        set_target_properties(thextech PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME AppIcon)
+    elseif(TVOS)
+        set_target_properties(thextech PROPERTIES XCODE_ATTRIBUTE_ASSETCATALOG_COMPILER_APPICON_NAME TVIcon)
+    else()
+        set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/resources/PkgInfo PROPERTIES MACOSX_PACKAGE_LOCATION "")
+    endif()
+
     if(XTECH_MACOSX_TIGER)
         set_source_files_properties("${THEXTECH_MAC_EXEX_GENERATED}" PROPERTIES MACOSX_PACKAGE_LOCATION "MacOS")
     endif()
@@ -1418,12 +1608,42 @@ if(APPLE)
     endif()
 
     if(THEXTECH_PRELOAD_ENVIRONMENT AND NOT THEXTECH_PRELOAD_ENVIRONMENT STREQUAL "")
-        add_custom_command(TARGET thextech POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:thextech>/../Resources/assets"
-            COMMAND ${CMAKE_COMMAND} -E copy_directory "${THEXTECH_PRELOAD_ENVIRONMENT}" "$<TARGET_FILE_DIR:thextech>/../Resources/assets"
-            COMMENT "Copying assets into bundle..."
-        )
+        if(TVOS)
+            # Important: for tvOS bundles any preloaded resources must be added as a set of
+            # header-only sources, otherwise it will be impossible to run the debug
+            # on simulator or device, it will fail with the "Missing Bundle ID" error
+            # even everything is valid here.
+            pge_add_bundle_resources_directory(thextech "${THEXTECH_PRELOAD_ENVIRONMENT}")
+        else()
+            add_custom_command(TARGET thextech POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:thextech>/../Resources/assets"
+                COMMAND ${CMAKE_COMMAND} -E copy_directory "${THEXTECH_PRELOAD_ENVIRONMENT}" "$<TARGET_FILE_DIR:thextech>/../Resources/assets"
+                COMMENT "Copying assets into bundle..."
+            )
+        endif()
         target_compile_definitions(thextech PRIVATE -DUSE_BUNDLED_ASSETS)
+    endif()
+
+    if((IOS OR TVOS) AND NOT CMAKE_GENERATOR STREQUAL "Xcode")
+        # Convert assets into car format as Xcode does, and pack Info.plist files
+        add_custom_command(TARGET thextech POST_BUILD
+            COMMAND actool "${XTECH_MACOS_ASSETS_PACK_PATH}"
+                    --app-icon ${XTECH_MACOS_ASSETS_ICON}
+                    --output-partial-info-plist "${CMAKE_BINARY_DIR}/PartialInfo.plist"
+                    --compile "$<TARGET_FILE_DIR:thextech>"
+                    --platform ${XTECH_MACOS_ASSETS_PLATFORM}
+                    --minimum-deployment-target ${THEXTECH_MACOS_MIN_VERSION}
+            COMMAND /usr/libexec/PlistBuddy -x -c "Merge ${CMAKE_BINARY_DIR}/PartialInfo.plist" "$<TARGET_FILE_DIR:thextech>/Info.plist"
+            COMMAND plutil -convert binary1 "$<TARGET_FILE_DIR:thextech>/Info.plist"
+            COMMENT "Packing assets..."
+        )
+
+        target_sources(thextech PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/PkgInfo")
+        set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/resources/PkgInfo PROPERTIES MACOSX_PACKAGE_LOCATION "")
+    endif()
+
+    if(IOS AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.15)
+        set_property(TARGET IOSLaunchScreen APPEND PROPERTY ADDITIONAL_CLEAN_FILES "$<TARGET_FILE_DIR:thextech>/LaunchScreen.storyboardc")
     endif()
 
     if(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY)
@@ -1534,7 +1754,7 @@ if(VITA OR NINTENDO_DS OR NINTENDO_3DS OR NINTENDO_WII OR NINTENDO_SWITCH OR AND
     target_compile_definitions(thextech PRIVATE -DTHEXTECH_DISABLE_LANG_TOOLS)
 endif()
 
-if((UNIX OR NINTENDO_SWITCH OR ANDROID OR APPLE) AND NOT EMSCRIPTEN)
+if(((UNIX AND NOT APPLE) OR NINTENDO_SWITCH OR ANDROID OR (APPLE AND MACOS)) AND NOT EMSCRIPTEN)
     # Allow hotswapping renderer on fully tested platforms
     target_compile_definitions(thextech PRIVATE -DTHEXTECH_RESTART_RENDERER_SUPPORTED)
 endif()
@@ -1603,7 +1823,7 @@ if(ENABLE_ADDRESS_SANITIZER)
 endif()
 
 target_include_directories(thextech PRIVATE ${A2XT_INCS})
-target_link_libraries(thextech PRIVATE A2XT_Int)
+target_link_libraries(thextech PRIVATE A2XT_Int A2XT_GlobalDefs)
 
 if(THEXTECH_ENABLE_SDL_NET)
     target_link_libraries(thextech PRIVATE SDL2_net)
@@ -1668,17 +1888,20 @@ if(NOT EMSCRIPTEN AND
     )
 endif()
 
-if(ANDROID)
+if(ANDROID OR IOS OR TVOS)
     target_compile_definitions(thextech PRIVATE
         -DUSE_RENDER_BLOCKING
     )
 endif()
 
 if(THEXTECH_FORCE_FULLSCREEN)
-    target_compile_definitions(thextech PRIVATE
-        -DRENDER_FULLSCREEN_ALWAYS  # Game works always fullscreen
-        -DNO_WINDOW_FOCUS_TRACKING  # Don't track for window focus
-    )
+    target_compile_definitions(thextech PRIVATE -DRENDER_FULLSCREEN_ALWAYS) # Game works always fullscreen
+
+    if(IOS OR TVOS)
+        target_compile_definitions(thextech PRIVATE -DMOBILE_WINDOW_FOCUS_TRACKING)
+    else()
+        target_compile_definitions(thextech PRIVATE -DNO_WINDOW_FOCUS_TRACKING) # Don't track for window focus
+    endif()
 endif()
 
 # ==============================================================================
@@ -1724,10 +1947,14 @@ endif()
 include(cmake/deploy.cmake)
 
 if(APPLE)
-    install(TARGETS thextech DESTINATION .)
-    install(FILES changelog.txt DESTINATION .)
-    install(FILES README.md DESTINATION . RENAME ReadMe.txt)
-    install(FILES LICENSE DESTINATION . RENAME License.txt)
+    if(MACOS)
+        install(TARGETS thextech DESTINATION .)
+        install(FILES changelog.txt DESTINATION .)
+        install(FILES README.md DESTINATION . RENAME ReadMe.txt)
+        install(FILES LICENSE DESTINATION . RENAME License.txt)
+    elseif(IOS OR TVOS)
+        install(TARGETS thextech DESTINATION Payload COMPONENT thextech_app)
+    endif()
 elseif(WIN32)
     # For MinGW toolchain, copy missing DLLs
     if(MINGW)

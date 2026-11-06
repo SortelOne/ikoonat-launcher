@@ -335,19 +335,23 @@ resume_IntroEvents:
                 g_curLevelMedals.reset_checkpoint();
             }
 
-            // Quit to world map when finishing the sub-hub
-            if(!NoMap && IsHubLevel && !FileRecentSubHubLevel.empty() && GoToLevel.empty())
+            // IsHubLevel: go to map when finishing a sub-hub in a non-hub world
+            // QuitToWorldMap: reset subhub (and go to map) when taking a map warp in a non-hub world (#1187)
+            if(!NoMap && (IsHubLevel || QuitToWorldMap) && GoToLevel.empty())
             {
                 FileRecentSubHubLevel.clear();
                 ReturnWarp = 0;
                 ReturnWarpSaved = 0;
             }
-            // New logic: otherwise, reset beat code if hub level
+            // New logic: otherwise, reset beat code after beating / ending a hub (including warping out of the hub)
+            // This fixes a bug where checkpoint medals were mistakenly recorded after death
             // (Safe because SMBX 1.3 only uses LevelBeatCode on the world map)
             else if(IsHubLevel)
             {
                 LevelBeatCode = BEATCODE_NONE;
             }
+
+            QuitToWorldMap = false;
         }
 
         if(SwapCharAllowed())
@@ -480,12 +484,16 @@ resume_UpdateEvents:
                         if(FreezeNPCs)
                         {
                             FreezeNPCs = false;
+                            SuspendExtSound(false);
+
                             if(PSwitchTime > 0)
                                 ResumeMusic();
                         }
                         else
                         {
                             FreezeNPCs = true;
+                            SuspendExtSound(true);
+
                             if(PSwitchTime > 0)
                                 PauseMusic();
                         }
@@ -668,6 +676,8 @@ void PauseInit(PauseCode code, int plr, void (*callback)())
                 SavedChar[Player[A].Character] = Player[A];
         }
 
+        SuspendExtSound(true);
+
         if(PSwitchTime > 0)
             PauseMusic();
     }
@@ -842,6 +852,8 @@ static void s_PauseFinish(int stack_level)
     else
     {
         GamePaused = PauseCode::None;
+        
+        SuspendExtSound(false);
 
         if(PSwitchTime > 0)
             ResumeMusic();

@@ -31,6 +31,7 @@
 #include "editor/magic_block.h"
 #include "editor/editor_custom.h"
 #include "editor.h"
+#include "blk_id.h"
 
 #include "rand.h"
 
@@ -134,7 +135,7 @@ ItemType_t s_match_type(const ItemFamily& family, const ItemType_t inferred_type
     printf("Self is %d\n", inferred_type.type);
 #endif
 
-    for(const ItemType_t t : family.types)
+    for(const ItemType_t &t : family.types)
     {
         if(t.type == inferred_type.type)
         {
@@ -147,7 +148,7 @@ ItemType_t s_match_type(const ItemFamily& family, const ItemType_t inferred_type
 
     int matches = 1;
 
-    for(const ItemType_t t : family.types)
+    for(const ItemType_t &t : family.types)
     {
         int score = s_score_match(t, inferred_type);
 
@@ -295,18 +296,38 @@ struct MagicInfo<BackgroundRef_t>
 };
 
 template<class ItemRef_t>
+Location_t s_get_loc(ItemRef_t A)
+{
+    return static_cast<Location_t>(A->Location);
+}
+
+template<>
+Location_t s_get_loc(TileRef_t A)
+{
+    return static_cast<Location_t>(A->FullLocation());
+}
+
+template<>
+Location_t s_get_loc(BackgroundRef_t A)
+{
+    return static_cast<Location_t>(A->FullLocation());
+}
+
+template<class ItemRef_t>
 int s_pick_type(ItemFamily& family, ItemRef_t A)
 {
     const CrossEffectLevel check_level = family.behind_mode ? LEVEL_ALL : LEVEL_FAMILY;
     constexpr bool advanced_mode = false;
 
+    Location_t aLoc = s_get_loc(A);
+
     ItemType_t inferred_type;
 
     inferred_type.type = A->Type;
-    inferred_type.width = num_t::round(A->Location.Width / 32);
-    inferred_type.height = num_t::round(A->Location.Height / 32);
+    inferred_type.width = num_t::round(aLoc.Width / 32);
+    inferred_type.height = num_t::round(aLoc.Height / 32);
 
-    for(ItemType_t t : family.types)
+    for(const ItemType_t &t : family.types)
     {
         if(t.type == A->Type)
         {
@@ -316,7 +337,7 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
         }
     }
 
-    Location_t tempLoc = static_cast<Location_t>(A->Location);
+    Location_t tempLoc = aLoc;
 
     // 7 (top-left)
     tempLoc.X -= 31;
@@ -328,13 +349,13 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
         inferred_type.has_7 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             if(s_check_sizable(B))
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -355,20 +376,20 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 8 (top)
-    tempLoc.X = A->Location.X + 1;
-    tempLoc.Width = A->Location.Width - 2;
+    tempLoc.X = aLoc.X + 1;
+    tempLoc.Width = aLoc.Width - 2;
 
     if(count_level_edges && !WorldEditor && tempLoc.Y + tempLoc.Height < level[curSection].Y)
         inferred_type.has_8 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             if(s_check_sizable(B))
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -392,20 +413,20 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 9 (top-right)
-    tempLoc.X = A->Location.X + A->Location.Width + 1;
+    tempLoc.X = aLoc.X + aLoc.Width + 1;
     tempLoc.Width = 30;
 
     if(count_level_edges && !WorldEditor && (tempLoc.X > level[curSection].Width || tempLoc.Y + tempLoc.Height < level[curSection].Y))
         inferred_type.has_9 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             if(s_check_sizable(B))
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -426,20 +447,20 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 6 (right)
-    tempLoc.Y = A->Location.Y + 1;
-    tempLoc.Height = A->Location.Height - 2;
+    tempLoc.Y = aLoc.Y + 1;
+    tempLoc.Height = aLoc.Height - 2;
 
     if(count_level_edges && !WorldEditor && tempLoc.X > level[curSection].Width)
         inferred_type.has_6 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             if(s_check_sizable(B))
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -463,21 +484,21 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 3 (bottom-right)
-    tempLoc.Y = A->Location.Y + A->Location.Height + 1;
+    tempLoc.Y = aLoc.Y + aLoc.Height + 1;
     tempLoc.Height = 30;
 
     if(count_level_edges && !WorldEditor && (tempLoc.X > level[curSection].Width || tempLoc.Y > level[curSection].Height))
         inferred_type.has_3 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             // count only the top of a sizable as a collision
-            if(s_check_sizable(B) && A->Location.Y >= B->Location.Y)
+            if(s_check_sizable(B) && aLoc.Y >= B->Location.Y)
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -498,21 +519,21 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 2 (bottom)
-    tempLoc.X = A->Location.X + 1;
-    tempLoc.Width = A->Location.Width - 2;
+    tempLoc.X = aLoc.X + 1;
+    tempLoc.Width = aLoc.Width - 2;
 
     if(count_level_edges && !WorldEditor && tempLoc.Y > level[curSection].Height)
         inferred_type.has_2 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             // count only the top of a sizable as a collision
-            if(s_check_sizable(B) && A->Location.Y >= B->Location.Y)
+            if(s_check_sizable(B) && aLoc.Y >= B->Location.Y)
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -536,21 +557,21 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 1 (bottom-left)
-    tempLoc.X = A->Location.X - 31;
+    tempLoc.X = aLoc.X - 31;
     tempLoc.Width = 30;
 
     if(count_level_edges && !WorldEditor && (tempLoc.X + tempLoc.Width < level[curSection].X || tempLoc.Y > level[curSection].Height))
         inferred_type.has_1 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             // count only the top of a sizable as a collision
-            if(s_check_sizable(B) && A->Location.Y >= B->Location.Y)
+            if(s_check_sizable(B) && aLoc.Y >= B->Location.Y)
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -571,20 +592,20 @@ int s_pick_type(ItemFamily& family, ItemRef_t A)
     }
 
     // 4 (left)
-    tempLoc.Y = A->Location.Y + 1;
-    tempLoc.Height = A->Location.Height - 2;
+    tempLoc.Y = aLoc.Y + 1;
+    tempLoc.Height = aLoc.Height - 2;
 
     if(count_level_edges && !WorldEditor && tempLoc.X + tempLoc.Width < level[curSection].X)
         inferred_type.has_4 = true;
     else for(ItemRef_t B : treeQuery<ItemRef_t>(tempLoc, SORTMODE_NONE))
     {
-        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, B->Location))
+        if(A != B && !s_check_hidden(B) && CheckCollision(tempLoc, s_get_loc(B)))
         {
             if(s_check_sizable(B))
                 continue;
 
             bool hit = false;
-            for(ItemType_t t : family.types)
+            for(const ItemType_t &t : family.types)
             {
                 if(t.type == B->Type && (check_level != LEVEL_GROUP || t.group == inferred_type.group))
                 {
@@ -620,14 +641,8 @@ void s_apply_type(ItemRef_t B, int type)
 template<>
 void s_apply_type(BlockRef_t B, int type)
 {
-    if(B->Slippy ==
-        (B->Type == 189 || B->Type == 190 || B->Type == 191
-            || B->Type == 270 || B->Type == 271 || B->Type == 272
-            || B->Type == 620 || B->Type == 621 || B->Type == 633
-            || B->Type == 634 || B->Type == 241 || B->Type == 242))
-    {
-        B->Slippy = (type == 189 || type == 190 || type == 191 || type == 270 || type == 271 || type == 272 || type == 620 || type == 621 || type == 633 || type == 634 || type == 241 || type == 242);
-    }
+    if(B->Slippy == BlockTypeSlippy(B->Type))
+        B->Slippy = BlockTypeSlippy(type);
 
     B->Type = type;
 }
@@ -683,7 +698,7 @@ void MagicItem(int Type, Location_t loc)
             if(change_level != LEVEL_ALL && family_b != family && !ItemInfo::families[family_b].behind_mode)
                 continue;
 
-            if(!CheckCollision(tempLoc, B->Location))
+            if(!CheckCollision(tempLoc, s_get_loc(B)))
                 continue;
 
             if(change_level >= LEVEL_GROUP)
@@ -741,7 +756,7 @@ void MagicItem(ItemRef_t A)
     }
 
     // first, transform all nearby blocks, then transform the block itself
-    Location_t tempLoc = static_cast<Location_t>(A->Location);
+    Location_t tempLoc = s_get_loc(A);
     tempLoc.X -= 31;
     tempLoc.Y -= 31;
     tempLoc.Width += 62;
@@ -765,7 +780,7 @@ void MagicItem(ItemRef_t A)
             if(change_level != LEVEL_ALL && family_b != family && !ItemInfo::families[family_b].behind_mode)
                 continue;
 
-            if(!CheckCollision(tempLoc, B->Location))
+            if(!CheckCollision(tempLoc, s_get_loc(B)))
                 continue;
 
             if(change_level == LEVEL_GROUP)

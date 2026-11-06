@@ -132,9 +132,11 @@ public:
         config_integrations_set};
 #endif
 
-#ifndef NO_WINDOW_FOCUS_TRACKING
+#if !defined(NO_WINDOW_FOCUS_TRACKING) && !defined(MOBILE_WINDOW_FOCUS_TRACKING)
     opt<bool> background_work{this, defaults(false), {}, Scope::Config,
         "background-work", "Run in background", "Play with joystick while game is unfocused"};
+#elif defined(MOBILE_WINDOW_FOCUS_TRACKING)
+    static constexpr bool background_work = false;
 #else
     static constexpr bool background_work = true;
 #endif
@@ -144,7 +146,15 @@ public:
     /* ---- Main - Frame Timing ----*/
     subsection main_frame_timing{this, "timing", "Frame Timing"};
 
-    opt<bool> enable_frameskip{this, defaults(false), {}, Scope::Config,
+#if defined(THEXTECH_IOS) || defined(THEXTECH_TVOS)
+    // Set by default on platforms that enforces V-Sync without an ability to disable it
+    // Or on platforms that are known as frame losers
+    static constexpr bool enable_frameskip_default = true;
+#else
+    static constexpr bool enable_frameskip_default = false;
+#endif
+
+    opt<bool> enable_frameskip{this, defaults(enable_frameskip_default), {}, Scope::Config,
         "frame-skip", "Frameskip", nullptr};
 
     opt<bool> unlimited_framerate{this, defaults(false), {}, Scope::Config,
@@ -479,6 +489,23 @@ public:
     section controls{this, Scope::Config, "controls", "Controls"};
 
 
+    /* ---- Network ----*/
+#ifdef THEXTECH_ENABLE_SDL_NET
+    section network{this, Scope::Config, "network", "Network", nullptr};
+
+    opt<bool> netplay_enable{this, defaults(false), {}, Scope::Config,
+        "enable", "Enable Netplay", nullptr,
+        config_netplay_update};
+
+    opt<std::string> netplay_server{this, defaults<std::string>("thextech.link"), {}, Scope::Config,
+        "server", "Server", nullptr,
+        config_netplay_update};
+
+    // opt<std::string> netplay_nickname{this, defaults<std::string>("Player"), {}, Scope::Config,
+    //     "nickname", "Nickname", nullptr,
+    //     config_netplay_update};
+#endif
+
     /* ---- Advanced ----*/
     section advanced{this, Scope::Config, "advanced", "Advanced", "Technical options for internal operations"};
 
@@ -514,7 +541,7 @@ public:
         "log-level", "Log level", nullptr,
         config_log_level_set};
 
-#if defined(__ANDROID__) || defined(__3DS__)
+#if defined(__ANDROID__) || defined(THEXTECH_IOS) || defined(THEXTECH_TVOS) || defined(__3DS__)
     opt<bool> use_native_osk{this, defaults(false), {}, Scope::Config,
         "use-native-osk", "Native OSK", nullptr};
 #endif
@@ -1007,17 +1034,19 @@ public:
     opt<bool> fix_warp_exit_checkpoints{this, defaults(true), {CompatClass::standard_update, false}, Scope::CreatorFile,
         "fix-warp-exit-checkpoints", "Fix warp exit checkpoints", "Fixes the problem when checkpoints weren't been reset when player correctly exits level via warps."};
 
-    // 1.3.7.4
+    // 1.7.4
     opt<bool> fix_vehicle_item_loss{this, defaults(true), {CompatClass::critical_update, false}, Scope::CreatorFile,
         "fix-vehicle-item-loss", "Fix vehicle item loss", "Prevents risk of losing items when entering vehicle"};
 
-    // 1.3.8
+    // 1.7.5
     opt<bool> new_conveyor_belts{this, defaults(true), {CompatClass::standard_update, false}, Scope::Creator,
         "new-conveyor-belts", "New conveyor belts", "Update belts to faster and more stable logic"};
     opt<bool> optimize_coins{this, defaults(true), {CompatClass::critical_update, false}, Scope::Creator,
         "optimize-coins", "Optimize coins", "Speed up the game when many coins are onscreen"};
     opt<bool> fix_timestop_respawn{this, defaults(true), {CompatClass::standard_update, false}, Scope::Creator,
         "fix-timestop-respawn", "Fix timestop respawn", "Allow NPCs to respawn during timestop"};
+
+    // 1.8 (future)
 
     /* ---- Compatibility - Speedrun ----*/
 
@@ -1058,6 +1087,9 @@ public:
 };
 
 void OpenConfig();
+// smbx2compat: sizeof(Config_t) as the engine sees it; the script library
+// (built separately) checks its own against it (xtech_lua_init)
+size_t Config_engineSize();
 void LoadCustomConfig();
 void ResetCustomConfig();
 void UpdateConfig();

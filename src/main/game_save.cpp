@@ -39,9 +39,11 @@
 #include <PGE_File_Formats/file_formats.h>
 #include <fmt_format_ne.h>
 #include <IniProcessor/ini_processing.h>
+#include <SDL2/SDL_rwops.h>
 #include <script/luna/lunacounter.h>
 #include <Logger/logger.h>
 
+#include "main/game_save.h"
 #include "main/level_save_info.h"
 #include "menu_main.h"
 #include "saved_layers.h"
@@ -50,6 +52,23 @@
 #ifdef ENABLE_XTECH_LUA
 #include "xtech_lua_events.h" // smbx2compat
 #endif
+
+
+static SDL_RWops* s_open_gamesave = nullptr;
+static bool s_preloaded = false;
+
+GamesaveAccess::GamesaveAccess()
+{
+    savefile = s_open_gamesave;
+    // TODO: lock here so that we can use threading to help with 3DS hang issues
+}
+
+GamesaveAccess::~GamesaveAccess()
+{
+    if(savefile)
+        Files::flush_file(savefile);
+    // TODO: unlock here
+}
 
 std::string makeGameSavePath(std::string epPath, std::string saveFile)
 {
@@ -119,8 +138,8 @@ static std::string s_legacy_save_path(const SelectWorld_t& w, int save_idx)
 
 
 // smbx2compat: one slot of FindSaves, also used while an episode plays (to
-// record the slot in the library), where the death counter must stay alone
-static void s_readSlotInfo(const SelectWorld_t &w, int A, SaveSlotInfo_t &info, bool withFails)
+// record the slot in the library)
+static void s_readSlotInfo(const SelectWorld_t &w, int A, SaveSlotInfo_t &info)
 {
     GamesaveData f;
 
@@ -244,31 +263,13 @@ static void s_readSlotInfo(const SelectWorld_t &w, int A, SaveSlotInfo_t &info, 
                     info.ConfigDefaults = Config_t::MODE_CLASSIC + 1;
             }
 
-            // load timer info for existing save
-            std::string savePath = makeGameSavePath(w.WorldFilePath,
-                                                     fmt::format_ne("timers{0}.ini", A));
+            // (these are just previews, so it's okay if we miss legacy files here)
 
-            if(Files::fileExists(savePath))
-            {
-                IniProcessing timer(savePath);
-                timer.beginGroup("timers");
-                timer.read("total", info.Time, 0);
-                timer.endGroup();
-            }
+            // load timer info for existing save
+            info.Time = f.speedrunTicks;
 
             // load fails for existing save
-            savePath = makeGameSavePath(w.WorldFilePath,
-                                        fmt::format_ne("fails-{0}.rip", A));
-
-            if(withFails && Files::fileExists(savePath))
-            {
-                gDeathCounter.counterFile = savePath;
-                gDeathCounter.TryLoadStats();
-                gDeathCounter.Recount();
-                info.FailsEnabled = true;
-                info.Fails = gDeathCounter.mCurTotalDeaths;
-                gDeathCounter.quit();
-            }
+            info.Fails = f.totalFails;
         }
     }
 }
@@ -278,7 +279,7 @@ void FindSaves()
     const auto &w = SelectWorld[selWorld];
 
     for(auto A = 1; A <= maxSaveSlots; A++)
-        s_readSlotInfo(w, A, SaveSlotInfo[A], true);
+        s_readSlotInfo(w, A, SaveSlotInfo[A]);
 }
 
 // smbx2compat: each slot's stars, progress and play time in library.ini, so
@@ -302,7 +303,7 @@ void SaveSlots_recordInLibrary(int slot)
             continue;
 
         SaveSlotInfo_t info;
-        s_readSlotInfo(w, A, info, false);
+        s_readSlotInfo(w, A, info);
 
         LibrarySlot_t &out = e.slots[A - 1];
         out.progress = info.Progress;
@@ -326,6 +327,8 @@ void SaveGame()
     // smbx2compat: LunaLua sends onSaveGame before SMBX writes its save
     xtech_lua_event_smbx2SaveGame();
 #endif
+
+    CloseSave();
 
     for(A = numPlayers; A >= 1; A--)
         SavedChar[Player[A].Character] = Player[A];
@@ -357,6 +360,12 @@ void SaveGame()
     sav.points = uint32_t(Score);
     sav.worldPosX = (int)WorldPlayer[1].Location.X;
     sav.worldPosY = (int)WorldPlayer[1].Location.Y;
+
+    sav.speedrunTicks = g_speedrunTicks;
+    sav.speedrunWinTicks = g_speedrunWinTicks;
+    g_speedrunTicksSaved = g_speedrunTicks;
+
+    sav.totalFails = g_totalFails;
 
     for(A = 1; A <= numCharacters; A++)
     {
@@ -426,7 +435,12 @@ void SaveGame()
 
     ExportLevelSaveInfo(sav);
 
-    FileFormats::WriteExtendedSaveFileF(savePath, sav);
+    FILE* gamesave = Files::utf8_fopen(savePath.c_str(), "w+");
+    PGE_FileFormats_misc::TextFileOutput output(gamesave);
+    FileFormats::WriteExtendedSaveFile(output, sav);
+
+    s_open_gamesave = SDL_RWFromFP(gamesave, SDL_TRUE);
+    Files::flush_file(s_open_gamesave);
 
     if(Files::fileExists(legacyGamesaveLocker))
         Files::deleteFile(legacyGamesaveLocker); // Remove the gamesave locker of legacy file
@@ -442,8 +456,15 @@ void SaveGame()
 #ifdef THEXTECH_ENABLE_SDL_NET
 void PreloadGame()
 {
+    CloseSave();
+
     XMessage::g_session.save_present = 0;
     XMessage::g_session.save_data.clear();
+
+    // set save_configs
+    XMessage::g_session.init_save_configs = g_config.playstyle.m_value + 1;
+    if(g_config.speedrun_mode.m_value != 0)
+        XMessage::g_session.init_save_configs = 256 - g_config.speedrun_mode.m_value;
 
     if(!selSave || SaveSlotInfo[selSave].Progress < 0)
         return;
@@ -456,18 +477,29 @@ void PreloadGame()
     std::string legacySaveLocker = makeGameSavePath(w.WorldFilePath,
                                                     fmt::format_ne("save{0}.nosave", selSave));
 
+    Files::Data temp_save_data;
+
     if(Files::fileExists(savePath))
+    {
         XMessage::g_session.save_present = 2;
+
+        s_preloaded = true;
+        s_open_gamesave = Files::open_file(savePath, "r+");
+        temp_save_data = Files::load_file(s_open_gamesave);
+    }
     else if(!Files::fileExists(legacySaveLocker) && Files::fileExists(savePathOld))
+    {
         XMessage::g_session.save_present = 1;
+        temp_save_data = Files::load_file(savePathOld);
+    }
     else
     {
         pLogDebug("Game save file not found: %s", savePath.c_str());
         return;
     }
 
-    Files::Data temp_save_data = Files::load_file((XMessage::g_session.save_present == 2) ? savePath : savePathOld);
     XMessage::g_session.save_data.assign(temp_save_data.c_str(), temp_save_data.size());
+
 }
 #endif // #ifdef THEXTECH_ENABLE_SDL_NET
 
@@ -481,11 +513,13 @@ void LoadGame()
 #ifdef THEXTECH_ENABLE_SDL_NET
     if(XMessage::g_session.save_present == 2)
         FileFormats::ReadExtendedSaveFileRaw(XMessage::g_session.save_data, "", sav);
-    else if(XMessage::g_session.save_present == 2)
+    else if(XMessage::g_session.save_present == 1)
         FileFormats::ReadSMBX64SavFileRaw(XMessage::g_session.save_data, "", sav);
     else
         return;
 #else // #ifdef THEXTECH_ENABLE_SDL_NET
+    CloseSave();
+
     const auto &w = SelectWorld[selWorld];
 
     std::string savePath = makeGameSavePath(w.WorldFilePath,
@@ -495,7 +529,12 @@ void LoadGame()
                                                     fmt::format_ne("save{0}.nosave", selSave));
 
     if(Files::fileExists(savePath))
-        FileFormats::ReadExtendedSaveFileF(savePath, sav);
+    {
+        s_open_gamesave = Files::open_file(savePath, "r+");
+        PGE_FileFormats_misc::RWopsTextInput inp(s_open_gamesave);
+        inp.noClose();
+        FileFormats::ReadExtendedSaveFile(inp, sav);
+    }
     else if(!Files::fileExists(legacySaveLocker) && Files::fileExists(savePathOld))
         FileFormats::ReadSMBX64SavFileF(savePathOld, sav);
     else
@@ -521,6 +560,12 @@ void LoadGame()
     BeatTheGame = sav.gameCompleted;
     WorldPlayer[1].Location.X = sav.worldPosX;
     WorldPlayer[1].Location.Y = sav.worldPosY;
+
+    g_speedrunTicks = sav.speedrunTicks;
+    g_speedrunTicksSaved = sav.speedrunTicks;
+    g_speedrunWinTicks = sav.speedrunWinTicks;
+
+    g_totalFails = sav.totalFails;
 
     if(Lives > 99)
         Lives = 99;
@@ -630,7 +675,7 @@ void LoadGame()
 #ifdef ENABLE_XTECH_LUA
     // Trigger Lua OnGameLoad hook with data from save{id}.luadata
     {
-        std::string dataPath = makeGameSavePath(w.WorldFilePath,
+        std::string dataPath = makeGameSavePath(SelectWorld[selWorld].WorldFilePath,
             fmt::format_ne("save{0}.luadata", selSave));
         std::string json;
         if(Files::fileExists(dataPath))
@@ -643,10 +688,23 @@ void LoadGame()
 #endif
 
     ImportLevelSaveInfo(sav);
+
+    // import legacy fail counter data
+    if(g_totalFails == -1)
+    {
+        if(gDeathCounter.TryLoadStats())
+            SaveGame();
+    }
 }
 
 void ClearGame(bool punnish)
 {
+    // allow a single call to ClearGame when preloaded
+    if(s_preloaded)
+        s_preloaded = false;
+    else
+        CloseSave();
+
     curWorldMusic = 0;
     curWorldMusicFile.clear();
 
@@ -675,7 +733,7 @@ void ClearGame(bool punnish)
     for(int A = 1; A <= maxWorldLevels; ++A)
     {
         WorldLevel[A].Active = false;
-        WorldLevel[A].save_info = LevelSaveInfo_t();
+        WorldLevel[A].save_info_idx = 0xFFFF;
     }
 
     for(int A = 1; A <= maxScenes; ++A)
@@ -685,7 +743,11 @@ void ClearGame(bool punnish)
     Star.clear();
     numStars = 0;
 
-    LevelWarpSaveEntries.clear();
+    g_totalFails = 0;
+    LevelSaveEntries.clear();
+
+    // Clear the speed-runner timer
+    speedRun_resetTotal();
 
 #ifdef THEXTECH_ENABLE_LUNA_AUTOCODE
     gLunaVarBank = saveUserData::DataSection();
@@ -800,4 +862,15 @@ void CopySave(int world, int src, int dst)
 #ifdef __EMSCRIPTEN__
     AppPathManager::syncFs();
 #endif
+}
+
+void CloseSave()
+{
+    s_preloaded = false;
+
+    if(s_open_gamesave)
+    {
+        SDL_RWclose(s_open_gamesave);
+        s_open_gamesave = nullptr;
+    }
 }

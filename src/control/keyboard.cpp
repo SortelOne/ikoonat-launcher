@@ -890,7 +890,10 @@ void InputMethodType_Keyboard::UpdateControlsPost()
             last_p = p;
 
             if(allow_move)
+            {
                 SharedCursor.Move = true;
+                SharedCursor.SDLCursorMove = true;
+            }
 
             SharedCursor.X = p.x;
             SharedCursor.Y = p.y;
@@ -981,7 +984,7 @@ void InputMethodType_Keyboard::UpdateControlsPost()
         }
     }
 
-#ifdef __ANDROID__ // Quit credits on BACK key press
+#if defined(__ANDROID__) || defined(THEXTECH_IOS) || defined(THEXTECH_TVOS) // Quit credits on BACK key press
     bool backPressed = this->m_keyboardState[SDL_SCANCODE_AC_BACK];
 #else
     bool backPressed = false;

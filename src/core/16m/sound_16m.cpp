@@ -33,6 +33,7 @@
 #include "core/msgbox.h"
 
 #include "sound.h"
+#include "player.h"
 #include "config.h"
 
 #include <SDL2/SDL_rwops.h>
@@ -534,7 +535,7 @@ void StartMusic(int A, int fadeInMs)
             s_playMusic(index, qoa, fadeInMs);
             musicName = "stmusic";
         }
-        else if(InvincibilityTime && !PSwitchTime && s_specialMusicMods.size() >= 4)
+        else if(OnscreenPlayerInvincible() && !PSwitchTime && s_specialMusicMods.size() >= 4)
         {
             pLogDebug("Starting special music [4]");
             int index = s_specialMusicMods[3];
@@ -1036,6 +1037,11 @@ void UpdateYoshiMusic()
     return;
 }
 
+void UpdateAudioSection(int recentSection)
+{
+    UNUSED(recentSection);
+}
+
 void PreloadExtSound(const std::string& path)
 {
     UNUSED(path);
@@ -1049,11 +1055,13 @@ void UnloadExtSounds()
         return;
 }
 
-void PlayExtSound(const std::string &path, int loops, int volume)
+void PlayExtSound(const std::string &path, int loops, int volume, bool pausable, int section)
 {
     UNUSED(path);
     UNUSED(loops);
     UNUSED(volume);
+    UNUSED(pausable);
+    UNUSED(section);
     // int play_ch = -1;
 
     if(!g_mixerLoaded)
@@ -1063,6 +1071,19 @@ void PlayExtSound(const std::string &path, int loops, int volume)
 void StopExtSound(const std::string& path)
 {
     UNUSED(path);
+    if(!g_mixerLoaded)
+        return;
+}
+
+void SuspendExtSound(bool pause)
+{
+    UNUSED(pause);
+    if(!g_mixerLoaded)
+        return;
+}
+
+void UpdateExtSoundSections()
+{
     if(!g_mixerLoaded)
         return;
 }

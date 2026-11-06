@@ -93,8 +93,10 @@ struct Session
 #ifdef THEXTECH_ENABLE_SDL_NET
     uint8_t save_present = 0;
     std::string save_data;
+    uint8_t init_save_configs = 0;
 
     // current state
+    bool active = false;
     int current_frame = 0;
     int available_frame = -1;
     int remote_frame = -1;
@@ -109,6 +111,7 @@ struct Session
 extern Session g_session;
 
 void InitSession();
+void EndSession();
 void Tick();
 
 void PushMessage_Direct(Message message);

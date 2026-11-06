@@ -41,13 +41,8 @@ struct SaveInfoInit
     // marks target as invalid on load error
     void on_error();
 
-#ifdef PGEFL_CALLBACK_API
     // updates star count from header
     void check_head(const LevelHead& head);
-#else
-    // updates star count from header
-    void check_head(const LevelData& head);
-#endif
 
     // updates medal count from NPC
     void check_npc(const LevelNPC& head);
@@ -64,15 +59,20 @@ struct SaveInfoInit
 LevelSaveInfo_t InitLevelSaveInfo(const std::string& fullPath, LevelData& tempData);
 
 /**
- * \brief import all level save info into WorldLevel and LevelWarpSaveEntries from a GamesaveData object
+ * \brief import all level save info into WorldLevel and LevelSaveEntries from a GamesaveData object
  * \param s a PGE-FL GamesaveData object from which level save info will be loaded to global arrays
  */
 void ImportLevelSaveInfo(const GamesaveData& s);
 
 /**
- * \brief export all level save info from WorldLevel and LevelWarpSaveEntries to a GamesaveData object
+ * \brief export all level save info from WorldLevel and LevelSaveEntries to a GamesaveData object
  * \param s a mutable PGE-FL GamesaveData object to which level save info will be stored from global arrays
  */
 void ExportLevelSaveInfo(GamesaveData& s);
+
+/**
+ * \brief get the LevelSaveInfo for the current level (if it exists), otherwise nullptr
+ */
+LevelSaveInfo_t* CurSaveInfo();
 
 #endif // #ifndef LEVEL_SAVE_INFO_H

@@ -122,7 +122,7 @@ int pfrY(const StdPicture& tx, const Player_t& p)
 int pfrW(const StdPicture& tx, const Player_t& p)
 {
     if(tx.h != 512)
-        return 100;
+        return 98; // was 99 in VB6, 100 in TheXTech v1.3.5.3-v1.3.7.3
     else if(p.Character == 5)
         return 64;
     else
@@ -135,7 +135,7 @@ int pfrH(const StdPicture& tx, const Player_t& p)
     UNUSED(p);
 
     if(tx.h != 512)
-        return 100;
+        return 98; // was 99 in VB6, 100 in TheXTech v1.3.5.3-v1.3.7.3
     else
         return 64;
 }
@@ -385,7 +385,7 @@ void DrawPlayer(Player_t &p, const int Z, XTColor color)
     XTColor s = (ShadowMode ? XTColor(64, 64, 64, color.a) : color);
 
     // color player during invincibility
-    if(InvincibilityTime)
+    if(p.InvincibilityTime)
     {
         switch(((unsigned)CommonFrame / 4) % 4)
         {

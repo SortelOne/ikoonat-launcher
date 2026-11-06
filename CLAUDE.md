@@ -7,10 +7,18 @@ compatibility layer. Desktop (macOS) first, Android later.
 
 ## Upstream policy
 
-This is a **separate fork** (decided 2026-11-04): we don't merge from vkdfkc or
-TheXTech; the `upstream` remote is kept only for reference. Upstream TheXTech's
-`AGENTS.md` (deleted here) forbids AI-generated code in contributions to their
-project, so never prepare anything from this repo as an upstream PR.
+We merge **TheXTech's `main`** from time to time (decided 2026-11-06), with a
+real `git merge` of the `thextech` remote (https://github.com/TheXTech/TheXTech)
+on its own branch, so later catch-ups bring only new commits; it goes into
+`main` after Jake's OK. The first catch-up brought TheXTech from `bc30bf2f`
+(2026-07-18, where vkdfkc stopped) to `69d73af1` (2026-11). vkdfkc's fork has
+nothing newer; the `upstream` remote is kept only for reference. Merging:
+new TheXTech object IDs that land in SMBX2's ranges move above them (see
+"Object IDs" below); keep our `// smbx2compat:` hooks; move submodule pins
+only forward (our PGE pin may be newer than theirs) and re-apply our
+submodule patches. We never contribute back: upstream TheXTech's
+`AGENTS.md` (deleted here) forbids AI-generated code in contributions to
+their project, so never prepare anything from this repo as an upstream PR.
 
 ## Layout that matters here
 
@@ -95,6 +103,12 @@ cmake --build build
 For performance numbers use a Release build in its own folder
 (`-B build-release -DCMAKE_BUILD_TYPE=Release`; `run-level.sh` runs it with
 `XTECH_BUILD=build-release`). Debug is much slower (1-1: ~9.4 vs ~5.8 ms a frame).
+
+`THEXTECH_ENABLE_SDL_NET` (TheXTech's netplay) stays OFF, our default since
+the 2026-11 TheXTech merge (TheXTech turns it on for macOS): with it on,
+saves load only through the netplay session's `PreloadGame`, which the
+library's Continue and `--save-slot` starts skip. A build folder configured
+with it on needs `-DTHEXTECH_ENABLE_SDL_NET=OFF` (the option is cached).
 
 `THEXTECH_FIXED_POINT` stays ON (the default); `num_t` is then a fixed-point class,
 and `num_t(double)` is deliberately deleted, so convert with `num_t(x, nullptr)`.
@@ -292,7 +306,12 @@ How it works (details in `core/boot.lua`'s header):
   Loading screens (off: the engine's enter screen) and Frame time (average
   and slowest of the last 66 frames under the FPS; `g_microStats`). Keep
   `Config_t`'s members outside `#ifdef ENABLE_XTECH_LUA`: the script library
-  is built without that define and must see the same struct.
+  is built without that define and must see the same struct. It inherits
+  the engine's `A2XT_Int` definitions (`script/CMakeLists.txt`; TheXTech's
+  netplay options sit inside `#ifdef THEXTECH_ENABLE_SDL_NET`), and
+  `xtech_lua_init` stops the game with a critical log line if the two
+  `sizeof(Config_t)` differ (it once read every option from the wrong place:
+  "Lua engine disabled in config").
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
@@ -350,12 +369,17 @@ How it works (details in `core/boot.lua`'s header):
   LunaLua's are SMBX's; `Player:transform` takes the powerup from it.
 - Object IDs: the engine has SMBX2's limits (2000 blocks, 1000 NPCs/BGOs/
   effects; `src/global_constants.h`). TheXTech's own types that clashed with
-  SMBX2's moved above them: NPCs 301-306 to 1001-1006, conveyor blocks
-  701/702 to 2001/2002, effects 149/150 to 1001/1002. `src/main/smbx2_ids.h`
-  translates the NPCs for files: without SMBX2's data, levels and saves
-  still say 301-306; graphics and `npc-N.txt` always do. With SMBX2's data
-  installed (`g_smbx2Ids`, set in `LoadGFX`), default sprites come from
-  SMBX2's `graphics/<category>/` first, then the asset pack.
+  SMBX2's moved above them: NPCs 301-312 to 1001-1012, conveyor blocks
+  701/702 to 2001/2002, its blocks 689, 697 and 701-730 (maze zones, tiny
+  blocks, X2 functional blocks) to 2089, 2097 and 2101-2130 (+1400),
+  effects 149/150 to 1001/1002. `src/main/smbx2_ids.h` translates them for
+  files (`NPCIDFromFile`/`BlockIDFromFile` and back): without SMBX2's data,
+  levels and saves still say 301-312 / 689-730; graphics, `npc-N.txt` and
+  `block-N.txt` always do. With SMBX2's data installed (`g_smbx2Ids`, set
+  in `LoadGFX`), default sprites come from SMBX2's `graphics/<category>/`
+  first, then the asset pack. The in-game editor's palette still lists
+  them by their file numbers (objects placed from it take the engine's
+  number after a save and reload).
 - Collision groups and LunaLua's extended object fields (`noblockcollision`,
   `nonpccollision`, `collisionGroup`, ...): `SMBX2NPCExt_t`/`SMBX2BlockExt_t`
   inside `NPC_t`/`Block_t` (so they move with the object) and
