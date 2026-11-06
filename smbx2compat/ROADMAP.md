@@ -1063,22 +1063,30 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     Starry's dialogue boxes; the loading screens' photo collages have dark
     patches. 2-Boss's "THIS WAY" sign has a pure-black shape between the
     words in every frame, the same black as its outline: most likely art.
+- *Done (2026-11-06, Ikoonat round):*
+  - Map camera zones: a debug file put the map player in each of
+    `World Map.lvlx`'s 9 camera zones; each time `map.lua` found the zone
+    and the camera eased to its tilt (-15 to -35, from the default -45;
+    zones 1 and 4 also turn it), with screenshots matching. The flatter
+    view Jake sees on Windows is these zones.
+  - Graphics quality: 1-1, 2-1, 2-2, Hidden Village, 2-4 and the map ran at
+    Low, Medium and High (`SWEEP_QUALITY`, sweep.sh): no script errors at
+    any, and the screenshots show what `graphicalQuality.lua` asks for
+    (Low: no darkness shader but a tinted screen, no weather or color
+    correction; Medium: darkness without shadows, rain, color correction
+    with nearest LUT sampling; High: everything).
+  - Jake spotted 1px seams in 1-1 at Medium: the engine draws an object at
+    `floor(CameraAdd + x)` (`CameraAdd` = the whole-pixel camera + 0.5),
+    but script image draws in scene coordinates rounded `CameraAdd + x`,
+    landing a pixel right of and below it. Every BGO SMBX2 draws
+    (`betterbgo`) was off by one against the engine's blocks; gaps showed
+    the sea through 1-1's slopes (Medium's nearest-color LUT made them
+    stand out; they were there at every quality). Scene draws now take
+    `CameraAdd - 0.5` and images/text round as the engine does
+    (`xtech_lua_draw.cpp`).
 - *Next:*
   - Jake checks the loading screens and the map.
-  - The map's camera angle (Jake, 2026-11-06: on Windows it is sometimes
-    flatter). It is SMATRS's own (`map.lua`): a default tilt of -45 and
-    camera zones in `World Map.lvlx` (section 0 has 9, tilted -15 to -35)
-    that the camera eases into while the player stands in one. Here the
-    zones load with their settings and the lookup finds each one from inside
-    it, but sweeps only stand on level spots, outside every zone: walk the
-    map player into a zone and check the camera follows.
   - Later: the image-load hitches on Android if they show there.
-  - After the leak audit (Jake, 2026-11-06): play a few levels and the map
-    at SMATRS's other graphical quality levels (Low and Medium; its options
-    menu, `SaveData.general.graphicalQuality`, 1-3; sweeps so far ran at the
-    save's setting): they boot, no script errors, no drawing glitches in
-    screenshots. Low turns off the darkness shadows (`graphicalQuality.lua`)
-    and simplifies effects, so it is the setting the Odin will most likely use.
 - Done when: Chapter 1 is playable start to finish on desktop, from the
   main menu.
 - *Testing after the episode flow works (Jake, 2026-11-05; on hold until
@@ -1143,7 +1151,9 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   step with progress, per-episode settings, and "Add to home screen"
   (`ShortcutManager.requestPinShortcut`, starting the game with the
   episode's world and a save slot, as `run-level.sh` does). Own app ID and
-  name, so it installs beside TheXTech. TheXTech is GPLv3: an APK given to
+  name, so it installs beside TheXTech: *Ikoonat Launcher*, already the
+  macOS app's name (`io.github.sortelone.ikoonat`); Android's launcher icons
+  (`res/mipmap-*`, adaptive icon) from `resources/ikoonat/leaf.png`. TheXTech is GPLv3: an APK given to
   others has to come with the source.
 - Done when: SMATRS 1-1 runs on your phone.
 
@@ -1180,7 +1190,7 @@ code); since the performance round, compare the best or median of 3 runs.
 `,memcallers` adds which lines read `mem()` most (sampled; slows the run).
 
 For where native time goes, sample the running game without the probe:
-start `run-level.sh` in the background, then `sample $(pgrep -n TheXTech)
+start `run-level.sh` in the background, then `sample $(pgrep -nx "Ikoonat Launcher")
 10 -file out.txt`. The main thread's tree shows Lua (under `lua_pcall`),
 the renderer and the swap; offsets inside a function (`mem_get + 1492`)
 map to code with `objdump -d` on the Release binary.

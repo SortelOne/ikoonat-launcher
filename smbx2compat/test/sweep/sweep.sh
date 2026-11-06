@@ -4,6 +4,7 @@
 # right, jump now and then, a screenshot every 400 frames. Keeps each
 # level's log and screenshots in <outdir>/<level>/ and prints its error count.
 # SWEEP_DEBUG=<file.lua> runs another debug file instead.
+# SWEEP_QUALITY=1|2|3 plays SMATRS at Low/Medium/High graphics (sweep.lua).
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
 D=$REPO/../TheXTech-data

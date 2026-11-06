@@ -11,6 +11,6 @@
 set -u
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 D=${XTECH_DATA:-$REPO/../TheXTech-data}
-BIN=$REPO/${XTECH_BUILD:-build-release}/bin/TheXTech.app/Contents/MacOS/TheXTech
+BIN="$REPO/${XTECH_BUILD:-build-release}/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher"
 
 exec "$BIN" -c "$D/assets-smbx13" -u "$D/userdir" "$@"

@@ -658,12 +658,12 @@ void WindowSDL::updateWindowIcon()
     GraphicsHelps::closeImage(img[1]);
 #else//IF _WIN32
 
-    FIBITMAP *img;
 #   ifdef __APPLE__
-    img = GraphicsHelps::loadImage(AppPath + "/graphics/ui/icon/thextech_256.png");
+    // smbx2compat: on macOS this replaced the Dock icon with the asset
+    // pack's logo (thextech_256.png); keep the bundle's own, the leaf
+    return;
 #   else
-    img = GraphicsHelps::loadImage(AppPath + "/graphics/ui/icon/thextech_32.png");
-#   endif //__APPLE__
+    FIBITMAP *img = GraphicsHelps::loadImage(AppPath + "/graphics/ui/icon/thextech_32.png");
 
     if(img)
     {
@@ -678,6 +678,7 @@ void WindowSDL::updateWindowIcon()
             SDL_ClearError();
         }
     }
+#   endif //__APPLE__
 #endif//IF _WIN32 #else
 }
 

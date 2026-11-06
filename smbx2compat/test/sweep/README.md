@@ -14,6 +14,8 @@ workspace 1, and from Claude's shell they need the sandbox off.
   (`epsweep.lua`; the list format is in its header). Slot 3's SMBX2 save is
   put back afterwards. Example list: `levels-sample-2026-11-06.txt` (the
   random sample from ROADMAP.md Phase 6).
+- `SWEEP_QUALITY=1|2|3` (with `sweep.sh`) plays SMATRS at its Low, Medium or
+  High graphics setting (`SaveData.general.graphicalQuality`).
 - `reg.sh <outdir>` — the regression set on the Debug build, with the
   expected results in its header.
 - `blackrects.py <png>...` — finds solid black boxes in screenshots (the

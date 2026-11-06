@@ -1,4 +1,10 @@
-# TheXTech-Lua + smbx2compat: SMBX2 episodes on TheXTech
+<p align="center">
+<img src="resources/ikoonat/icon_256.png" alt="Ikoonat Launcher">
+</p>
+
+# Ikoonat Launcher: SMBX2 episodes on TheXTech
+
+*Ikoonat* is "tanooki" backwards, after the leaf in the icon.
 
 A fork of [vkdfkc/TheXTech-Lua](https://github.com/vkdfkc/TheXTech-Lua)
 (TheXTech with LuaJIT scripting) that plays SMBX2 (LunaLua) episodes, starting

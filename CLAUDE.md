@@ -116,7 +116,7 @@ If submodule working trees ever show every file as deleted, restore them with
 
 ```bash
 D=../TheXTech-data
-build/bin/TheXTech.app/Contents/MacOS/TheXTech -c $D/assets-smbx13 -u $D/userdir -l "<level>.lvlx"
+"build/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher" -c $D/assets-smbx13 -u $D/userdir -l "<level>.lvlx"
 ```
 
 `-c` asset pack, `-u` separate user dir (logs go to `$D/userdir/logs/`), `-l` level
@@ -167,7 +167,7 @@ screen.
 
 Debugging with lldb: ad-hoc builds can't be attached to until re-signed with the
 `com.apple.security.get-task-allow` entitlement:
-`codesign -s - -f --entitlements debug.entitlements build/bin/TheXTech.app/Contents/MacOS/TheXTech`
+`codesign -s - -f --entitlements debug.entitlements "build/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher"`
 (a plist with that one key set to true). Rebuilding relinks and drops it.
 
 ## SMBX2 core mode
@@ -256,6 +256,11 @@ How it works (details in `core/boot.lua`'s header):
   rectangle wholly outside the texture, as LunaLua's `GLDraw::DrawSprite`
   does: SMBX2's `npcutils.hideNPC` hides NPCs with frame -999, and the GPU
   stretched the texture's edge row into a bar instead (2-A's barrels).
+- Script draws in scene coordinates are offset by the engine's whole-pixel
+  camera (`vScreen::CameraAddX() - 0.5`, `xtech_lua_draw.cpp`), and images
+  and text round with `floor(x + 0.5)`, so they land on the same pixel as
+  the engine's `floor(CameraAdd + x)`. Rounding `CameraAdd + x` drew all of
+  SMBX2's BGOs (betterbgo) a pixel off the engine's blocks (1-1's seams).
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
@@ -346,7 +351,8 @@ How it works (details in `core/boot.lua`'s header):
   as its argument; `Misc.getCustomEnvironment()._G.require(...)` reaches the
   episode's modules and `SaveData`; `core.ffi` is LuaJIT's FFI (SMBX2's
   lockdown hides `require("ffi")`), e.g. to wrap the `LunaDll.dll` draw
-  exports (`core.ffi.load("LunaDll.dll").FFI_GLDraw`) and log every draw.
+  exports (`core.ffi.load("LunaDll.dll").FFI_GLDraw`) and log every draw;
+  `core.getenv` is `os.getenv` (hidden too).
   Keep one-off debug files in the scratchpad (it is wiped overnight); reusable
   ones go in `smbx2compat/test/sweep/`.
 - SMATRS's 3D world map is the level `World Map.lvlx` (hub of `World.wld`),
@@ -529,6 +535,21 @@ libraries (`npcManager`, `npcutils`, ...), shaders, render priority, cancellable
 events. SMBX2-only block/NPC IDs won't render. Unimplemented calls warn once; call
 `smbx2compat.report()` for the list. `SMBX2COMPAT_STRICT = true` makes them errors.
 Values marked `VERIFY` in the shim come from memory and need checking in play.
+
+## App name and icon
+
+The macOS app is *Ikoonat Launcher* (`THEXTECH_BUNDLE_NAME`, bundle ID
+`io.github.sortelone.ikoonat`), so it isn't confused with upstream's
+TheXTech: `build*/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher`
+(quote the path; find the process with `pgrep -x "Ikoonat Launcher"`).
+Jake's AeroSpace config sends windows with that bundle ID to workspace 1.
+Build folders configured before the rename need
+`cmake -B <dir> -DTHEXTECH_BUNDLE_NAME="Ikoonat Launcher"` (cached). Icons:
+`resources/ikoonat/` (`leaf.png`, Jake's 100x100 pixel art;
+`make_icons.py` writes `icon_<size>.png` and `thextech.icns`). On macOS the
+engine no longer sets the asset pack's logo as the Dock icon
+(`WindowSDL::updateWindowIcon`). Android's icon and app ID come with the
+episode library app (ROADMAP.md Phase 7).
 
 ## Conventions
 

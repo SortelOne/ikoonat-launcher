@@ -21,7 +21,7 @@ D=${XTECH_DATA:-$REPO/../TheXTech-data}
 LEVEL=$(cd "$(dirname "$1")" && pwd)/$(basename "$1") # absolute, as LunaLua's paths are
 SECS=${2:-40}
 WS=${XTECH_WORKSPACE:-1}
-BIN=$REPO/${XTECH_BUILD:-build}/bin/TheXTech.app/Contents/MacOS/TheXTech
+BIN="$REPO/${XTECH_BUILD:-build}/bin/Ikoonat Launcher.app/Contents/MacOS/Ikoonat Launcher"
 SLOT=
 case "$LEVEL" in
     *.wld|*.wldx) SLOT="--save-slot ${XTECH_SAVE_SLOT:-3}" ;;

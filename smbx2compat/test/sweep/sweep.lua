@@ -1,6 +1,14 @@
 -- SMBX2COMPAT_DEBUG script for sweep.sh (-l level tests): hold right, jump now and
 -- then, screenshot every 400 frames, heartbeat every 300.
+-- SWEEP_QUALITY=1|2|3 sets SMATRS's graphics quality (Low/Medium/High) first.
 local core = ...
+local quality = tonumber(core.getenv("SWEEP_QUALITY") or "")
+if quality then
+    local saveData = Misc.getCustomEnvironment()._G.SaveData
+    saveData.general = saveData.general or {}
+    saveData.general.graphicalQuality = quality
+    core.log("sweep: graphics quality " .. quality)
+end
 local level = Level.filename()
 local frames = 0
 local orig = core.updateRawKeys

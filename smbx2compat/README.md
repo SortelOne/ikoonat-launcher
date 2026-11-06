@@ -74,6 +74,10 @@ Grouped by area; the details for each are in `CLAUDE.md`.
   options for arm64. 1-1 runs at about 6 ms a frame on a Release build.
 - **Fixes to episode crashes and errors**: `onLoop` Lua errors no longer
   crash the game; each distinct error is logged once with a traceback.
+- **Its own app**: the macOS app is called *Ikoonat Launcher* ("tanooki"
+  backwards), with its own bundle ID and Jake's leaf as its icon
+  (`resources/ikoonat/`; `make_icons.py` makes every size from `leaf.png`).
+  The build makes `bin/Ikoonat Launcher.app`.
 
 ## Setting up
 

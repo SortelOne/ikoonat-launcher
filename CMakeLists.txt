@@ -60,7 +60,8 @@ if(APPLE)
         set(XTECH_DEFAULT_ICNS "resources/tiger/thextech.icns")
     else()
         set(XTECH_PLIST_NAME "thextech.plist.in")
-        set(XTECH_DEFAULT_ICNS "resources/thextech.icns")
+        # smbx2compat: Ikoonat Launcher's leaf (resources/ikoonat/make_icons.py)
+        set(XTECH_DEFAULT_ICNS "resources/ikoonat/thextech.icns")
     endif()
 
     if(NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET OR CMAKE_OSX_DEPLOYMENT_TARGET STREQUAL "")
@@ -242,7 +243,8 @@ set(THEXTECH_INSTALLER_PACKAGE_NAME "${THEXTECH_EXECUTABLE_NAME}" CACHE STRING "
 if(APPLE)
     set(THEXTECH_PRELOAD_ENVIRONMENT "" CACHE STRING "Path to resources root to pack")
     option(THEXTECH_PRELOAD_ENVIRONMENT_MANUALLY "Make application look for assets inside the bundle, but don't actually put any assets. The 'Template' app will be produced for manual addition of assets." OFF)
-    set(THEXTECH_BUNDLE_NAME "TheXTech" CACHE STRING "Name of bundle folder")
+    # smbx2compat: our app's name; Finder and the Dock show the bundle folder's
+    set(THEXTECH_BUNDLE_NAME "Ikoonat Launcher" CACHE STRING "Name of bundle folder")
     set(THEXTECH_ICON_NAME "thextech.icns" CACHE STRING "Name of bundle icon file")
     set(THEXTECH_CUSTOM_ICON_PATH "" CACHE STRING "Name of icon file to pack into the bundle")
     if(NOT THEXTECH_CUSTOM_ICON_PATH STREQUAL "")
@@ -1388,7 +1390,7 @@ if(APPLE)
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/resources/${XTECH_PLIST_NAME}"
         MACOSX_BUNDLE_BUNDLE_NAME "${THEXTECH_BUNDLE_NAME}"
         MACOSX_BUNDLE_EXECUTABLE_NAME "${THEXTECH_EXECUTABLE_NAME_OUT}"
-        MACOSX_BUNDLE_GUI_IDENTIFIER "ru.wohlsoft.thextech"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.sortelone.ikoonat" # smbx2compat: not upstream's app
         MACOSX_BUNDLE_SHORT_VERSION_STRING "${THEXTECH_VERSION_STRING}"
         MACOSX_BUNDLE_LONG_VERSION_STRING "${THEXTECH_VERSION_STRING}"
         MACOSX_BUNDLE_ICON_FILE "${THEXTECH_ICON_NAME}"

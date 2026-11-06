@@ -795,7 +795,8 @@ void drawOp(const DrawOp &op, double camX, double camY)
         if(w <= 0 || h <= 0)
             return;
 
-        float x0 = (float)std::lround(op.x + offX), y0 = (float)std::lround(op.y + offY);
+        // the engine's pixel for a position: floor(CameraAdd + x), as gfx_update.cpp
+        float x0 = (float)std::floor(op.x + offX + 0.5), y0 = (float)std::floor(op.y + offY + 0.5);
         float x1 = x0 + w, y1 = y0 + h;
         float u0 = (float)op.u / pic.w, v0 = (float)op.v / pic.h;
         float u1 = (float)(op.u + w) / pic.w, v1 = (float)(op.v + h) / pic.h;
@@ -807,7 +808,7 @@ void drawOp(const DrawOp &op, double camX, double camY)
 
     case OP_TEXT:
         SuperPrint(s_texts[op.first].c_str(), (int)op.count,
-                   (int)std::lround(op.x + offX), (int)std::lround(op.y + offY));
+                   (int)std::floor(op.x + offX + 0.5), (int)std::floor(op.y + offY + 0.5));
         break;
 
     case OP_SCRIPT:
@@ -1371,9 +1372,13 @@ void xtech_lua_drawBelow(double maxPriority)
         s_orderCursor = 0;
     }
 
+    // The engine draws an object at floor(CameraAdd + x), CameraAdd being the
+    // camera's whole-pixel position + 0.5; scene draws take the position itself
+    // (LunaLua's camera offset). Rounding CameraAdd + x drew SMBX2's BGOs (betterbgo)
+    // a pixel right of and below the engine's blocks: 1-1's slopes showed gaps.
     const vScreen_t &vs = vScreen[s_drawScreen];
-    double camX = (double)vs.CameraAddX();
-    double camY = (double)vs.CameraAddY();
+    double camX = (double)vs.CameraAddX() - 0.5;
+    double camY = (double)vs.CameraAddY() - 0.5;
 
     while(s_orderCursor < s_order.size() && s_ops[s_order[s_orderCursor]].drawnPass == s_pass)
         s_orderCursor++;
