@@ -44,6 +44,7 @@
 
 #include "../game_main.h"
 #include "menu_main.h"
+#include "main/game_save.h"
 #include "main/screen_pause.h"
 #include "main/screen_textentry.h"
 #include "main/screen_connect.h"
@@ -237,10 +238,6 @@ static bool s_SaveAndContinue()
 
 static bool s_Quit()
 {
-#ifdef THEXTECH_ENABLE_SDL_NET
-    XMessage::Disconnect();
-#endif
-
     bool CanSave = (LevelSelect || IsHubLevel) && !Cheater;
 
     if(CanSave)

@@ -78,7 +78,7 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
     }
 
     // special logic for shell: just keep going!
-    if(((Player[A].State == PLR_STATE_SHELL && !Player[A].Wet) || Player[A].State == PLR_STATE_POLAR) && Player[A].Controls.Run && !Player[A].HoldingNPC && !Player[A].Mount)
+    if(((Player[A].State == PLR_STATE_SHELL && !Player[A].Wet) || Player[A].State == PLR_STATE_POLAR) && (Player[A].Controls.Run || !Player[A].UnDuckSafe) && !Player[A].HoldingNPC && !Player[A].Mount)
     {
         // 7.1 is the NPC shellspeed
         num_t shell_speed = (num_t)speedVar * 7.1_r;
@@ -194,7 +194,7 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
                 }
                 else // normal duck
                 {
-                    if((Player[A].State > 1 && Player[A].HoldingNPC <= 0) || (Player[A].Character == 3 || Player[A].Character == 4 || Player[A].Character == 5))
+                    if(((Player[A].State > 1 && Player[A].HoldingNPC <= 0) || (Player[A].Character == 3 || Player[A].Character == 4 || Player[A].Character == 5)) && Player[A].State != PLR_STATE_TINY)
                     {
                         if(!Player[A].Duck && Player[A].TailCount == 0) // Player ducks
                         {
@@ -212,9 +212,19 @@ void PlayerMovementX(int A, tempf_t& cursed_value_C)
                         {
                             Player[A].Duck = true;
                             Player[A].Location.Height = Physics.PlayerDuckHeight[1][2];
-                            Player[A].Location.Y += -Physics.PlayerDuckHeight[1][2] + Physics.PlayerHeight[1][2];
+                            // Player[A].Location.Y += -Physics.PlayerDuckHeight[1][2] + Physics.PlayerHeight[1][2];
+
+                            int shift = -Physics.PlayerDuckHeight[1][2];
+
+                            // 44 is the height of a tiny player in a boot
+                            if(Player[A].State == PLR_STATE_TINY)
+                                shift += 44;
+                            else
+                                shift += Physics.PlayerHeight[1][2];
 //                                            if(nPlay.Online == true && A == nPlay.MySlot + 1)
 //                                                Netplay::sendData "1q" + std::to_string(A) + LB;
+
+                            Player[A].Location.Y += shift;
                         }
                     }
                 }
@@ -538,7 +548,7 @@ void PlayerCockpitMovementX(int A)
 
 void PlayerMovementY(int A)
 {
-    bool aquatic_jumps = (Player[A].State == PLR_STATE_AQUATIC && Player[A].Character != 5 && !Player[A].Mount && !Player[A].HoldingNPC);
+    bool aquatic_jumps = (Player[A].State == PLR_STATE_AQUATIC && Player[A].Character != 5 && !Player[A].Mount && !Player[A].HoldingNPC && !Player[A].Vine);
 
     if(aquatic_jumps && Player[A].SwimCount > 0)
         Player[A].SwimCount--;
@@ -621,11 +631,12 @@ void PlayerMovementY(int A)
     if(Player[A].Wet > 0 || Player[A].WetFrame)
         Player[A].CanFloat = false;
 
-    bool has_wall_traction = CanWallJump && (Player[A].Pinched.Left2 == 2 || Player[A].Pinched.Right4 == 2) && !Player[A].SpinJump && (!Player[A].SlippyWall || Player[A].State == PLR_STATE_POLAR) && Player[A].HoldingNPC == 0 && Player[A].Mount == 0 && !Player[A].Duck && !(Player[A].State == PLR_STATE_CYCLONE && !Player[A].DoubleJump);
+    bool has_wall_traction = CanWallJump && (Player[A].Pinched.Left2 == 2 || Player[A].Pinched.Right4 == 2) && !Player[A].SpinJump && (!Player[A].SlippyWall || Player[A].State == PLR_STATE_POLAR) && Player[A].HoldingNPC <= 0 && Player[A].Mount == 0 && !Player[A].Duck && !(Player[A].State == PLR_STATE_CYCLONE && !Player[A].DoubleJump);
 
     // handles the regular jump
     if(Player[A].Controls.Jump || (Player[A].Controls.AltJump &&
-       ((Player[A].Character > 2 && Player[A].Character != 4) || Player[A].Quicksand > 0 || Player[A].Rolling || aquatic_jumps || g_config.disable_spin_jump) &&
+       ((Player[A].Character > 2 && Player[A].Character != 4 && (Player[A].State != PLR_STATE_TINY || Player[A].Character == 5))
+        || Player[A].Quicksand > 0 || Player[A].Rolling || aquatic_jumps || g_config.disable_spin_jump) &&
        Player[A].CanAltJump))
     {
         num_t tempSpeed;
@@ -866,7 +877,7 @@ void PlayerMovementY(int A)
 
     // START ALT JUMP - this code does the player's spin jump
     if(Player[A].Controls.AltJump && (Player[A].Character == 1 || Player[A].Character == 2 || Player[A].Character == 4 ||
-                                      (g_config.fix_char3_escape_shell_surf && Player[A].Character == 3 && Player[A].ShellSurf))
+                                      (g_config.fix_char3_escape_shell_surf && Player[A].Character == 3 && Player[A].ShellSurf) || Player[A].State == PLR_STATE_TINY)
                                   && (!g_config.disable_spin_jump || Player[A].ShellSurf))
     {
         num_t tempSpeed;
@@ -1028,6 +1039,8 @@ void PlayerMovementY(int A)
                 if(Player[A].Location.SpeedY > Physics.PlayerTerminalVelocity / 2)
                     Player[A].Location.SpeedY = Physics.PlayerTerminalVelocity / 2;
             }
+            else if(Player[A].State == PLR_STATE_TINY && (Player[A].Controls.Jump || Player[A].Controls.AltJump) && !Player[A].Mount)
+                Player[A].Location.SpeedY += Physics.PlayerGravity * 0.625_rb;
             else if(Player[A].Character == 2)
                 Player[A].Location.SpeedY += Physics.PlayerGravity * 0.9_r;
             else
@@ -1081,8 +1094,10 @@ void PlayerMovementY(int A)
             if(Player[A].Jump == 0 && ((Player[A].Controls.Jump && Player[A].FloatRelease) ||
               (Player[A].Controls.AltJump && Player[A].Location.SpeedY > 0)))
             {
+                if(Player[A].State == PLR_STATE_TINY && Player[A].SpinJump)
+                    Player[A].FloatTime = 0;
                 // float time is longer during glide
-                if(Player[A].State == 4 || Player[A].State == 5)
+                else if(Player[A].State == 4 || Player[A].State == 5)
                 {
                     Player[A].FloatTime = 100;
                     Player[A].FlySparks = true;
@@ -1482,7 +1497,7 @@ void PlayerAquaticSwimMovement(int A)
 
 void PlayerMazeZoneMovement(int A)
 {
-    if(Player[A].Mount == 3)
+    if(Player[A].Mount == 3 || (Player[A].Controls.Down && (Player[A].Mount || (!Player[A].Stoned && !Player[A].HoldingNPC && !(Player[A].Character < 3 && Player[A].State == PLR_STATE_SMALL)))))
     {
         Player[A].Duck = true;
         SizeCheck(Player[A]);
@@ -1508,7 +1523,10 @@ void PlayerMazeZoneMovement(int A)
         if(Player[A].MazeZoneStatus % 4 == MAZE_DIR_DOWN)
         {
             // make sure the player won't clip into blocks below the maze zone
-            PlayerPush(A, 1);
+            if(Player[A].MazeZoneStatus & (MAZE_EXIT_LEFTSIDE | MAZE_EXIT_RIGHTSIDE))
+                PlayerPush(A, 6);
+            else
+                PlayerPush(A, 1);
 
             // unduck the player now if they were on Mount 3, and then make sure they don't hit the top of the maze zone ceiling
             if(Player[A].Duck && !Player[A].Controls.Down && !Player[A].Rolling)
@@ -1520,6 +1538,9 @@ void PlayerMazeZoneMovement(int A)
         // help the player hit blocks above the maze zone
         else if(Player[A].MazeZoneStatus % 4 == MAZE_DIR_UP && !Player[A].Rolling)
         {
+            if(Player[A].MazeZoneStatus & (MAZE_EXIT_LEFTSIDE | MAZE_EXIT_RIGHTSIDE))
+                PlayerPush(A, 6);
+
             Player[A].StandUp = true;
             Player[A].StandUp2 = true;
             Player[A].ForceHitSpot3 = true;

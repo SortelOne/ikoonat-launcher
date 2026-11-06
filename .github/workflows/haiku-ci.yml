@@ -1,11 +1,12 @@
 name: Haiku CI
 
 on:
+#  workflow_dispatch:
   push:
     branches:
       - main
       - stable*
-      - versus-ci
+#      - versus-ci
       - versus-ci-haiku
   pull_request:
     branches:
@@ -28,7 +29,7 @@ jobs:
       matrix:
         config:
         - {
-            name: "Haiku R1-Beta5 x86_64",
+            name: "Haiku R1-Beta6 x86_64",
             os: ubuntu-latest,
 
             extra_options: "-DTHEXTECH_EXECUTABLE_NAME=thextech \
@@ -36,12 +37,13 @@ jobs:
             -DUSE_SHARED_FREEIMAGE=OFF \
             -DPGE_SHARED_SDLMIXER=OFF",
 
-            deps_cmdline: "pkgman install -y libsdl2 libsdl2_devel cmake ninja git lftp",
+            # pkgman install -y libsdl2 libsdl2_devel cmake ninja git lftp
+            deps_cmdline: "echo 'Everything is already installed'",
 
             executable_name: "thextech",
             generator: "Ninja",
             build_type: "MinSizeRel",
-            package_filename_suffix: "haiku-r1beta5-x86_64",
+            package_filename_suffix: "haiku-r1beta6-x86_64",
             upload_directory: "www/haiku/"
           }
 
@@ -80,14 +82,15 @@ jobs:
         git submodule update --init --recursive
 
     - name: Start Haiku VM
-      uses: cross-platform-actions/action@v1
+      uses: cross-platform-actions/action@v1.5.0
       env:
         BRANCH_NAME: ${BRANCH_NAME}
       with:
         environment_variables: BRANCH_NAME
         operating_system: haiku
         architecture: x86-64
-        version: r1beta5
+        version: r1beta6
+        image_url: https://github.com/WohlSoft/haiku-builder/releases/download/v2026-08-28/haiku-r1beta6-x86-64.qcow2
 
     - name: Install host dependencies
       shell: bash

@@ -724,6 +724,8 @@ struct Player_t
     bool SlippyWall : 1;
     // Is the player's current jump a wall-jump?
     bool JumpOffWall : 1;
+    // NEW: can the player safely unduck?
+    bool UnDuckSafe : 1;
 
 //'yoshi powers
 //    YoshiYellow As Boolean
@@ -803,6 +805,8 @@ struct Player_t
     PlayerEffect Effect = PLREFF_NORMAL;
 //    Effect2 As Double 'counter for the effects (was double)
     vbint_t Effect2 = 0;
+    // NEW: tracks period of player's invincibility to all damage except lava, offscreen, and crushing
+    vbint_t InvincibilityTime = 0;
 //    NEW: this previously used the same storage as Effect2
     num_t RespawnY = 0_n;
 //    Duck As Boolean 'true if ducking
@@ -899,7 +903,10 @@ struct Player_t
     // NEW: status field for maze zone (stores current direction and clearance to leave)
     uint8_t MazeZoneStatus = 0;
 
-    Player_t() : GroundPound(false), GroundPound2(false), CanPound(false), AltRunRelease(false), DuckRelease(false), SlippyWall(false), JumpOffWall(false) {}
+    // NEW: disable player-player collisions (used for door warps)
+    bool NoPlayerCollide = false;
+
+    Player_t() : GroundPound(false), GroundPound2(false), CanPound(false), AltRunRelease(false), DuckRelease(false), SlippyWall(false), JumpOffWall(false), UnDuckSafe(true) {}
 };
 
 //Public Type Background  'Background objects
@@ -914,7 +921,7 @@ struct Background_t
 //    EXTRA: sort priority for BGO (NOT a draw plane itself, a BGO-only format used for sorting and determining draw plane)
     uint8_t SortPriority = 0;
 //    Location As Location
-    SpeedlessLocation_t Location;
+    Position_t Location;
 //! Default (original) location, used with Layer.Offset for precise positioning
     num_t DefaultLocationX = 0_n;
     num_t DefaultLocationY = 0_n;
@@ -935,6 +942,12 @@ struct Background_t
     void SetSortPriority(int layer, int offset);
     //! updates SortPriority based on current type, custom layer, and custom offset
     void UpdateSortPriority();
+    //! NEW: Get a full location
+    SpeedlessLocation_t FullLocation() const;
+
+    //! NEW: get width / height
+    vbint_t Width() const;
+    vbint_t Height() const;
 
     //! Frame X offset in sprite sheet (in GFX-width units)
     vbint_t extx = 0;
@@ -965,6 +978,7 @@ struct Water_t
     bool Hidden = false;
 //    Name As String 'object name for scripting (P4)
     stringindex_t Name = STRINGINDEX_NONE;
+    bool AutoConv = false;
 //End Type
 };
 
@@ -1119,14 +1133,17 @@ struct LevelSaveInfo_t
     // BITMASK
     uint16_t exits_got = 0;
 
+    // Fails count
+    uint16_t fails = 0;
+
     inline bool inited() const
     {
         return max_medals != 255;
     }
 };
 
-//! NEW: stores LevelSaveInfo for levels without WorldLevels
-struct LevelWarpSaveEntry_t
+//! NEW: stores LevelSaveInfo in an array with filenames
+struct LevelSaveEntry_t
 {
     std::string levelPath;
     LevelSaveInfo_t save_info;
@@ -1176,8 +1193,8 @@ struct WorldLevel_t
     int8_t starsShowPolicy = -1;
     uint8_t curStars = 0;
 
-    //! NEW: info about collected / available medals / stars (replaces maxStars)
-    LevelSaveInfo_t save_info;
+    //! NEW: index into LevelSaveEntries array -- info about collected / available medals / stars (replaces maxStars)
+    uint16_t save_info_idx = 0xFFFF;
 
     // NEW: returns graphical location extent (based on whether GFXLevelBig is set)
     //   defined in graphics.cpp
@@ -1186,6 +1203,9 @@ struct WorldLevel_t
     // NEW: returns location extent, including big background paths, for onscreen checks
     //   defined in graphics.cpp
     Location_t LocationOnscreen();
+
+    //! NEW: get the warp's LevelSaveInfo_t (based on save_info_idx)
+    inline const LevelSaveInfo_t save_info() const;
 };
 
 //Public Type Warp 'warps such as pipes and doors
@@ -1215,6 +1235,8 @@ struct Warp_t
     bool PlacedEnt = false;
 //    PlacedExit As Boolean
     bool PlacedExit = false;
+//    curStars As Integer
+    uint8_t curStars = 0;
 //    Stars As Integer 'number of stars required to enter
     vbint_t Stars = 0;
 //    Effect As Integer 'style of warp. door/
@@ -1235,11 +1257,9 @@ struct Warp_t
     vbint_t MapX = 0;
 //    MapY As Integer
     vbint_t MapY = 0;
-//    curStars As Integer
-    uint8_t curStars = 0;
 //    maxStars As Integer
-    //! NEW: index into either LevelWarpSaveEntries (<0x7fff) or WorldLevel (>0x8000)
-    uint16_t save_info_idx = 0x8000;
+    //! NEW: index into LevelSaveEntries -- stores information about level
+    uint16_t save_info_idx = 0xFFFF;
 //EXTRA:
     bool twoWay = false;
     bool noPrintStars = false;
@@ -1247,6 +1267,7 @@ struct Warp_t
     bool cannonExit = false;
     vbint_t cannonExitSpeed = 10;
     bool stoodRequired = false; // Require player stood on the ground to enter this warp
+    bool tinyRequired = false; // Require player to have tiny power to enter this warp
     eventindex_t eventEnter = EVENT_NONE;
     eventindex_t eventExit = EVENT_NONE;
     stringindex_t StarsMsg = STRINGINDEX_NONE;
@@ -1261,12 +1282,14 @@ struct Warp_t
 struct Tile_t
 {
 //    Location As Location
-    TinyLocation_t Location;
+    TinyPosition_t Location;
 //    Type As Integer
     vbint_t Type = 0;
 //End Type
 
     bool Active = true;
+
+    TinyLocation_t FullLocation() const;
 
     // int64_t Z = 0;
 };
@@ -1275,12 +1298,14 @@ struct Tile_t
 struct Scene_t
 {
 //    Location As Location
-    TinyLocation_t Location;
+    TinyPosition_t Location;
 //    Type As Integer
     vbint_t Type = 0;
 //    Active As Boolean 'if false this won't be shown. used for paths that become available on a scene
     bool Active = false;
 //End Type
+
+    TinyLocation_t FullLocation() const;
 
     // int64_t Z = 0;
 };
@@ -1289,12 +1314,14 @@ struct Scene_t
 struct WorldPath_t
 {
 //    Location As Location
-    TinyLocation_t Location;
+    TinyPosition_t Location;
 //    Active As Boolean
     bool Active = false;
 //    Type As Integer
     vbint_t Type = 0;
 //End Type
+
+    TinyLocation_t FullLocation() const;
 
     // int64_t Z = 0;
 };
@@ -1303,7 +1330,7 @@ struct WorldPath_t
 struct WorldMusic_t
 {
 //    Location As Location
-    TinyLocation_t Location;
+    TinyPosition_t Location;
 //    Type As Integer
     vbint_t Type = 0;
 //    EXTRA: Custom Music
@@ -1311,6 +1338,8 @@ struct WorldMusic_t
 //End Type
 
     bool Active = true;
+
+    TinyLocation_t FullLocation() const;
 
     // int64_t Z = 0;
 };
@@ -1339,6 +1368,12 @@ struct EditorCursor_t
     // coordinates where interaction began
     int InteractX = 0;
     int InteractY = 0;
+
+    int ForceGrid = -1;
+    int CurrentGrid = 32;
+    bool ShowGrid = true;
+    bool Paintbrush = false;
+    // bool Paintbrush = false;
 
 //    Location As Location
     Location_t Location;
@@ -1433,8 +1468,8 @@ struct Checkpoint_t
 // List of taken checkpoints, spawn player at last of them
 extern std::vector<Checkpoint_t> CheckpointsList;
 
-//! List of stars / medal info entries for the levels NOT on the world map
-extern std::vector<LevelWarpSaveEntry_t> LevelWarpSaveEntries;
+//! List of stars / medal info entries for the levels in the episode
+extern std::vector<LevelSaveEntry_t> LevelSaveEntries;
 
 //Public MagicHand As Boolean 'true if playing a level in the editor while not in fullscreen mode
 extern bool MagicHand;
@@ -1679,13 +1714,18 @@ extern int numWorldAreas;
 extern RangeArr<WorldLevel_t, 1, maxWorldLevels> WorldLevel;
 DECLREF_T(WorldLevel);
 
+inline const LevelSaveInfo_t WorldLevel_t::save_info() const
+{
+    if(save_info_idx < LevelSaveEntries.size())
+        return LevelSaveEntries[save_info_idx].save_info;
+
+    return LevelSaveInfo_t();
+}
+
 inline const LevelSaveInfo_t Warp_t::save_info() const
 {
-    if(save_info_idx < 0x7FFF && save_info_idx < LevelWarpSaveEntries.size())
-        return LevelWarpSaveEntries[save_info_idx].save_info;
-
-    if(save_info_idx > 0x8000 && save_info_idx - 0x8000 <= numWorldLevels)
-        return WorldLevel[save_info_idx - 0x8000].save_info;
+    if(save_info_idx < LevelSaveEntries.size())
+        return LevelSaveEntries[save_info_idx].save_info;
 
     return LevelSaveInfo_t();
 }
@@ -1905,7 +1945,7 @@ extern RangeArrI<vbint_t, 1, maxBlockType, 0> BlockFrame2;
 //Public SceneFrame(1 To maxSceneType) As Integer 'What frame the scene is on
 extern RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame;
 //Public SceneFrame2(1 To maxSceneType) As Integer 'Counter to update the scene frames
-extern RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame2;
+// extern RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame2;
 //Public SpecialFrame(100) As Integer 'misc frames for things like coins and the kurbi shoe
 extern RangeArrI<vbint_t, 0, 9, 0> SpecialFrame;
 //Public SpecialFrameCount(100) As Single
@@ -1917,11 +1957,15 @@ extern RangeArrI<vbint_t, 1, maxTileType, 0> TileHeight;
 //Public TileFrame(1 To maxTileType) As Integer
 extern RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame;
 //Public TileFrame2(1 To maxTileType) As Integer
-extern RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame2;
+// extern RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame2;
 //Public LevelFrame(1 To 100) As Integer 'What frame the scene is on
 extern RangeArrI<vbint_t, 1, 100, 0> LevelFrame;
 //Public LevelFrame2(1 To 100) As Integer 'Counter to update the scene frames
-extern RangeArrI<vbint_t, 1, 100, 0> LevelFrame2;
+// extern RangeArrI<vbint_t, 1, 100, 0> LevelFrame2;
+
+// NEW: replaces previous redundant frames
+extern RangeArrI<vbint_t, 1, 4, 0> WorldFrame;
+
 //Public BlockHasNoMask(1 To maxBlockType) As Boolean
 extern RangeArrI<bool, 1, maxBlockType, false> BlockHasNoMask;
 //Public LevelHasNoMask(1 To 100) As Boolean
@@ -2009,6 +2053,8 @@ extern std::string FileNamePath;
 extern std::string FileRecentSubHubLevel;
 //! EXTRA: The format of the current file
 extern int FileFormat;
+//! EXTRA: Does the currently loaded level target this engine (vs SMBX 1.3)?
+extern bool LevelTargetsEngine;
 
 //! EXTRA: World map preserved filename
 extern std::string FileNameWorld;
@@ -2018,6 +2064,8 @@ extern std::string FileNameFullWorld;
 extern std::string FileNamePathWorld;
 //! EXTRA: The format of the world file
 extern int FileFormatWorld;
+//! EXTRA: Does the currently loaded world target this engine (vs SMBX 1.3)?
+extern bool WorldTargetsEngine;
 
 //! EXTRA: Identify that episode is an intro level
 extern bool IsEpisodeIntro;
@@ -2066,6 +2114,8 @@ enum LevelBeatCode_t
 };
 //Public LevelBeatCode As Integer ' code for the way the plauer beat the level
 extern LevelBeatCode_t LevelBeatCode;
+//! Explicit mark that the world map is a destination
+extern bool QuitToWorldMap;
 //Public curWorldLevel As Integer
 extern int curWorldLevel;
 //Public curWorldMusic As Integer
@@ -2104,8 +2154,6 @@ extern int selSave;
 extern int PSwitchTime;
 //Public PSwitchStop As Integer
 extern int PSwitchStop;
-// NEW: tracks period of player's invincibility to all damage except lava, offscreen, and crushing
-extern int InvincibilityTime;
 //Public PSwitchPlayer As Integer
 extern int PSwitchPlayer;
 
@@ -2431,7 +2479,7 @@ extern RangeArr<StdPicture, 0, maxNPCType> GFXNPCBMP;
 // extern RangeArrI<int, 1, maxNPCType, 0> GFXNPCWidth;
 
 //Public GFXEffectCustom(1 To maxEffectType) As Boolean
-extern RangeArrI<bool, 1, maxEffectType, false> GFXEffectCustom;
+// extern RangeArrI<bool, 1, maxEffectType, false> GFXEffectCustom;
 //Public GFXEffect(1 To maxEffectType) As Long
 //extern RangeArrI<long, 1, maxEffectType, 0> GFXEffect;
 #define GFXEffect GFXEffectBMP
@@ -2563,6 +2611,17 @@ extern RangeArr<StdPicture, 1, numCharacters> GFXPlayerBMP;
 // extern RangeArrI<vbint_t, 1, numCharacters, 0> GFXPlayerHeight;
 //Public GFXPlayerWidth(1 To numCharacters) As Integer
 // extern RangeArrI<vbint_t, 1, numCharacters, 0> GFXPlayerWidth;
+
+// Background dimensions were always initialized to these values in OpenLevel (since SMBX 1.3)
+inline vbint_t Background_t::Width() const
+{
+    return GFXBackgroundBMP[this->Type].w;
+}
+
+inline vbint_t Background_t::Height() const
+{
+    return BackgroundHeight[this->Type];
+}
 
 //Public PlayerCharacter As Integer
 // extern int PlayerCharacter;

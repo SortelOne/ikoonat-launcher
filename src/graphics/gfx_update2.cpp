@@ -284,14 +284,14 @@ void UpdateGraphics2(bool skipRepaint)
             SDL_assert(IF_INRANGE(tile.Type, 1, maxTileType));
 
             g_stats.checkedTiles++;
-            if(CheckCollision(sView, tile.Location))
+            if(CheckCollision(sView, tile.FullLocation()))
             {
                 g_stats.renderedTiles++;
 //                XRender::renderTexture(camX + Tile[A].Location.X, camY + Tile[A].Location.Y, Tile[A].Location.Width, Tile[A].Location.Height, GFXTile[Tile[A].Type], 0, TileHeight[Tile[A].Type] * TileFrame[Tile[A].Type]);
                 XRender::renderTextureBasic(camX + tile.Location.X,
                                       camY + tile.Location.Y,
-                                      tile.Location.Width,
-                                      tile.Location.Height,
+                                      TileWidth[tile.Type],
+                                      TileHeight[tile.Type],
                                       GFXTileBMP[tile.Type], 0, TileHeight[tile.Type] * TileFrame[tile.Type]);
             }
         }
@@ -305,14 +305,14 @@ void UpdateGraphics2(bool skipRepaint)
             SDL_assert(IF_INRANGE(scene.Type, 1, maxSceneType));
 
             g_stats.checkedScenes++;
-            if(CheckCollision(sView, scene.Location) && (WorldEditor || scene.Active))
+            if(CheckCollision(sView, scene.FullLocation()) && (WorldEditor || scene.Active))
             {
                 g_stats.renderedScenes++;
 //                XRender::renderTexture(camX + scene.Location.X, camY + scene.Location.Y, scene.Location.Width, scene.Location.Height, GFXSceneMask[scene.Type], 0, SceneHeight[scene.Type] * SceneFrame[scene.Type]);
 //                XRender::renderTexture(camX + scene.Location.X, camY + scene.Location.Y, scene.Location.Width, scene.Location.Height, GFXScene[scene.Type], 0, SceneHeight[scene.Type] * SceneFrame[scene.Type]);
                 XRender::renderTextureBasic(camX + scene.Location.X,
                                       camY + scene.Location.Y,
-                                      scene.Location.Width, scene.Location.Height,
+                                      SceneWidth[scene.Type], SceneHeight[scene.Type],
                                       GFXSceneBMP[scene.Type], 0, SceneHeight[scene.Type] * SceneFrame[scene.Type]);
             }
         }
@@ -326,14 +326,14 @@ void UpdateGraphics2(bool skipRepaint)
             SDL_assert(IF_INRANGE(path.Type, 1, maxPathType));
 
             g_stats.checkedPaths++;
-            if(CheckCollision(sView, path.Location) && (WorldEditor || path.Active))
+            if(CheckCollision(sView, path.FullLocation()) && (WorldEditor || path.Active))
             {
                 g_stats.renderedPaths++;
 //                XRender::renderTexture(camX + path.Location.X, camY + path.Location.Y, path.Location.Width, path.Location.Height, GFXPathMask[path.Type], 0, 0);
 //                XRender::renderTexture(camX + path.Location.X, camY + path.Location.Y, path.Location.Width, path.Location.Height, GFXPath[path.Type], 0, 0);
                 XRender::renderTextureBasic(camX + path.Location.X,
                                       camY + path.Location.Y,
-                                      path.Location.Width, path.Location.Height,
+                                      32, 32,
                                       GFXPathBMP[path.Type], 0, 0);
             }
         }
@@ -403,7 +403,7 @@ void UpdateGraphics2(bool skipRepaint)
         for(WorldMusic_t* t : treeWorldMusicQuery(sLeft, sTop, sRight, sBottom, true))
         {
             WorldMusic_t &music = *t;
-            if(vScreenCollision(Z, music.Location))
+            if(vScreenCollision(Z, music.FullLocation()))
             {
                 XRender::renderRect(camX + music.Location.X, camY + music.Location.Y, 32, 32,
                     {255, 0, 255}, false);
@@ -489,12 +489,13 @@ void UpdateGraphics2(bool skipRepaint)
             int p_center_x = camX + s_round2int(WorldPlayer[1].Location.X + (WorldPlayer[1].Location.Width / 2));
             int info_y = camY + s_round2int(WorldPlayer[1].Location.Y) - 32;
 
-            if(l.save_info.inited() && l.save_info.max_stars > 0 && policy > Config_t::MAP_STARS_HIDE)
+            const auto si = l.save_info();
+            if(si.inited() && si.max_stars > 0 && policy > Config_t::MAP_STARS_HIDE)
             {
                 std::string label;
 
                 if(policy >= Config_t::MAP_STARS_SHOW)
-                    label = fmt::format_ne("{0}/{1}", l.curStars, l.save_info.max_stars);
+                    label = fmt::format_ne("{0}/{1}", l.curStars, si.max_stars);
                 else
                     label = fmt::format_ne("{0}", l.curStars);
 
@@ -508,11 +509,11 @@ void UpdateGraphics2(bool skipRepaint)
                 info_y -= 20;
             }
 
-            if(l.save_info.inited() && l.save_info.max_medals > 0 && g_showMedalsOnWorldMap)
+            if(si.inited() && si.max_medals > 0 && g_showMedalsOnWorldMap)
             {
                 uint8_t ckpt = (Checkpoint == FileNamePathWorld + l.FileName) ? g_curLevelMedals.checkpoint : 0;
 
-                DrawMedals(p_center_x, info_y, true, l.save_info.max_medals, 0, ckpt, l.save_info.medals_got, l.save_info.medals_best);
+                DrawMedals(p_center_x, info_y, true, si.max_medals, 0, ckpt, si.medals_got, si.medals_best);
             }
         }
 

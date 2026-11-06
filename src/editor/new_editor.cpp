@@ -44,6 +44,7 @@
 
 #include "config.h"
 #include "npc.h"
+#include "blk_id.h"
 #include "npc_id.h"
 #include "npc_traits.h"
 #include "npc_special_data.h"
@@ -107,6 +108,8 @@ constexpr auto LESet_ResetDefault = EventSection_t::LESet_ResetDefault;
 constexpr int e_ScreenW = 640;
 constexpr int e_ScreenH = /*480*/520;
 
+static int s_callback_val = 0;
+
 static const std::vector<std::string> c_musicFormats =
 {
     // MPEG 1 Layer III (LibMAD)
@@ -159,6 +162,8 @@ static numf_t s_divide_by_ten(int n)
 static void s_fix_mouse_pos()
 {
     MouseMove((int)SharedCursor.X, (int)SharedCursor.Y);
+    MouseRelease = false;
+    MenuMouseRelease = !SharedCursor.Primary;
 }
 
 // static const std::vector<std::string> list_backgrounds_names = {"None", "Set 1", "Underground", "Night", "Night 2", "Overworld", "Castle", "Mushrooms", "Desert", "", "Set 2", "Trees", "Underground", "Castle", "Clouds", "Night - Hills", "Night - Desert", "Cliff", "Warehouse", "Dungeon", "Set 3", "Blocks", "Hills", "Dungeon", "Pipes", "Bonus", "Clouds", "Desert", "Dungeon 2", "Ship", "Forest", "Battle", "Waterfall", "Tanks", "Final Boss", "Shroom Dealer", "Castle", "Snow Trees", "Clouds 2", "Snow Hills", "Cave", "Cave 2", "Underwater", "World", "Trees", "Mansion", "Forest", "Bonus", "Night", "Cave", "Clouds", "Hills", "Hills 2", "Hills 4", "Hills 3", "Castle", "Castle 2", "Underwater", "Desert Night", "", "Misc.", "Space Base", "Space Ship", "Space Swamp", "Space Crater", "Secret Mine"};
@@ -370,20 +375,14 @@ void SetEditorBlockType(int type)
         && type != 55 && type != 90 && type != 170 && type != 171 && type != 172 && type != 173
         && type != 174 && type != 175 && type != 176 && type != 177 && type != 178 && type != 179 && type != 180
         && type != 181 && type != 622 && type != 623 && type != 624 && type != 625 && type != 626 && type != 627
-        && type != 628 && type != 629 && type != 631 && type != 632)
+        && type != 628 && type != 629 && type != 631 && type != 632 && type != BLKID_TINY_BRICK)
     {
         EditorCursor.Block.Special = 0;
     }
 
     // only update slipperiness if it is currently what you would expect.
-    if(EditorCursor.Block.Slippy ==
-        (EditorCursor.Block.Type == 189 || EditorCursor.Block.Type == 190 || EditorCursor.Block.Type == 191
-            || EditorCursor.Block.Type == 270 || EditorCursor.Block.Type == 271 || EditorCursor.Block.Type == 272
-            || EditorCursor.Block.Type == 620 || EditorCursor.Block.Type == 621 || EditorCursor.Block.Type == 633
-            || EditorCursor.Block.Type == 634 || EditorCursor.Block.Type == 241 || EditorCursor.Block.Type == 242))
-    {
-        EditorCursor.Block.Slippy = (type == 189 || type == 190 || type == 191 || type == 270 || type == 271 || type == 272 || type == 620 || type == 621 || type == 633 || type == 634 || type == 241 || type == 242);
-    }
+    if(EditorCursor.Block.Slippy == BlockTypeSlippy(EditorCursor.Block.Type))
+        EditorCursor.Block.Slippy = BlockTypeSlippy(type);
 
     EditorCursor.Block.Type = type;
 }
@@ -528,7 +527,10 @@ bool EditorScreen::UpdateNPCButton(CallMode mode, int x, int y, NPCID type, bool
         draw_height = NPCHeightGFX(type);
     }
 
-    return UpdateButton(mode, x, y, GFXNPC[type], sel, 0, 0, draw_width, draw_height);
+    // vbint_t dir = -1;
+    // int frame = EditorNPCFrame(type, dir);
+    int frame = (type == NPCID_TRANSPARENT_AXE) ? 1 : 0;
+    return UpdateButton(mode, x, y, GFXNPC[type], sel, 0, draw_height * frame, draw_width, draw_height);
 }
 
 void EditorScreen::UpdateNPC(CallMode mode, int x, int y, NPCID type)
@@ -821,9 +823,10 @@ void EditorScreen::UpdateNPCScreen(CallMode mode)
                 DisableCursorNew();
 
                 std::string&& prompt = fmt::format_ne(g_editorStrings.phraseTextOf, g_editorStrings.wordNPCGenitive);
-                SetS(EditorCursor.NPC.Text, TextEntryScreen::Run(prompt, GetS(EditorCursor.NPC.Text)));
-
-                s_fix_mouse_pos();
+                TextEntryScreen::Init(prompt, [](){
+                    SetS(EditorCursor.NPC.Text, TextEntryScreen::Text);
+                    s_fix_mouse_pos();
+                }, GetS(EditorCursor.NPC.Text));
             }
         }
 
@@ -839,8 +842,10 @@ void EditorScreen::UpdateNPCScreen(CallMode mode)
             if(UpdateButton(mode, e_ScreenW - 40 + 4, 274 + 4 + 198, GFX.EIcons, 0, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                SetS(EditorCursor.NPC.Name, TextEntryScreen::Run("Enter NPC name:", name));
-                s_fix_mouse_pos();
+                TextEntryScreen::Init("Enter NPC name:", [](){
+                    SetS(EditorCursor.NPC.Name, TextEntryScreen::Text);
+                    s_fix_mouse_pos();
+                }, name);
             }
         }
 
@@ -1265,7 +1270,7 @@ void EditorScreen::UpdateNPCScreen(CallMode mode)
         UpdateNPCGrid(mode, 40, 340, p7_smb2, sizeof(p7_smb2)/sizeof(int), 5);
 
         SuperPrintR(mode, "X", 3, 40 + 10, 380);
-        static const int p7_misc[] = {NPCID_RING, NPCID_POWER_S5, NPCID_FLY_POWER, NPCID_GEM_1, NPCID_GEM_5, NPCID_GEM_20, NPCID_INVINCIBILITY_POWER, NPCID_AQUATIC_POWER, NPCID_POLAR_POWER, NPCID_CYCLONE_POWER, NPCID_SHELL_POWER};
+        static const int p7_misc[] = {NPCID_RING, NPCID_POWER_S5, NPCID_FLY_POWER, NPCID_GEM_1, NPCID_GEM_5, NPCID_GEM_20, NPCID_INVINCIBILITY_POWER, NPCID_AQUATIC_POWER, NPCID_POLAR_POWER, NPCID_CYCLONE_POWER, NPCID_SHELL_POWER, NPCID_TINY_POWER, NPCID_HOMING_CANNON};
         UpdateNPCGrid(mode, 40, 400, p7_misc, sizeof(p7_misc)/sizeof(int) - (FileFormat != FileFormats::LVL_PGEX) * 5, 10);
     }
 }
@@ -1400,10 +1405,13 @@ void EditorScreen::UpdateEventsScreen(CallMode mode)
             if(UpdateButton(mode, 400 + 4, 80 + 40*i + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                std::string new_name = TextEntryScreen::Run(g_editorStrings.eventsPromptEventName, Events[e].Name);
-                if(!new_name.empty())
-                    RenameEvent((eventindex_t)e, new_name);
-                s_fix_mouse_pos();
+                s_callback_val = e;
+                TextEntryScreen::Init(g_editorStrings.eventsPromptEventName, [](){
+                    const std::string& new_name = TextEntryScreen::Text;
+                    if(!new_name.empty())
+                        RenameEvent((eventindex_t)s_callback_val, new_name);
+                    s_fix_mouse_pos();
+                }, Events[e].Name);
             }
 
             // shift up
@@ -1430,14 +1438,17 @@ void EditorScreen::UpdateEventsScreen(CallMode mode)
             if(UpdateButton(mode, 400 + 4, 80 + 40*i + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                std::string new_name = TextEntryScreen::Run(g_editorStrings.eventsPromptEventName, "");
-                s_fix_mouse_pos();
-                if(!new_name.empty() && FindEvent(new_name) == EVENT_NONE)
-                {
-                    InitializeEvent(Events[e]);
-                    Events[e].Name = new_name;
-                    numEvents ++;
-                }
+                s_callback_val = e;
+                TextEntryScreen::Init(g_editorStrings.eventsPromptEventName, [](){
+                    const std::string& new_name = TextEntryScreen::Text;
+                    s_fix_mouse_pos();
+                    if(!new_name.empty() && FindEvent(new_name) == EVENT_NONE)
+                    {
+                        InitializeEvent(Events[s_callback_val]);
+                        Events[s_callback_val].Name = new_name;
+                        numEvents ++;
+                    }
+                });
             }
         }
     }
@@ -1895,8 +1906,10 @@ void EditorScreen::UpdateEventSettingsScreen(CallMode mode)
     if(UpdateButton(mode, 10 + 4, 160 + 4, GFX.EIcons, !GetS(Events[m_current_event].Text).empty(), 0, 32*Icon::pencil, 32, 32))
     {
         DisableCursorNew();
-        SetS(Events[m_current_event].Text, TextEntryScreen::Run(g_editorStrings.eventsPromptEventText, GetS(Events[m_current_event].Text)));
-        s_fix_mouse_pos();
+        TextEntryScreen::Init(g_editorStrings.eventsPromptEventText, [](){
+            SetS(Events[editorScreen.m_current_event].Text, TextEntryScreen::Text);
+            s_fix_mouse_pos();
+        }, GetS(Events[m_current_event].Text));
     }
 
     // trigger event (full width, below all)
@@ -1947,8 +1960,10 @@ void EditorScreen::UpdateSectionsScreen(CallMode mode)
     if(UpdateButton(mode, 10 + 4, 40 + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
     {
         DisableCursorNew();
-        LevelName = TextEntryScreen::Run(g_editorStrings.levelName, LevelName);
-        s_fix_mouse_pos();
+        TextEntryScreen::Init(g_editorStrings.levelName, [](){
+            LevelName = TextEntryScreen::Text;
+            s_fix_mouse_pos();
+        }, LevelName);
     }
 
     SuperPrintR(mode, g_editorStrings.levelName, 3, 54, 42);
@@ -2180,25 +2195,6 @@ void EditorScreen::UpdateEditorSettingsScreen(CallMode mode)
     if(WorldEditor || MagicHand)
         return;
 
-    // grid snap settings
-    SuperPrintR(mode, g_editorStrings.gridSnap, 3, 46, 136);
-
-    if(UpdateButton(mode, 4, 30 + 4 + 96 + 32, GFX.EIcons, grid_snap_size == 32, 0, 32*Icon::subscreen, 32, 32))
-        grid_snap_size = 32;
-    SuperPrintR(mode, g_editorStrings.gridSnap32, 3, 50, 72 + 96);
-
-    if(UpdateButton(mode, 4, 64 + 4 + 96 + 32, GFX.EIcons, grid_snap_size == 16, 0, 32*Icon::subscreen, 32, 32))
-        grid_snap_size = 16;
-    SuperPrintR(mode, g_editorStrings.gridSnap16, 3, 50, 106 + 96);
-
-    if(UpdateButton(mode, 4, 98 + 4 + 96 + 32, GFX.EIcons, grid_snap_size == 8, 0, 32*Icon::subscreen, 32, 32))
-        grid_snap_size = 8;
-    SuperPrintR(mode, g_editorStrings.gridSnap8, 3, 50, 140 + 96);
-
-    if(UpdateButton(mode, 4, 132 + 4 + 96 + 32, GFX.EIcons, grid_snap_size == 1, 0, 32*Icon::subscreen, 32, 32))
-        grid_snap_size = 1;
-    SuperPrintR(mode, g_editorStrings.gridSnap1, 3, 50, 174 + 96);
-
     // level test settings
 
     if(m_special_subpage < 1)
@@ -2295,8 +2291,8 @@ void EditorScreen::UpdateEditorSettingsScreen(CallMode mode)
     if(testPlayer[m_special_subpage].State == 0)
         testPlayer[m_special_subpage].State = 2;
 
-    constexpr int NPC_for_state[] = {0, NPCID_POWER_S3, NPCID_FIRE_POWER_S3, NPCID_LEAF_POWER, NPCID_STATUE_POWER, NPCID_HEAVY_POWER, NPCID_ICE_POWER_S3, NPCID_AQUATIC_POWER, NPCID_POLAR_POWER, NPCID_CYCLONE_POWER, NPCID_SHELL_POWER};
-    int max_state = (g_gameInfo.contentFeatureLevel >= 1030790) ? 11 : 7;
+    constexpr int NPC_for_state[] = {0, NPCID_POWER_S3, NPCID_FIRE_POWER_S3, NPCID_LEAF_POWER, NPCID_STATUE_POWER, NPCID_HEAVY_POWER, NPCID_ICE_POWER_S3, NPCID_AQUATIC_POWER, NPCID_POLAR_POWER, NPCID_CYCLONE_POWER, NPCID_SHELL_POWER, NPCID_TINY_POWER};
+    int max_state = (g_gameInfo.contentFeatureLevel >= 1030790) ? 12 : 7;
     for(int state = 1; state <= max_state; state++)
     {
         bool pActive = testPlayer[m_special_subpage].State == state;
@@ -2363,8 +2359,10 @@ void EditorScreen::UpdateWorldSettingsScreen(CallMode mode)
     if(UpdateButton(mode, 10 + 4, 40 + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
     {
         DisableCursorNew();
-        WorldName = TextEntryScreen::Run(g_editorStrings.worldName, WorldName);
-        s_fix_mouse_pos();
+        TextEntryScreen::Init(g_editorStrings.worldName, [](){
+            WorldName = TextEntryScreen::Text;
+            s_fix_mouse_pos();
+        }, WorldName);
     }
 
     SuperPrintR(mode, g_editorStrings.worldName, 3, 54, 42);
@@ -2435,16 +2433,18 @@ void EditorScreen::UpdateWorldSettingsScreen(CallMode mode)
     if(UpdateButton(mode, 50 + 4, 340 + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
     {
         DisableCursorNew();
-        WorldCredits[m_special_subpage + 1] = TextEntryScreen::Run(fmt::format_ne(g_editorStrings.worldCreditIndex, m_special_subpage + 1), WorldCredits[m_special_subpage + 1]);
-        s_fix_mouse_pos();
-        for(int i = SDL_max(numWorldCredits, m_special_subpage + 1); i > 0; --i) // Find the last non-empty line
-        {
-            if(!WorldCredits[m_special_subpage + 1].empty())
+        TextEntryScreen::Init(fmt::format_ne(g_editorStrings.worldCreditIndex, m_special_subpage + 1), [](){
+            WorldCredits[editorScreen.m_special_subpage + 1] = TextEntryScreen::Text;
+            s_fix_mouse_pos();
+            for(int i = SDL_max(numWorldCredits, editorScreen.m_special_subpage + 1); i > 0; --i) // Find the last non-empty line
             {
-                numWorldCredits = i;
-                break;
+                if(!WorldCredits[editorScreen.m_special_subpage + 1].empty())
+                {
+                    numWorldCredits = i;
+                    break;
+                }
             }
-        }
+        }, WorldCredits[m_special_subpage + 1]);
     }
 
     if(m_special_subpage < 4 && UpdateButton(mode, 90 + 4, 340 + 4, GFX.EIcons, false, 0, 32*Icon::right, 32, 32))
@@ -3446,10 +3446,12 @@ void EditorScreen::UpdateLayersScreen(CallMode mode)
                 if(UpdateButton(mode, 400 + 4, 80 + 40*i + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
                 {
                     DisableCursorNew();
-                    std::string new_name = TextEntryScreen::Run(g_editorStrings.layersPromptLayerName, Layer[l].Name);
-                    if(!new_name.empty())
-                        RenameLayer(l, new_name);
-                    s_fix_mouse_pos();
+                    s_callback_val = l;
+                    TextEntryScreen::Init(g_editorStrings.layersPromptLayerName, [](){
+                        if(!TextEntryScreen::Text.empty())
+                            RenameLayer(s_callback_val, TextEntryScreen::Text);
+                        s_fix_mouse_pos();
+                    }, Layer[l].Name);
                 }
 
                 // shift up
@@ -3523,15 +3525,18 @@ void EditorScreen::UpdateLayersScreen(CallMode mode)
             if(UpdateButton(mode, 400 + 4, 80 + 40*i + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                std::string new_name = TextEntryScreen::Run(g_editorStrings.layersPromptLayerName, "");                
-                if(!new_name.empty() && FindLayer(new_name) == LAYER_NONE)
-                {
-                    Layer[l] = Layer_t();
-                    Layer[l].Name = new_name;
-                    numLayers ++;
-                }
+                s_callback_val = l;
+                TextEntryScreen::Init(g_editorStrings.layersPromptLayerName, [](){
+                    const std::string& new_name = TextEntryScreen::Text;
+                    if(!new_name.empty() && FindLayer(new_name) == LAYER_NONE)
+                    {
+                        Layer[s_callback_val] = Layer_t();
+                        Layer[s_callback_val].Name = new_name;
+                        numLayers ++;
+                    }
 
-                s_fix_mouse_pos();
+                    s_fix_mouse_pos();
+                });
             }
         }
     }
@@ -3672,7 +3677,7 @@ void EditorScreen::UpdateBlockScreen(CallMode mode)
     }
 
     // Legacy for Spin Block
-    if(FileFormat == FileFormats::LVL_PGEX && EditorCursor.Block.Type == 90)
+    if(FileFormat == FileFormats::LVL_PGEX && EditorCursor.Block.Type == BLKID_SPIN_BLOCK)
     {
         SuperPrintR(mode, g_editorStrings.blockCanBreak, 3, e_ScreenW - 160, 106);
         if(UpdateButton(mode, e_ScreenW - 40 + 4, 120 + 4, GFXBlock[188], EditorCursor.Block.forceSmashable, 0, 0, 32, 32, g_editorStrings.blockTooltipCanBreak.c_str()))
@@ -3695,8 +3700,10 @@ void EditorScreen::UpdateBlockScreen(CallMode mode)
         if(UpdateButton(mode, e_ScreenW - 36, 164, GFX.EIcons, 0, 0, 32*Icon::pencil, 32, 32))
         {
             DisableCursorNew();
-            SetS(EditorCursor.Block.Name, TextEntryScreen::Run("Enter block name:", name));
-            s_fix_mouse_pos();
+            TextEntryScreen::Init("Enter block name:", [](){
+                SetS(EditorCursor.Block.Name, TextEntryScreen::Text);
+                s_fix_mouse_pos();
+            }, name);
         }
     }
 
@@ -3737,7 +3744,7 @@ void EditorScreen::UpdateBlockScreen(CallMode mode)
     SuperPrintRightR(mode, g_editorStrings.eventsHeader, 3, e_ScreenW - 40, 334);
     SuperPrintR(mode, g_editorStrings.eventsLetterHit + GetE(EditorCursor.Block.TriggerHit), 3, e_ScreenW - 160, 360);
 
-    if(EditorCursor.Block.Type != 186 && EditorCursor.Block.Type != 457)
+    if(EditorCursor.Block.Type != BLKID_RED_BRICK && EditorCursor.Block.Type != BLKID_GRY_BRICK)
     {
         SuperPrintR(mode, g_editorStrings.eventsLetterDestroy + GetE(EditorCursor.Block.TriggerDeath), 3, e_ScreenW - 160, 380);
         SuperPrintR(mode, g_editorStrings.eventsLetterLayerClear + GetE(EditorCursor.Block.TriggerLast), 3, e_ScreenW - 160, 400);
@@ -4283,8 +4290,10 @@ void EditorScreen::UpdateWarpScreen(CallMode mode)
             if(UpdateButton(mode, 300 + 4, 220 + 4, GFX.EIcons, EditorCursor.Warp.StarsMsg != STRINGINDEX_NONE, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                SetS(EditorCursor.Warp.StarsMsg, TextEntryScreen::Run(g_editorStrings.warpStarLockMessage, GetS(EditorCursor.Warp.StarsMsg)));
-                s_fix_mouse_pos();
+                TextEntryScreen::Init(g_editorStrings.warpStarLockMessage, [](){
+                    SetS(EditorCursor.Warp.StarsMsg, TextEntryScreen::Text);
+                    s_fix_mouse_pos();
+                }, GetS(EditorCursor.Warp.StarsMsg));
             }
         }
 
@@ -4298,6 +4307,10 @@ void EditorScreen::UpdateWarpScreen(CallMode mode)
             SuperPrintR(mode, g_editorStrings.warpNeedFloor, 3, 6, 314);
             if(UpdateCheckBox(mode, 220 + 4, 300 + 4, EditorCursor.Warp.stoodRequired))
                 EditorCursor.Warp.stoodRequired = !EditorCursor.Warp.stoodRequired;
+
+            SuperPrintR(mode, g_editorStrings.warpNeedTiny, 3, 6, 354);
+            if(UpdateCheckBox(mode, 220 + 4, 340 + 4, EditorCursor.Warp.tinyRequired))
+                EditorCursor.Warp.tinyRequired = !EditorCursor.Warp.tinyRequired;
         }
     }
 
@@ -4683,8 +4696,10 @@ void EditorScreen::UpdateLevelScreen(CallMode mode)
     if(UpdateButton(mode, 10 + 4, e_ScreenH - 240 + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
     {
         DisableCursorNew();
-        EditorCursor.WorldLevel.LevelName = TextEntryScreen::Run(g_editorStrings.levelName, EditorCursor.WorldLevel.LevelName);
-        s_fix_mouse_pos();
+        TextEntryScreen::Init(g_editorStrings.levelName, [](){
+            EditorCursor.WorldLevel.LevelName = TextEntryScreen::Text;
+            s_fix_mouse_pos();
+        }, EditorCursor.WorldLevel.LevelName);
     }
 
     // level filename - FileName
@@ -5003,105 +5018,94 @@ void EditorScreen::UpdateFileScreen(CallMode mode)
         return;
     }
 
-    SuperPrintR(mode, g_editorStrings.fileLabelCurrentFile + FileNameFull, 3, 10, 50);
+    // open level
+    SuperPrintR(mode, g_editorStrings.fileSectionLevel, 3, 110, 50);
+
+    SuperPrintR(mode, g_editorStrings.fileCommandNew, 3, 54, 80);
+    if(UpdateButton(mode, 10 + 4, 70 + 4, GFX.EIcons, false, 0, 32*Icon::newf, 32, 32))
+    {
+        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
+        m_special_subpage = 1;
+    }
+
+    SuperPrintR(mode, g_editorStrings.fileCommandOpen, 3, 54, 120);
+    if(UpdateButton(mode, 10 + 4, 110 + 4, GFX.EIcons, false, 0, 32*Icon::open, 32, 32))
+    {
+        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
+        m_special_subpage = 2;
+    }
+
+    // open world
+    SuperPrintR(mode, g_editorStrings.fileSectionWorld, 3, e_ScreenW/2 + 110, 50);
+
+    SuperPrintR(mode, g_editorStrings.fileCommandNew, 3, e_ScreenW/2 + 54, 80);
+    if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 70 + 4, GFX.EIcons, false, 0, 32*Icon::newf, 32, 32))
+    {
+        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
+        m_special_subpage = 11;
+    }
+
+    SuperPrintR(mode, g_editorStrings.fileCommandOpen, 3, e_ScreenW/2 + 54, 120);
+    if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 110 + 4, GFX.EIcons, false, 0, 32*Icon::open, 32, 32))
+    {
+        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
+        m_special_subpage = 12;
+    }
+
+    // current file info
+    SuperPrintR(mode, g_editorStrings.fileLabelCurrentFile + FileNameFull, 3, 10, 180);
 
     if(selWorld == 0)
     {
-        SuperPrintR(mode, g_editorStrings.fileLabelFormat, 3, 150, 90);
+        SuperPrintR(mode, g_editorStrings.fileLabelFormat, 3, 40, 210);
 
-        if(UpdateButton(mode, 320 + 4, 80 + 4, GFXNPC[NPCID_POWER_S3], FileFormat == FileFormats::LVL_SMBX64, 0, 0, 32, 32, g_editorStrings.fileFormatLegacy.c_str()) && FileFormat != FileFormats::LVL_SMBX64)
+        if(UpdateButton(mode, 210 + 4, 200 + 4, GFXNPC[NPCID_POWER_S3], FileFormat == FileFormats::LVL_SMBX64, 0, 0, 32, 32, g_editorStrings.fileFormatLegacy.c_str()) && FileFormat != FileFormats::LVL_SMBX64)
         {
             m_special_page = SPECIAL_PAGE_FILE_CONVERT;
             m_special_subpage = FileFormats::LVL_SMBX64;
         }
 
-        if(UpdateButton(mode, 360 + 4, 80 + 4, GFX.EIcons, FileFormat == FileFormats::LVL_PGEX, 0, 32*Icon::thextech, 32, 32, g_editorStrings.fileFormatModern.c_str()) && FileFormat != FileFormats::LVL_PGEX)
+        if(UpdateButton(mode, 250 + 4, 200 + 4, GFX.EIcons, FileFormat == FileFormats::LVL_PGEX, 0, 32*Icon::thextech, 32, 32, g_editorStrings.fileFormatModern.c_str()) && FileFormat != FileFormats::LVL_PGEX)
         {
             m_special_page = SPECIAL_PAGE_FILE_CONVERT;
             m_special_subpage = FileFormats::LVL_PGEX;
         }
     }
 
-    SuperPrintR(mode, g_editorStrings.fileSectionLevel, 3, 110, 140);
-
-    SuperPrintR(mode, g_editorStrings.fileCommandNew, 3, 54, 170);
-    if(UpdateButton(mode, 10 + 4, 160 + 4, GFX.EIcons, false, 0, 32*Icon::newf, 32, 32))
+    // save current file
+    SuperPrintR(mode, g_editorStrings.fileCommandSave, 3, 54, 250);
+    if(UpdateButton(mode, 10 + 4, 240 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
     {
-        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-        m_special_subpage = 1;
-    }
-
-    SuperPrintR(mode, g_editorStrings.fileCommandOpen, 3, 54, 210);
-    if(UpdateButton(mode, 10 + 4, 200 + 4, GFX.EIcons, false, 0, 32*Icon::open, 32, 32))
-    {
-        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-        m_special_subpage = 2;
-    }
-
-    if(!WorldEditor)
-    {
-        SuperPrintR(mode, g_editorStrings.fileCommandSave, 3, 54, 250);
-        if(UpdateButton(mode, 10 + 4, 240 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
-        {
+        if(WorldEditor)
+            SaveWorld(FullFileName, FileFormat);
+        else
             SaveLevel(FullFileName, FileFormat);
-        }
+    }
 
-        SuperPrintR(mode, g_editorStrings.fileCommandSaveAs, 3, 54, 290);
-        if(UpdateButton(mode, 10 + 4, 280 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
+    SuperPrintR(mode, g_editorStrings.fileCommandSaveAs, 3, 54, 290);
+    if(UpdateButton(mode, 10 + 4, 280 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
+    {
+        if(WorldEditor)
+        {
+            if(FileFormat == 1 || FileFormat == 2)
+                StartFileBrowser(&FullFileName, "", FileNamePath, {".wld"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_WORLD);
+            else
+                StartFileBrowser(&FullFileName, "", FileNamePath, {".wldx"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_WORLD);
+
+        }
         {
             if(FileFormat == 1 || FileFormat == 2)
                 StartFileBrowser(&FullFileName, "", FileNamePath, {".lvl"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_LEVEL);
             else
                 StartFileBrowser(&FullFileName, "", FileNamePath, {".lvlx"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_LEVEL);
         }
-
-        SuperPrintR(mode, g_editorStrings.fileActionRevert, 3, 54, 330);
-        if(UpdateButton(mode, 10 + 4, 320 + 4, GFX.EIcons, false, 0, 32*Icon::hop, 32, 32))
-        {
-            m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-            m_special_subpage = 3;
-        }
     }
 
-    SuperPrintR(mode, g_editorStrings.fileSectionWorld, 3, e_ScreenW/2 + 110, 140);
-
-    SuperPrintR(mode, g_editorStrings.fileCommandNew, 3, e_ScreenW/2 + 54, 170);
-    if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 160 + 4, GFX.EIcons, false, 0, 32*Icon::newf, 32, 32))
+    SuperPrintR(mode, g_editorStrings.fileActionRevert, 3, 54, 330);
+    if(UpdateButton(mode, 10 + 4, 320 + 4, GFX.EIcons, false, 0, 32*Icon::hop, 32, 32))
     {
         m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-        m_special_subpage = 11;
-    }
-
-    SuperPrintR(mode, g_editorStrings.fileCommandOpen, 3, e_ScreenW/2 + 54, 210);
-    if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 200 + 4, GFX.EIcons, false, 0, 32*Icon::open, 32, 32))
-    {
-        m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-        m_special_subpage = 12;
-    }
-
-    if(WorldEditor)
-    {
-        SuperPrintR(mode, g_editorStrings.fileCommandSave, 3, e_ScreenW/2 + 54, 250);
-        if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 240 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
-        {
-            SaveWorld(FullFileName, FileFormat);
-        }
-
-        SuperPrintR(mode, g_editorStrings.fileCommandSaveAs, 3, e_ScreenW/2 + 54, 290);
-        if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 280 + 4, GFX.EIcons, false, 0, 32*Icon::save, 32, 32))
-        {
-            if(FileFormat == 1 || FileFormat == 2)
-                StartFileBrowser(&FullFileName, "", FileNamePath, {".wld"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_WORLD);
-            else
-                StartFileBrowser(&FullFileName, "", FileNamePath, {".wldx"}, BROWSER_MODE_SAVE, BROWSER_CALLBACK_SAVE_WORLD);
-        }
-
-        SuperPrintR(mode, g_editorStrings.fileActionRevert, 3, e_ScreenW/2 + 54, 330);
-        if(UpdateButton(mode, e_ScreenW/2 + 10 + 4, 320 + 4, GFX.EIcons, false, 0, 32*Icon::hop, 32, 32))
-        {
-            m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
-            m_special_subpage = 13;
-        }
+        m_special_subpage = 3;
     }
 
     SuperPrintR(mode, g_editorStrings.fileActionExit, 3, 54, 410);
@@ -5110,6 +5114,40 @@ void EditorScreen::UpdateFileScreen(CallMode mode)
         m_special_page = SPECIAL_PAGE_FILE_CONFIRM;
         m_special_subpage = 4;
     }
+
+    // quick settings
+    SuperPrintCenterR(mode, g_editorStrings.gridSize, 3, e_ScreenW - 50 - 100, 380);
+    SuperPrintCenterR(mode, (EditorCursor.ForceGrid == 0) ? g_mainMenu.caseNone
+        : (EditorCursor.ForceGrid == -1) ? g_editorStrings.layersLayerDefault
+        : std::to_string(EditorCursor.ForceGrid), 3, e_ScreenW - 50 - 100, 400);
+
+    if(EditorCursor.ForceGrid != 0 && UpdateButton(mode, e_ScreenW - 50 - 200 - 40 + 4, 380 + 4, GFX.EIcons, false, 0, 32*Icon::left, 32, 32))
+    {
+        if(EditorCursor.ForceGrid == -1)
+            EditorCursor.ForceGrid = 32;
+        else
+        {
+            EditorCursor.ForceGrid /= 2;
+            if(EditorCursor.ForceGrid == 4)
+                EditorCursor.ForceGrid = 0;
+        }
+    }
+
+    if(EditorCursor.ForceGrid != -1 && UpdateButton(mode, e_ScreenW - 50 + 4, 380 + 4, GFX.EIcons, false, 0, 32*Icon::right, 32, 32))
+    {
+        if(EditorCursor.ForceGrid == 0)
+            EditorCursor.ForceGrid = 8;
+        else
+        {
+            EditorCursor.ForceGrid *= 2;
+            if(EditorCursor.ForceGrid == 64)
+                EditorCursor.ForceGrid = -1;
+        }
+    }
+
+    SuperPrintRightR(mode, g_editorStrings.tooltipShow, 3, e_ScreenW - 50 - 4, 430);
+    if(UpdateCheckBox(mode, e_ScreenW - 50 + 4, 420 + 4, EditorCursor.ShowGrid))
+        EditorCursor.ShowGrid = !EditorCursor.ShowGrid;
 }
 
 void EditorScreen::StartFileBrowser(std::string* file_target,
@@ -5366,14 +5404,18 @@ void EditorScreen::UpdateBrowserScreen(CallMode mode)
             if(UpdateButton(mode, x + 4, y + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                std::string folder_name = TextEntryScreen::Run(g_editorStrings.browserItemNewFolder, "");
-                s_fix_mouse_pos();
+                TextEntryScreen::Init(g_editorStrings.browserItemNewFolder, [](){
+                    const std::string& folder_name = TextEntryScreen::Text;
 
-                if(!folder_name.empty() && !m_dirman.exists(folder_name))
-                {
-                    m_dirman.mkdir(folder_name);
-                    m_path_synced = false;
-                }
+                    // Note: editorScreen is a reference to this, which is a singleton (and should probably become static)
+                    if(!folder_name.empty() && !editorScreen.m_dirman.exists(folder_name))
+                    {
+                        editorScreen.m_dirman.mkdir(folder_name);
+                        editorScreen.m_path_synced = false;
+                    }
+
+                    s_fix_mouse_pos();
+                });
             }
         }
         else if(l < dir_length)
@@ -5400,23 +5442,24 @@ void EditorScreen::UpdateBrowserScreen(CallMode mode)
             if(UpdateButton(mode, x + 4, y + 4, GFX.EIcons, false, 0, 32*Icon::pencil, 32, 32))
             {
                 DisableCursorNew();
-                std::string file_name = TextEntryScreen::Run(g_editorStrings.fileCommandSaveAs, "");
-                s_fix_mouse_pos();
+                TextEntryScreen::Init(g_editorStrings.fileCommandSaveAs, [](){
+                    std::string& file_name = TextEntryScreen::Text;
 
-                if(!file_name.empty())
-                {
-                    // validate: append the file extension if it doesn't already appear.
-                    ValidateExt(file_name);
-                    m_cur_file = m_cur_path + file_name;
-
-                    if(FileExists(file_name))
-                        m_special_page = SPECIAL_PAGE_BROWSER_CONFIRM;
-                    else
+                    if(!file_name.empty())
                     {
-                        FileBrowserSuccess();
-                        return;
+                        // validate: append the file extension if it doesn't already appear.
+                        // Note: editorScreen is a reference to this, which is a singleton (and should probably become static)
+                        editorScreen.ValidateExt(file_name);
+                        editorScreen.m_cur_file = editorScreen.m_cur_path + file_name;
+
+                        if(editorScreen.FileExists(file_name))
+                            editorScreen.m_special_page = SPECIAL_PAGE_BROWSER_CONFIRM;
+                        else
+                            editorScreen.FileBrowserSuccess();
                     }
-                }
+
+                    s_fix_mouse_pos();
+                });
             }
         }
         else if(l < dir_length + file_length)
@@ -5459,6 +5502,7 @@ inline void swap_screens()
     XRender::mapFromScreen((int)SharedCursor.X, (int)SharedCursor.Y, &win_x, &win_y);
 #endif
 
+    // Note: editorScreen is a reference to this, which is a singleton (and should probably become static)
     editorScreen.active = !editorScreen.active;
 
 #ifdef __3DS__

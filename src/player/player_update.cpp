@@ -65,30 +65,34 @@ void p_PlayerMakeFlySparkle(const Location_t& loc, int Frame)
 
 static void UpdateInvincibility()
 {
-    if(InvincibilityTime <= 0 || FreezeNPCs || LevelMacro != LEVELMACRO_OFF || !CheckLiving())
+    if(FreezeNPCs || LevelMacro != LEVELMACRO_OFF || !CheckLiving())
         return;
 
-    if(InvincibilityTime == Physics.NPCPSwitch && !GameMenu)
+    for(int A = 1; A <= numPlayers; A++)
     {
-        StopMusic();
-        StartMusic(-1);
-    }
+        Player_t& p = Player[A];
+        if(!p.InvincibilityTime)
+            continue;
 
-    InvincibilityTime--;
+        bool p_onscreen = &ScreenByPlayer(A) == l_screen;
 
-    if(InvincibilityTime == 195)
-        PlaySound(SFX_CoinSwitchTimeout);
-
-    if(InvincibilityTime == 0)
-    {
-        for(int A = 1; A <= numPlayers; A++)
+        if(p_onscreen && p.InvincibilityTime == Physics.NPCPSwitch && !GameMenu)
         {
-            if(!Player[A].Dead && Player[A].TimeToLive == 0)
-                Player[A].Immune += 120;
+            StopMusic();
+            StartMusic(-1);
         }
 
-        if(!GameMenu)
-            SwitchEndResumeMusic();
+        p.InvincibilityTime--;
+
+        if(p.InvincibilityTime == 195)
+            PlaySoundSpatial(SFX_CoinSwitchTimeout, p.Location);
+        else if(p.InvincibilityTime == 0)
+        {
+            p.Immune += 120;
+
+            if(!GameMenu && p_onscreen && !OnscreenPlayerInvincible())
+                SwitchEndResumeMusic();
+        }
     }
 }
 
@@ -148,7 +152,7 @@ bool UpdatePlayer()
         if(Player[A].Dismount > 0) // count down to being able to hop in a shoe or yoshi
             Player[A].Dismount -= 1;
 
-        if(Player[A].Mount != 0 || Player[A].Stoned || Player[A].Fairy) // if .holdingnpc is -1 then the player can't grab anything. this stops the player from grabbing things while on a yoshi/shoe
+        if(Player[A].Mount != 0 || Player[A].Stoned || Player[A].Fairy || Player[A].State == PLR_STATE_TINY) // if .holdingnpc is -1 then the player can't grab anything. this stops the player from grabbing things while on a yoshi/shoe
             Player[A].HoldingNPC = -1;
         else if(Player[A].HoldingNPC == -1)
             Player[A].HoldingNPC = 0;
@@ -209,7 +213,7 @@ bool UpdatePlayer()
                 if(Player[A].Rolling)
                     Player[A].Slide = true;
                 else if(Player[A].Slope > 0 && Player[A].Controls.Down &&
-                   Player[A].Mount == 0 && Player[A].HoldingNPC == 0 &&
+                   Player[A].Mount == 0 && (Player[A].HoldingNPC == 0 || Player[A].State == PLR_STATE_TINY) &&
                    !(Player[A].Character == 3 || Player[A].Character == 4 || Player[A].Character == 5) &&
                    Player[A].GrabTime == 0)
                 {
@@ -417,7 +421,7 @@ bool UpdatePlayer()
                     if(Player[A].Hearts == 1 && Player[A].State > 1)
                         Player[A].Hearts = 2;
 
-                    if(Player[A].Hearts > 1 && Player[A].State == 1)
+                    if(Player[A].Hearts > 1 && (Player[A].State == 1 || Player[A].State == PLR_STATE_TINY))
                         Player[A].Hearts = 1;
 
                     if(Player[A].Hearts == 0)
@@ -451,7 +455,7 @@ bool UpdatePlayer()
                         (
                                 (!Player[A].YoshiBlue && (Player[A].CanFly || Player[A].CanFly2)) ||
                                 (Player[A].Mount == 3 && Player[A].CanFly2)
-                        ) || Player[A].FlySparks || InvincibilityTime
+                        ) || Player[A].FlySparks || Player[A].InvincibilityTime
                         )
                 {
                     if(iRand(4) == 0)
@@ -518,7 +522,7 @@ bool UpdatePlayer()
                 }
 
                 // reduce player's multiplier
-                if((Player[A].Location.SpeedY == 0 || Player[A].StandingOnNPC != 0 || Player[A].Slope > 0) && !Player[A].Slide && !FreezeNPCs && !InvincibilityTime)
+                if((Player[A].Location.SpeedY == 0 || Player[A].StandingOnNPC != 0 || Player[A].Slope > 0) && !Player[A].Slide && !FreezeNPCs && !Player[A].InvincibilityTime)
                     Player[A].Multiplier = 0;
 
                 if(Player[A].Mount == 2)

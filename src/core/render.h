@@ -56,6 +56,11 @@ constexpr int MAX_3D_OFFSET = 20;
 constexpr int TargetCameraOverscanX = 20;
 constexpr int TargetOverscanX = 28;
 
+#elif defined(THEXTECH_IOS)
+
+constexpr int TargetCameraOverscanX = 0;
+extern int TargetOverscanX;
+
 #else
 
 constexpr int TargetCameraOverscanX = 0;
@@ -580,6 +585,24 @@ E_INLINE void renderLighting() TAIL
     return g_render->renderLighting();
 }
 
+/*!
+ * \brief Sets the camera position for the current draw pass (used by some shaders)
+ *
+ * \param camX current camera X position (same as vScreenX)
+ * \param camY current camera Y position (same as vScreenY)
+ */
+E_INLINE void setCameraPos(int camX, int camY) TAIL
+{
+    return g_render->setCameraPos(camX, camY);
+}
+
+#else // THEXTECH_BUILD_GL_MODERN
+
+static inline void setCameraPos(int camX, int camY)
+{
+    (void)camX; (void)camY;
+}
+
 #endif
 
 // Draw primitives
@@ -731,19 +754,28 @@ E_INLINE void renderSizableBlock(int xDst, int yDst, int wDst, int hDst, StdPict
 #endif
 
 /*!
+ * \brief Draws a grid over the full screen
+ * \param size grid size (in pixels)
+ * \param xOff left x coordinate of some grid cell (in viewport coordinates)
+ * \param yOff top y coordinate of some grid cell (in viewport coordinates)
+ */
+E_INLINE void renderGrid(int size, int xOff, int yOff) TAIL
+#ifndef RENDER_CUSTOM
+{
+    g_render->renderGrid(size, xOff, yOff);
+}
+#endif
+
+/*!
  * \brief Draws the particle system at a particular camera offset
  * \param tx Source particle system
- * \param camX current camera X position (same as vScreenX)
- * \param camY current camera Y position (same as vScreenY)
  *
  * No-op if particle effects are not supported.
  */
-E_INLINE void renderParticleSystem(StdPicture &tx,
-                                   double camX,
-                                   double camY) TAIL
+E_INLINE void renderParticleSystem(StdPicture &tx) TAIL
 #ifndef RENDER_CUSTOM
 {
-    return g_render->renderParticleSystem(tx, camX, camY);
+    return g_render->renderParticleSystem(tx);
 }
 #endif
 

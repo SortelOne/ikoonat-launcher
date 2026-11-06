@@ -30,9 +30,8 @@
 
 #include "message.h"
 
-extern std::string g_netplayServer;
-extern std::string g_netplayNickname;
-
+// a temporary measure, will be removed
+extern bool g_hideNetplay;
 
 namespace XMessage
 {
@@ -73,6 +72,9 @@ struct ClientStatus
     RoomInfo room_info;
     int client_index = 0;
     bool knock_knock = false;
+    int latency_frames = -1;
+    int latency_ms = -1;
+    bool udp_active = false;
 };
 
 struct GameThread
@@ -106,6 +108,7 @@ void Connect(const char* host = nullptr);
 void Disconnect();
 void NetStartup();
 void NetShutdown();
+void SyncReqStatus();
 const ClientStatus* GetClientStatus();
 bool CompleteRequest();
 
@@ -114,7 +117,9 @@ void ClientFrameSync(std::vector<Message>& submit_queue, std::vector<Message>& m
 bool RequestFillRoomInfo(uint32_t room_key);
 const RoomInfo* GetRoomInfo();
 
-void JoinNewRoom(const RoomInfo& room_info);
+void Client_InitSession();
+void Client_EndSession();
+void PrepareSession();
 void JoinRoom(uint32_t room_key);
 void ActivateHost();
 uint32_t CurrentRoom();

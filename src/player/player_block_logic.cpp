@@ -59,6 +59,8 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
     // This was previously shared between players, but is safe unless Block[wallBlock] satisfies certain properties before wallBlock gets set
     num_t preWallX = 0; // The old X before player was moved -- was previously called tempSlope2X
 
+    Player[A].UnDuckSafe = true;
+
     if(Player[A].Character == 5 && Player[A].Duck && (Player[A].Location.SpeedY == Physics.PlayerGravity || Player[A].StandingOnNPC != 0 || Player[A].Slope != 0))
         Player[A].Location.set_height_floor(30);
 
@@ -68,7 +70,14 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
     // lBlock = LastBlock[((Player[A].Location.X + Player[A].Location.Width) / 32.0) + 1];
     // blockTileGet(Player[A].Location, fBlock, lBlock);
 
-    UpdatableQuery<BlockRef_t> q(Player[A].Location, SORTMODE_COMPAT, QUERY_FLBLOCK);
+    Location_t unducked_loc = Player[A].Location;
+
+    // to keep track of whether unducking would be safe
+    int unducked_height = CalcPlayerHeight(Player[A], false);
+    if(Player[A].Duck && unducked_height > num_t::floor(unducked_loc.Height))
+        unducked_loc.set_height_floor(unducked_height);
+
+    UpdatableQuery<BlockRef_t> q(unducked_loc, SORTMODE_COMPAT, QUERY_FLBLOCK);
 
     for(auto it = q.begin(); it != q.end(); ++it)
     {
@@ -124,11 +133,18 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                             // for blocks that hurt the player
                             if(BlockHurts[Block[B].Type])
                             {
-                                if(Player[A].Mount == 2 ||
-                                    InvincibilityTime ||
+                                // block that kills the player
+                                if(Block[B].Type == BLKID_KAIZO_KILL && !GodMode)
+                                {
+                                    PlayerDead(A);
+                                    break;
+                                }
+
+                                if((Player[A].Mount == 2 && Block[B].Type != BLKID_KAIZO_HURT) ||
+                                    Player[A].InvincibilityTime ||
                                    (
                                        ((HitSpot == 1 && Player[A].Mount) || (Player[A].Rolling && Player[A].State == PLR_STATE_SHELL)) &&
-                                       Block[B].Type != 598
+                                       (Block[B].Type != BLKID_PET_HURT && Block[B].Type != BLKID_KAIZO_HURT)
                                    )
                                  )
                                 {}
@@ -143,7 +159,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                                         PlayerHurt(A);
                                     }
 
-                                    if(Block[B].Type == 598)
+                                    if(Block[B].Type == BLKID_PET_HURT || Block[B].Type == BLKID_KAIZO_HURT)
                                     {
                                         if(Player[A].Mount > 0 && HitSpot == 1)
                                         {
@@ -187,7 +203,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                             }
 
                             // destroy some blocks if the player is touching it as a statue
-                            if(Block[B].Type == 457 && Player[A].Stoned)
+                            if(Block[B].Type == BLKID_GRY_BRICK && Player[A].Stoned)
                             {
                                 HitSpot = 0;
                                 SafelyKillBlock(B);
@@ -220,7 +236,12 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                                 if(Slope > 1)
                                     Slope = 1;
 
-                                if(Player[A].Location.Y <= Block[B].Location.Y + Block[B].Location.Height - ((int_ok)Block[B].Location.Height * Slope))
+                                num_t ceiling_y = Block[B].Location.Y + Block[B].Location.Height - ((int_ok)Block[B].Location.Height * Slope);
+
+                                if(unducked_loc.Y <= ceiling_y)
+                                    Player[A].UnDuckSafe = false;
+
+                                if(Player[A].Location.Y <= ceiling_y)
                                 {
                                     if(BlockKills[Block[B].Type] && !(Player[A].Rolling && Player[A].Character == 5 && Player[A].State == PLR_STATE_SHELL))
                                     {
@@ -544,7 +565,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                                 }
 
                                 bool player_drill = (Player[A].State == PLR_STATE_CYCLONE && !Player[A].DoubleJump && Player[A].Controls.Down && Player[A].Location.SpeedY > Physics.PlayerTerminalVelocity * 0.9_n);
-                                if(player_drill && BlockIsBreakable(Block[B]) && Block[B].Type != 90)
+                                if(player_drill && BlockIsBreakable(Block[B]) && Block[B].Type != BLKID_SPIN_BLOCK)
                                 {
                                     BlockHitHard(B);
                                 }
@@ -555,6 +576,8 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                                         BlockHit(B, true, A);
                                         PlaySoundSpatial(SFX_BlockHit, Player[A].Location);
                                     }
+
+                                    YoshiPound(A, Player[A].Mount);
 
                                     player_drill = false;
                                 }
@@ -755,6 +778,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
 
                                     if(hasFloor)
                                     {
+                                        Player[A].UnDuckSafe = false;
                                         Player[A].CanJump = false;
                                         Player[A].Jump = 0;
                                         Player[A].Location.X += -4 * Player[A].Direction;
@@ -768,6 +792,8 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
                             }
                         }
                     }
+                    else if(unducked_loc.Y <= Block[B].Location.Y + Block[B].Location.Height)
+                        Player[A].UnDuckSafe = false;
                 }
             }
         }
@@ -830,7 +856,14 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
         if(Player[A].State == PLR_STATE_POLAR)
         {
             if(!BlockIsBreakable(Block[wallBlock]))
+            {
                 hitWall = true;
+                if(Player[A].UnDuckSafe && !hitCeiling)
+                {
+                    Player[A].Rolling = false;
+                    Player[A].Slide = false;
+                }
+            }
         }
     }
 
@@ -847,7 +880,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
         }
 
         // diggable dirt
-        if(Block[floorBlock].Type == 370 && Player[A].StandingOnNPC <= 0) // dig dirt
+        if(Block[floorBlock].Type == BLKID_DIG_SAND && Player[A].StandingOnNPC <= 0) // dig dirt
         {
             DontResetGrabTime = true;
             // B = floorBlock;
@@ -961,7 +994,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
             }
 #endif
 
-            if(Block[floorBlock].Type == 55 && !FreezeNPCs) // Make the player jump if the block is bouncy
+            if(Block[floorBlock].Type == BLKID_BOUNCE_BLOCK && !FreezeNPCs) // Make the player jump if the block is bouncy
             {
                 BlockHit(floorBlock, true);
 
@@ -985,7 +1018,7 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
             }
 
             // smash turn blocks
-            if(Player[A].SpinJump && (Block[floorBlock].Type == 90 || Block[floorBlock].Type == 526) && Player[A].State > 1 && Block[floorBlock].Special == 0)
+            if(Player[A].SpinJump && (Block[floorBlock].Type == BLKID_SPIN_BLOCK || Block[floorBlock].Type == BLKID_SPACE_BRICK) && (Player[A].State > 1 && Player[A].State != PLR_STATE_TINY) && Block[floorBlock].Special == 0)
             {
                 Player[A].Location.SpeedY = Physics.PlayerJumpVelocity;
                 Block[floorBlock].Kill = true;
@@ -1108,14 +1141,17 @@ void PlayerBlockLogic(int A, int& floorBlock, bool& movingBlock, bool& DontReset
         if(Player[A].Mount != 2) // Tell the block it was hit
             BlockHit(ceilingBlock, false, A);
 
-        if(Block[ceilingBlock].Type == 55) // If it is a bouncy block the knock the player down
+        if(Block[ceilingBlock].Type == BLKID_BOUNCE_BLOCK) // If it is a bouncy block the knock the player down
             Player[A].Location.SpeedY = 3;
 
-        if(Player[A].State > 1 && (Player[A].Character != 5 || Player[A].Rolling)) // If the player was big ask the block nicely to die
+        if(Player[A].State > 1 && Player[A].State != PLR_STATE_TINY && (Player[A].Character != 5 || Player[A].Rolling)) // If the player was big ask the block nicely to die
         {
-            if(Player[A].Mount != 2 && Block[ceilingBlock].Type != 293)
+            if(Player[A].Mount != 2 && Block[ceilingBlock].Type != BLKID_BOMB_DIRT_S2)
                 BlockHitHard(ceilingBlock);
         }
+
+        if(Player[A].Duck)
+            Player[A].UnDuckSafe = false;
     }
 
     if(Player[A].StandingOnNPC != 0)

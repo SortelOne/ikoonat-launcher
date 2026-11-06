@@ -63,13 +63,8 @@ struct WorldLoad
     int FileRelease = 64;
 };
 
-#ifdef PGEFL_CALLBACK_API
 WorldLoadCallbacks OpenWorld_SetupCallbacks(WorldLoad& load);
 using callback_error = PGE_FileFormats_misc::callback_error;
-#else
-bool OpenWorld_Unpack(WorldLoad& load, WorldData& wld);
-using callback_error = std::runtime_error;
-#endif
 
 bool OpenWorld_Post(const WorldLoad& load);
 
@@ -137,36 +132,16 @@ bool OpenWorld(std::string FilePath)
         return false;
     }
 
-#ifdef PGEFL_CALLBACK_API
     WorldLoadCallbacks callbacks = OpenWorld_SetupCallbacks(load);
     if(!FileFormats::OpenWorldFileT(in, callbacks))
     {
         pLogDebug("Failed to load [%s]", FilePath.c_str());
         return false;
     }
-#else // #ifdef PGEFL_CALLBACK_API
-    {
-        WorldData wld;
-
-        if(!FileFormats::OpenWorldFileT(in, wld))
-        {
-            pLogWarning("Error of world \"%s\" file loading: %s (line %ld).",
-                        FilePath.c_str(),
-                        wld.meta.ERROR_info.c_str(),
-                        wld.meta.ERROR_linenum);
-            MessageText = std::move(wld.meta.ERROR_info);
-            return false;
-        }
-
-        if(!OpenWorld_Unpack(load, wld))
-            return false;
-    }
-#endif // #ifdef PGEFL_CALLBACK_API
 
     return OpenWorld_Post(load);
 }
 
-#ifdef PGEFL_CALLBACK_API
 void OpenWorld_Error(void*, FileFormatsError& e)
 {
     pLogWarning("Error of world file loading: %s (line %ld).",
@@ -175,29 +150,18 @@ void OpenWorld_Error(void*, FileFormatsError& e)
 
     MessageText = std::move(e.ERROR_info);
 }
-#endif
 
-#ifdef PGEFL_CALLBACK_API
 bool OpenWorld_Head(void* userdata, WorldHead& wld)
-#else
-bool OpenWorld_Head(void* userdata, WorldData& wld)
-#endif
 {
     WorldLoad& load = *static_cast<WorldLoad*>(userdata);
 
     constexpr unsigned int engineFeatureLevel = V_FEATURE_LEVEL;
 
-#ifdef PGEFL_CALLBACK_API
     FileFormat = wld.RecentFormat;
     unsigned int reqFeatureLevel = wld.engineFeatureLevel;
     if(wld.RecentFormat == LevelData::SMBX64)
         load.FileRelease = int(wld.RecentFormatVersion);
-#else
-    FileFormat = wld.meta.RecentFormat;
-    unsigned int reqFeatureLevel = wld.meta.engineFeatureLevel;
-    if(wld.meta.RecentFormat == LevelData::SMBX64)
-        load.FileRelease = int(wld.meta.RecentFormatVersion);
-#endif
+    WorldTargetsEngine = (wld.configPackId == "TheXTech" || wld.configPackId == "SMBXT");
 
     if(reqFeatureLevel > engineFeatureLevel)
         priv_FeatureLevelError(g_gameStrings.errorTooOldEngine, reqFeatureLevel, engineFeatureLevel);
@@ -321,13 +285,15 @@ bool OpenWorld_Tile(void*, WorldTerrainTile& t)
 
         terra = Tile_t();
 
-        terra.Location.X = t.x;
-        terra.Location.Y = t.y;
+        terra.Location.X = (int32_t)t.x;
+        terra.Location.Y = (int32_t)t.y;
         terra.Type = int(t.id);
-        terra.Location.Width = TileWidth[terra.Type];
-        terra.Location.Height = TileHeight[terra.Type];
+        // terra.Location.Width = TileWidth[terra.Type];
+        // terra.Location.Height = TileHeight[terra.Type];
         // terra.Z = zCounter++;
-        treeWorldTileAdd(&terra);
+
+        // moved to post-load, because size may change after confirming that we can use the GFX to set size
+        // treeWorldTileAdd(&terra);
 
         if(IF_OUTRANGE(terra.Type, 1, maxTileType)) // Drop ID to 1 for Tiles of out of range IDs
         {
@@ -354,13 +320,12 @@ bool OpenWorld_Scene(void*, WorldScenery& s)
         scene = Scene_t();
 
         scene.Type = int(s.id);
-        scene.Location.X = s.x;
-        scene.Location.Y = s.y;
-        scene.Location.Width = SceneWidth[scene.Type];
-        scene.Location.Height = SceneHeight[scene.Type];
+        scene.Location.X = (int32_t)s.x;
+        scene.Location.Y = (int32_t)s.y;
+        // scene.Location.Width = SceneWidth[scene.Type];
+        // scene.Location.Height = SceneHeight[scene.Type];
         scene.Active = true;
         // scene.Z = zCounter++;
-        treeWorldSceneAdd(&scene);
 
         if(IF_OUTRANGE(scene.Type, 1, maxSceneType)) // Drop ID to 1 for Scenery of out of range IDs
         {
@@ -386,11 +351,11 @@ bool OpenWorld_Path(void*, WorldPathTile& p)
 
         pp = WorldPath_t();
 
-        pp.Location.X = p.x;
-        pp.Location.Y = p.y;
+        pp.Location.X = (int32_t)p.x;
+        pp.Location.Y = (int32_t)p.y;
         pp.Type = int(p.id);
-        pp.Location.Width = 32;
-        pp.Location.Height = 32;
+        // pp.Location.Width = 32;
+        // pp.Location.Height = 32;
         pp.Active = false;
         // pp.Z = zCounter++;
         treeWorldPathAdd(&pp);
@@ -421,8 +386,8 @@ bool OpenWorld_Level(void*, WorldLevelTile& l)
 
         ll = WorldLevel_t();
 
-        ll.Location.X = l.x;
-        ll.Location.Y = l.y;
+        ll.Location.X = (int32_t)l.x;
+        ll.Location.Y = (int32_t)l.y;
         ll.Type = int(l.id);
         validateLevelName(ll.FileName, l.lvlfile);
         ll.LevelName = l.title;
@@ -471,8 +436,8 @@ bool OpenWorld_Music(void*, WorldMusicBox& m)
 
         box = WorldMusic_t();
 
-        box.Location.X = m.x;
-        box.Location.Y = m.y;
+        box.Location.X = (int32_t)m.x;
+        box.Location.Y = (int32_t)m.y;
         box.Type = int(m.id);
 
         // new:
@@ -485,15 +450,15 @@ bool OpenWorld_Music(void*, WorldMusicBox& m)
         // In game they are smaller (30x30), in world they are 32x32
         if(!LevelEditor)
         {
-            box.Location.Width = 30;
-            box.Location.Height = 30;
+            // box.Location.Width = 30;
+            // box.Location.Height = 30;
             box.Location.Y += 1;
             box.Location.X += 1;
         }
         else
         {
-            box.Location.Width = 32;
-            box.Location.Height = 32;
+            // box.Location.Width = 32;
+            // box.Location.Height = 32;
         }
 
         // box.Z = zCounter++;
@@ -520,16 +485,15 @@ bool OpenWorld_AreaRect(void*, WorldAreaRect& m)
 
         area = WorldArea_t();
 
-        area.Location.X = m.x;
-        area.Location.Y = m.y;
-        area.Location.Width = m.w;
-        area.Location.Height = m.h;
+        area.Location.X = (int32_t)m.x;
+        area.Location.Y = (int32_t)m.y;
+        area.Location.Width = (int32_t)m.w;
+        area.Location.Height = (int32_t)m.h;
     }
 
     return true;
 }
 
-#ifdef PGEFL_CALLBACK_API
 
 WorldLoadCallbacks OpenWorld_SetupCallbacks(WorldLoad& load)
 {
@@ -549,60 +513,6 @@ WorldLoadCallbacks OpenWorld_SetupCallbacks(WorldLoad& load)
     return callbacks;
 }
 
-#else // #ifdef PGEFL_CALLBACK_API
-
-bool OpenWorld_Unpack(WorldLoad& load, WorldData& wld)
-{
-    try
-    {
-        OpenWorld_Head(&load, wld);
-    }
-    catch(const callback_error& e)
-    {
-        pLogWarning("Error of level \"%s\" file loading: %s.",
-                    wld.meta.filename.c_str(),
-                    e.what());
-
-        MessageText = e.what();
-
-        return false;
-    }
-
-    for(auto &t : wld.tiles)
-    {
-        if(!OpenWorld_Tile(&load, t))
-            break;
-    }
-    for(auto &s : wld.scenery)
-    {
-        if(!OpenWorld_Scene(&load, s))
-            break;
-    }
-    for(auto &p : wld.paths)
-    {
-        if(!OpenWorld_Path(&load, p))
-            break;
-    }
-    for(auto &l : wld.levels)
-    {
-        if(!OpenWorld_Level(&load, l))
-            break;
-    }
-    for(auto &m : wld.music)
-    {
-        if(!OpenWorld_Music(&load, m))
-            break;
-    }
-    for(auto &a : wld.arearects)
-    {
-        if(!OpenWorld_AreaRect(&load, a))
-            break;
-    }
-
-    return true;
-}
-
-#endif // #ifdef PGEFL_CALLBACK_API
 
 bool OpenWorld_Post(const WorldLoad& load)
 {
@@ -612,6 +522,13 @@ bool OpenWorld_Post(const WorldLoad& load)
         tr.loadWorldTranslation(FileNameFull);
 
     LoadCustomSound();
+
+    CalcWorldTileSize();
+    CalcWorldSceneSize();
+    for(int A = 1; A <= numTiles; A++)
+        treeWorldTileAdd(A);
+    for(int A = 1; A <= numScenes; A++)
+        treeWorldSceneAdd(A);
 
     // the version targeting below is from SMBX 1.3
     const int FileRelease = load.FileRelease;
@@ -695,6 +612,8 @@ void ClearWorld(bool quick)
         UnloadWorldCustomGFX();
         UnloadCustomSound();
         LoadPlayerDefaults();
+        ResetWorldTileSize();
+        ResetWorldSceneSize();
     }
 
     ClearSavedLayers();
@@ -719,7 +638,8 @@ void ClearWorld(bool quick)
     // Clear custom outro if that was presented
     g_recentWorldOutro.clear();
     // default file format if world header is missing
-    FileFormat = FileFormats::LVL_PGEX;
+    FileFormatWorld = FileFormats::LVL_PGEX;
+    WorldTargetsEngine = true;
 
     for(int i = 1; i <= maxWorldCredits; i++)
         WorldCredits[i].clear();
@@ -771,17 +691,48 @@ void FindWldStars()
             bool level_must_show_stars = (l.starsShowPolicy == Config_t::MAP_STARS_SHOW);
             bool level_can_show_stars = (world_must_show_stars && l.starsShowPolicy == Config_t::MAP_STARS_UNSPECIFIED);
 
-            // skip check for max stars and medals if it's already been inited, OR if the star count isn't needed
-            if(l.save_info.inited() || !(level_must_show_stars || level_can_show_stars))
-                continue;
+            // set the level's save info index
 
             std::string lFile = l.FileName;
             addMissingLvlSuffix(lFile);
 
+            // check existing level save entries
+            for(uint16_t idx = 0; idx != 0xFFFF && idx < LevelSaveEntries.size(); ++idx)
+            {
+                const auto& e = LevelSaveEntries[idx];
+
+                if(e.levelPath == lFile)
+                {
+                    l.save_info_idx = idx;
+                    break;
+                }
+            }
+
+            // skip check for max stars and medals if it's already been inited, OR if the star count isn't needed
+            if(l.save_info().inited() || !(level_must_show_stars || level_can_show_stars))
+                continue;
+
+            // don't overflow the LevelSaveEntries array
+            if(l.save_info_idx == 0xFFFF && LevelSaveEntries.size() >= 0xFFFF)
+                continue;
+
             std::string fullPath = g_dirEpisode.resolveFileCaseExistsAbs(lFile);
 
             if(!fullPath.empty())
-                l.save_info = InitLevelSaveInfo(fullPath, tempData);
+            {
+                LevelSaveInfo_t info = InitLevelSaveInfo(fullPath, tempData);
+
+                if(info.inited())
+                {
+                    if(l.save_info_idx != 0XFFFF)
+                        LevelSaveEntries[l.save_info_idx].save_info = info;
+                    else
+                    {
+                        l.save_info_idx = LevelSaveEntries.size();
+                        LevelSaveEntries.push_back({lFile, info});
+                    }
+                }
+            }
         }
     }
 }

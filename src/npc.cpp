@@ -33,6 +33,7 @@
 #include "config.h"
 #include "main/trees.h"
 #include "core/events.h"
+#include "blk_id.h"
 #include "npc_id.h"
 #include "eff_id.h"
 #include "npc_traits.h"
@@ -251,8 +252,8 @@ void Deactivate(int A)
             // prevent instantly respawning, unless the animation will be totally seamless
             if(!g_config.fix_npc_camera_logic
                 || !NPC_InactiveRender(NPC[A])
-                || num_t::floor(NPC[A].Location.X) != num_t::floor(NPC[A].DefaultLocationX)
-                || num_t::floor(NPC[A].Location.Y) != num_t::floor(NPC[A].DefaultLocationY))
+                || (int)(NPC[A].Location.X - NPC[A].DefaultLocationX) != 0
+                || (int)(NPC[A].Location.Y - NPC[A].DefaultLocationY) != 0)
             {
                 NPC[A].Reset[1] = false;
                 NPC[A].Reset[2] = false;
@@ -444,7 +445,7 @@ void Bomb(Location_t Location, int Game, int ImmunePlayer)
             {
                 BlockHit(i);
                 BlockHitHard(i);
-                if(Game == 0 && Block[i].Type == 457)
+                if(Game == 0 && Block[i].Type == BLKID_GRY_BRICK)
                     SafelyKillBlock(i);
             }
         }
@@ -524,7 +525,8 @@ void TurnNPCsIntoCoins()
                    NPC[A].Type != NPCID_CHAR3_HEAVY && NPC[A].Type != NPCID_CHAR4_HEAVY && NPC[A].Type != NPCID_SWORDBEAM &&
                    NPC[A].Type != NPCID_CONVEYOR && NPC[A].Type != NPCID_METALBARREL &&
                    !(NPC[A].Type >= NPCID_TANK_TREADS && NPC[A].Type <= NPCID_SLANT_WOOD_M) &&
-                   NPC[A].Type != NPCID_ITEM_BURIED && NPC[A].Type != NPCID_FIRE_CHAIN && NPC[A].Type != NPCID_FIRE_DISK)
+                   NPC[A].Type != NPCID_ITEM_BURIED && NPC[A].Type != NPCID_FIRE_CHAIN && NPC[A].Type != NPCID_FIRE_DISK &&
+                   NPC[A].Type != NPCID_HOMING_BULLET && NPC[A].Type != NPCID_RED_SPRING)
                 {
                     NPC[A].Location.Y += 32;
                     NewEffect(EFFID_COIN_BLOCK_S3, NPC[A].Location);
@@ -1015,7 +1017,7 @@ void NPCSpecial(int A)
                         continue;
 
                     Background_t &b = i;
-                    if(!b.Hidden && ((b.Type >= 174 && b.Type <= 186) || b.Type == 63) && CheckCollision(tempLocation, b.Location))
+                    if(!b.Hidden && ((b.Type >= 174 && b.Type <= 186) || b.Type == 63) && CheckCollision(tempLocation, b))
                     {
                         tempBool = true;
                         break;
@@ -2250,7 +2252,7 @@ void NPCSpecial(int A)
 
         for(Block_t& block : treeFLBlockQuery(tempLocation, SORTMODE_NONE))
         {
-            if(!block.Hidden && !BlockNoClipping[block.Type] && !BlockIsSizable[block.Type] && !BlockOnlyHitspot1[block.Type])
+            if(!block.Hidden && !BlockNoClipping[block.Type] && !BlockIsSizable[block.Type] && !BlockOnlyHitspot1[block.Type] && block.Type != BLKID_NPCPASS)
             {
                 if(npc.Special == 1 && BlockSlope[block.Type])
                     continue;
@@ -2336,7 +2338,7 @@ void NPCSpecial(int A)
         {
             Block_t& block = *block_p;
 
-            if(!block.Hidden && !BlockNoClipping[block.Type] && !BlockIsSizable[block.Type] && !BlockOnlyHitspot1[block.Type])
+            if(!block.Hidden && !BlockNoClipping[block.Type] && !BlockIsSizable[block.Type] && !BlockOnlyHitspot1[block.Type] && block.Type != BLKID_NPCPASS)
             {
                 if(CheckCollision(tempLocation, block.Location))
                 {
@@ -2412,7 +2414,11 @@ void NPCSpecial(int A)
         if(npc.TimeLeft > 1)
             npc.TimeLeft = 100;
 
-        if(!npc.Wings)
+        int target_plr = 0;
+
+        if(npc.Wings == WING_CHASE || npc.Wings == WING_FLEE)
+            target_plr = NPCFaceNearestPlayer(npc);
+        else
             npc.Direction = npc.DefaultDirection;
 
         if(npc.Immune > 0 && npc.Special != 3)
@@ -2423,6 +2429,7 @@ void NPCSpecial(int A)
             if(npc.Special != 3)
                 PlaySoundSpatial(SFX_SickBossKilled, npc.Location);
             npc.Special = 3;
+            npc.Wings = WING_NONE;
         }
 
         if(npc.Special == 0)
@@ -2474,6 +2481,10 @@ void NPCSpecial(int A)
                 NPC[numNPCs].Location.SpeedX = 7 * NPC[numNPCs].Direction;
                 NPC[numNPCs].Location.SpeedX *= (140 - npc.Special3);
                 NPC[numNPCs].Location.SpeedX /= 140;
+
+                // Wings mode: make them go more downwards if the target player is below the boss
+                if(target_plr)
+                    NPC[numNPCs].Location.SpeedY += (Player[target_plr].Location.Y - npc.Location.Y) / 128;
 
                 syncLayers_NPC(numNPCs);
             }
@@ -2593,7 +2604,7 @@ void NPCSpecial(int A)
                     // Not hidden
                     if(!Background[i].Hidden)
                     {
-                        if(CheckCollision(tempLocation, Background[i].Location))
+                        if(CheckCollision(tempLocation, Background[i]))
                         {
                             if(bgo_type > 0)
                             {
@@ -2620,7 +2631,7 @@ void NPCSpecial(int A)
                                     npc.Location.SpeedX = 0;
 
                                     if(centered)
-                                        speed_x = -(npc.Location.X + (npc.Location.Width / 2)) + (Background[i].Location.X + (Background[i].Location.Width / 2));
+                                        speed_x = -(npc.Location.X + (npc.Location.Width / 2)) + (Background[i].Location.X + ((num_t)Background[i].Width() / 2));
                                     else
                                         speed_x = -npc.Location.X + Background[i].Location.X - 32;
                                 }
@@ -2635,7 +2646,7 @@ void NPCSpecial(int A)
                                     npc.Location.SpeedY = 0;
 
                                     if(centered)
-                                        speed_y = -(npc.Location.Y + (npc.Location.Height / 2)) + (Background[i].Location.Y + (Background[i].Location.Height / 2));
+                                        speed_y = -(npc.Location.Y + (npc.Location.Height / 2)) + (Background[i].Location.Y + ((num_t)Background[i].Height() / 2));
                                     else
                                         speed_y = -npc.Location.Y + Background[i].Location.Y;
                                 }
@@ -2949,6 +2960,10 @@ void NPCSpecial(int A)
         for(int i = 1; i <= numPlayers; i++)
         {
             auto &p = Player[i];
+
+            // fix SMBX 1.3 bug where players disappeared if P1 was eaten, and critical bug where players died if P1 was dead
+            if(g_config.multiplayer_pause_controls && (p.Effect == PLREFF_PET_INSIDE || p.Dead || p.TimeToLive))
+                continue;
 
             if(p.Section == npc.Section)
             {
@@ -3352,7 +3367,7 @@ void NPCSpecial(int A)
 
                 if(npc.tempBlock == B || Block[B].tempBlockNoProjClipping() ||
                    BlockOnlyHitspot1[Block[B].Type] || BlockIsSizable[Block[B].Type] ||
-                   BlockNoClipping[Block[B].Type] || Block[B].Hidden)
+                   BlockNoClipping[Block[B].Type] || Block[B].Hidden || Block[B].Type == BLKID_NPCPASS)
                 {
                     continue;
                 }
@@ -3369,6 +3384,136 @@ void NPCSpecial(int A)
                 npc.Special = 2;
                 SkullRide(A, true);
             }
+        }
+    }
+    else if(npc.Type == NPCID_HOMING_BULLET)
+    {
+        if(npc.CantHurt > 0)
+        {
+            npc.Projectile = true;
+            npc.CantHurt = 100;
+
+            if(npc.TimeLeft > 10)
+                npc.TimeLeft = 10;
+        }
+        else
+            npc.Projectile = false;
+
+        if(npc.Location.SpeedX == 0 && npc.Location.SpeedY == 0)
+            npc.Location.SpeedX = 6 * npc.Direction;
+
+        // ten second despawn timer
+        npc.Special3++;
+        if(npc.Special3 > 650)
+            NPCHit(A, 3, A);
+
+        // ALL of this logic is fully self-contained to the below:
+
+        // targeting routine
+        if(npc.Special != 0)
+        {
+            // check that target is still valid
+            const NPC_t& target = NPC[npc.Special];
+            const Player_t& plr_target = Player[(npc.Special < 0) ? -npc.Special : 0];
+            if(npc.Special > 0 && (npc.Special > numNPCs || !target.Active || target.HoldingPlayer || target->WontHurt
+                || num_t::abs(target.Location.X - npc.SpecialX) > 64 || num_t::abs(target.Location.Y - npc.SpecialY) > 64))
+            {
+                npc.Special = 0;
+            }
+            else if(npc.Special < 0 && (-npc.Special > numPlayers || plr_target.Dead || plr_target.TimeToLive || plr_target.Immune || plr_target.Section != npc.Section || !PlayerNormal(plr_target)))
+            {
+                npc.Special = 0;
+            }
+            else
+            {
+                const Location_t& tLoc = (npc.Special < 0) ? plr_target.Location : target.Location;
+
+                npc.SpecialX = tLoc.X;
+                npc.SpecialY = tLoc.Y;
+
+                // want a speed of 2, aimed at the other NPC
+                num_t dx = tLoc.minus_center_x(npc.Location);
+                num_t dy = tLoc.minus_center_y(npc.Location);
+                num_t dist = num_t::sqrt(num_t::dist2(dx, dy));
+                num_t target_SpeedX = 6 * dx.divided_by(dist);
+                num_t target_SpeedY = 6 * dy.divided_by(dist);
+
+                npc.Location.SpeedX = (31 * npc.Location.SpeedX + target_SpeedX) / 32;
+                npc.Location.SpeedY = (31 * npc.Location.SpeedY + target_SpeedY) / 32;
+            }
+        }
+        else if(npc.Special2 > 0)
+            npc.Special2--;
+
+        // target finding routine, written for speed
+        if(npc.Special == 0 && npc.Special2 == 0)
+        {
+            int target_x = num_t::floor(npc.Location.X) + (num_t::floor(npc.Location.Width) >> 1);
+            int target_y = num_t::floor(npc.Location.Y) + (num_t::floor(npc.Location.Height) >> 1);
+
+            int best_dist = -1;
+
+            if(BattleMode || npc.CantHurtPlayer == 0)
+            {
+                for(int B = 1; B <= numPlayers; B++)
+                {
+                    if(B == npc.CantHurtPlayer)
+                        continue;
+
+                    const Player_t& plr = Player[B];
+                    if(plr.Dead || plr.TimeToLive || plr.Immune || plr.Section != npc.Section || !PlayerNormal(plr))
+                        continue;
+
+                    int plr_x = num_t::floor(plr.Location.X) + (num_t::floor(plr.Location.Width) >> 1);
+                    int plr_y = num_t::floor(plr.Location.Y) + (num_t::floor(plr.Location.Height) >> 1);
+
+                    // never turn around to target an Player
+                    if(npc.CantHurt && (plr_x - target_x) * npc.Location.SpeedX + (plr_y - target_y) * npc.Location.SpeedY <= 0)
+                        continue;
+
+                    int dist = (plr_x - target_x) * (plr_x - target_x) + (plr_y - target_y) * (plr_y - target_y);
+                    if(best_dist != -1 && dist >= best_dist)
+                        continue;
+
+                    best_dist = dist;
+                    npc.Special = -B;
+                }
+
+                if(npc.Special)
+                    return;
+                else if(npc.CantHurtPlayer == 0)
+                {
+                    npc.Special2 = 128;
+                    return;
+                }
+            }
+
+            for(int B : NPCQueues::Active.no_change)
+            {
+                if(!NPC[B].Active || NPC[B].HoldingPlayer || NPC[B]->WontHurt || NPC[B]->IsABonus)
+                    continue;
+
+                const NPC_t& npc_b = NPC[B];
+                int npc_b_x = num_t::floor(npc_b.Location.X) + (num_t::floor(npc_b.Location.Width) >> 1);
+                int npc_b_y = num_t::floor(npc_b.Location.Y) + (num_t::floor(npc_b.Location.Height) >> 1);
+
+                // never turn around to target an NPC
+                if((npc_b_x - target_x) * npc.Location.SpeedX + (npc_b_y - target_y) * npc.Location.SpeedY <= 0)
+                    continue;
+
+                int dist = (npc_b_x - target_x) * (npc_b_x - target_x) + (npc_b_y - target_y) * (npc_b_y - target_y);
+                if(best_dist != -1 && dist >= best_dist)
+                    continue;
+
+                best_dist = dist;
+
+                npc.Special = B;
+                npc.SpecialX = npc_b.Location.X;
+                npc.SpecialY = npc_b.Location.Y;
+            }
+
+            if(npc.Special == 0)
+                npc.Special2 = 128;
         }
     }
 }
@@ -3407,11 +3552,18 @@ void SpecialNPC(int A)
                !(NPC[A].Type == NPCID_PLR_HEAVY && NPC[A].CantHurtPlayer == B))
             {
                 Location_t tempLocation;
-                if(!Player[B].Duck)
-                    tempLocation.Y = Player[B].Location.Y + Player[B].Location.Height - 52;
-                else
-                    tempLocation.Y = Player[B].Location.Y + Player[B].Location.Height - 28;
                 tempLocation.Height = 24;
+
+                int offset = 52;
+                if(Player[B].State == PLR_STATE_TINY)
+                {
+                    tempLocation.Height = 14;
+                    offset = 14;
+                }
+                else if(Player[B].Duck)
+                    offset = 28;
+
+                tempLocation.Y = Player[B].Location.Y + Player[B].Location.Height - offset;
                 tempLocation.Width = 6;
                 if(Player[B].Direction == 1)
                     tempLocation.X = Player[B].Location.X + Player[B].Location.Width - 2;
@@ -4868,7 +5020,7 @@ void SpecialNPC(int A)
                         }
                     }
 
-                    if(CheckCollision(tempLocation, Block[Ei].Location) && !BlockNoClipping[Block[Ei].Type])
+                    if(CheckCollision(tempLocation, Block[Ei].Location) && !BlockNoClipping[Block[Ei].Type] && Block[Ei].Type != BLKID_NPCPASS && Block[Ei].Type != BLKID_NPCPASS_SEMISOLID)
                     {
                         do_not_throw = true;
                         break;
@@ -5553,6 +5705,12 @@ void CharStuff(int WhatNPC, bool CheckEggs)
                     NPCQueues::Unchecked.push_back(A);
                     treeNPCUpdate(A);
                 }
+                // turn tiny power into static tiny power, and 38A suits into masks
+                else if(NPC[A].Type == NPCID_TINY_POWER || NPC[A].Type == NPCID_AQUATIC_POWER || NPC[A].Type == NPCID_POLAR_POWER || NPC[A].Type == NPCID_SHELL_POWER)
+                {
+                    NPC[A].Stuck = true;
+                    NPC[A].Frame = 1;
+                }
             }
 
             if(WhatNPC != 0)
@@ -5628,6 +5786,9 @@ bool npcHasFloor(const struct NPC_t &npc)
         if(BlockNoClipping[sb->Type] || sb->Hidden || sb->Invis || (npc.Projectile && sb->tempBlockNoProjClipping()))
             continue;
 
+        if(sb->Type == BLKID_NPCPASS || sb->Type == BLKID_NPCPASS_SEMISOLID)
+            continue;
+
         if(CheckCollision(checkLoc, sb->Location))
         {
             hasFloor = true;
@@ -5693,6 +5854,7 @@ void NPCUnbury(int A, int Callsite)
     else if(!(NPC[A].Type == NPCID_CANNONENEMY
         || NPC[A].Type == NPCID_CANNONITEM
         || NPC[A].Type == NPCID_SPRING
+        || NPC[A].Type == NPCID_RED_SPRING
         || NPC[A].Type == NPCID_KEY
         || NPC[A].Type == NPCID_COIN_SWITCH
         // || NPC[A].Type == NPCID_TIME_SWITCH

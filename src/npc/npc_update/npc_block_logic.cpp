@@ -62,7 +62,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
        !(NPC[A].Type == NPCID_SPIT_BOSS_BALL && NPC[A].Projectile) && NPC[A].Type != NPCID_TOOTHY &&
         NPC[A].vehiclePlr == 0 && !(NPCIsVeggie(NPC[A]) && NPC[A].Projectile) &&
        NPC[A].Type != NPCID_HEAVY_THROWN && NPC[A].Type != NPCID_BIG_BULLET && NPC[A].Type != NPCID_PET_FIRE &&
-       !(NPC[A]->IsFish && NPC[A].Special == 2) && NPC[A].Type != NPCID_VINE_BUG)
+       NPC[A].Type != NPCID_HOMING_BULLET && !(NPC[A]->IsFish && NPC[A].Special == 2) && NPC[A].Type != NPCID_VINE_BUG)
     {
         for(int bCheck = 1; bCheck <= 2; bCheck++)
         {
@@ -107,6 +107,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                 if(NPC[A].coinSwitchBlockType() != B && NPC[A].tempBlock != B &&
                                    !(NPC[A].Projectile && Block[B].tempBlockNoProjClipping()) &&
                                    !BlockNoClipping[Block[B].Type] && !Block[B].Hidden &&
+                                   Block[B].Type != BLKID_NPCPASS && Block[B].Type != BLKID_NPCPASS_SEMISOLID &&
                                    SMBX2Collision_NPCBlock(A, B))
                                 {
                                     if(Block[B].tempBlockNpcType == NPCID_TANK_TREADS && !NPC[A]->NoClipping && NPC[A].Type != NPCID_BULLET)
@@ -204,7 +205,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                     }
                                     else if(NPC[A].Type == NPCID_PLR_HEAVY || NPC[A].Type == NPCID_SWORDBEAM || NPC[A].Type == NPCID_CHAR4_HEAVY)
                                     {
-                                        if(Block[B].Type == 457)
+                                        if(Block[B].Type == BLKID_GRY_BRICK)
                                             SafelyKillBlock(B);
 
                                         HitSpot = 0;
@@ -224,7 +225,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                     }
                                     else if(NPC[A].Type == NPCID_SPIKY_BALL_S3)
                                     {
-                                        if(Block[B].tempBlockNpcType == NPCID_CANNONITEM || Block[B].tempBlockNpcType == NPCID_TOOTHYPIPE) // spiney eggs don't walk on special items
+                                        if(Block[B].tempBlockNpcType == NPCID_CANNONITEM || Block[B].tempBlockNpcType == NPCID_TOOTHYPIPE || Block[B].tempBlockNpcType == NPCID_HOMING_CANNON) // spiney eggs don't walk on special items
                                             HitSpot = 0;
                                     }
                                     else if(NPC[A].Type == NPCID_RAFT) // Skull raft
@@ -254,15 +255,17 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                             // NEW: bugfix to make ice balls properly respect char blocks
                                             int special = (g_config.fix_char_pass_balls) ? NPC[A].Variant : NPC[A].Special;
 
-                                            if(Block[B].Type == 626 && special == 1)
+                                            if(Block[B].Type == BLKID_CHAR1_PASS && special == 1)
                                                 HitSpot = 0;
-                                            if(Block[B].Type == 627 && special == 2)
+                                            if(Block[B].Type == BLKID_CHAR2_PASS && special == 2)
                                                 HitSpot = 0;
-                                            if(Block[B].Type == 628 && special == 3)
+                                            if(Block[B].Type == BLKID_CHAR3_PASS && special == 3)
                                                 HitSpot = 0;
-                                            if(Block[B].Type == 629 && special == 4)
+                                            if(Block[B].Type == BLKID_CHAR4_PASS && special == 4)
                                                 HitSpot = 0;
-                                            if(Block[B].Type == 632 && special == 5 && g_config.fix_char_pass_balls) // NEW
+                                            if(Block[B].Type == BLKID_CHAR5_PASS && special == 5 && g_config.fix_char_pass_balls) // NEW
+                                                HitSpot = 0;
+                                            if(Block[B].Type == BLKID_PLAYERPASS && special != 0)
                                                 HitSpot = 0;
 
                                             if(NPCTraits[Block[B].tempBlockNpcType].IsABonus)
@@ -274,10 +277,10 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
 
                                         if(NPC[A].Type == NPCID_PLR_FIREBALL || NPC[A].Type == NPCID_PET_FIRE || NPC[A]->CanMeltBlock)
                                         {
-                                            if(Block[B].Type == 621 || Block[B].Type == 620)
+                                            if(Block[B].Type == BLKID_ICE_PLANT || Block[B].Type == BLKID_ICE_COIN)
                                             {
                                                 NPCHit(A, 3, A);
-                                                if(Block[B].Type == 621)
+                                                if(Block[B].Type == BLKID_ICE_PLANT)
                                                     Block[B].Type = 109;
                                                 else
                                                 {
@@ -335,12 +338,19 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                         // tells the NPC that it's supported
                                         NPC[A].Special5 = 0;
 
+                                        // Don't treat the current wall (the one that set the NPC's X coordinate last frame) as a floor.
+                                        // This could be cleaner -- the 0.01_n magic number is scary, but safe in fixed-point land.
+                                        // (The old VB6 code specified 0.99_n which was not safe because 0.01_n + 0.99_n != 1.00_n.)
+                                        // The +1 magic number is referring to the NPC's speed.
                                         if(HitSpot == 1)
                                         {
-                                            if(NPC[A].Special == 4 && NPC[A].Location.X + 0.99_n == Block[B].Location.X + Block[B].Location.Width)
+                                            // if(NPC[A].Special == 4 && NPC[A].Location.X + 0.99_n == Block[B].Location.X + Block[B].Location.Width)
+                                            // the above line led to a wall climber getting stuck on Burt's Fortress (SRW2:YA W1 Boss)
+                                            if(NPC[A].Special == 4 && NPC[A].Location.X + 1 == Block[B].Location.X + Block[B].Location.Width + 0.01_n)
                                                 HitSpot = 0;
 
-                                            if(NPC[A].Special == 2 && NPC[A].Location.X + NPC[A].Location.Width - 0.99_n == Block[B].Location.X)
+                                            // I'm pretty sure this is wrong (though it matches VB6). This line doesn't seem nearly as critical to the game's logic.
+                                            if(NPC[A].Special == 2 && NPC[A].Location.X + NPC[A].Location.Width - 1 == Block[B].Location.X + 0.01_n)
                                                 HitSpot = 0;
                                         }
 
@@ -693,7 +703,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
 
                                             NPCHit(A, 3, A);
                                         }
-                                        else if(NPC[A].Type == NPCID_ICE_CUBE && (HitSpot == 1 || HitSpot == 3 /* || HitSpot == 5*/))
+                                        else if(NPC[A].Type == NPCID_ICE_CUBE && (HitSpot == 1 || HitSpot == 3 /* || HitSpot == 5*/) && Block[B].tempBlockNpcType != NPCID_RED_SPRING)
                                         {
                                             if(NPC[A].Location.SpeedX > -Physics.NPCShellSpeed * 0.8_r && NPC[A].Location.SpeedX < Physics.NPCShellSpeed * 0.8_r)
                                             {
@@ -940,7 +950,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                             }
                                         }
 
-                                        if(tempHitBlock == B)
+                                        if(tempHitBlock == B && Block[B].tempBlockNpcType != NPCID_RED_SPRING)
                                         {
                                             if(NPC[A].Type == NPCID_SPIKY_BALL_S3)
                                             {
@@ -1119,8 +1129,8 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                     }
                                     else if(HitSpot == 3) // Hitspot 3
                                     {
-                                        // ignore the hit if it is an NPC that a Winged Block NPC will be supporting
-                                        if(NPC[A].Wings && NPC[A].tempBlock && Block[B].tempBlockNpcIdx && !blk_npc_tr.NoGravity)
+                                        // ignore the hit if it is an NPC that a Winged Block NPC or Red Spring will be supporting
+                                        if((NPC[A].Wings || NPC[A].Type == NPCID_RED_SPRING) && NPC[A].tempBlock && Block[B].tempBlockNpcIdx && !blk_npc_tr.NoGravity)
                                             continue;
 
                                         if(NPC[A].Type == NPCID_SLIDE_BLOCK && NPC[A].Special == 1)
@@ -1155,11 +1165,11 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                         // item was thrown into a wall this frame (or is a fish that just re-entered water)
                                         if(NPC[A].WallDeath >= 5 && !NPC[A]->IsABonus && NPC[A].Type != NPCID_FLY_BLOCK &&
                                            NPC[A].Type != NPCID_FLY_CANNON && NPC[A].Type != NPCID_RED_BOOT && NPC[A].Type != NPCID_CANNONENEMY && NPC[A].Type != NPCID_CANNONITEM &&
-                                           NPC[A].Type != NPCID_SPRING && NPC[A].Type != NPCID_HEAVY_THROWER && NPC[A].Type != NPCID_KEY && NPC[A].Type != NPCID_COIN_SWITCH &&
-                                           NPC[A].Type != NPCID_GRN_BOOT &&
+                                           NPC[A].Type != NPCID_SPRING && NPC[A].Type != NPCID_RED_SPRING && NPC[A].Type != NPCID_HEAVY_THROWER && NPC[A].Type != NPCID_KEY &&
+                                           NPC[A].Type != NPCID_COIN_SWITCH && NPC[A].Type != NPCID_GRN_BOOT &&
                                            // Duplicated segment [PVS Studio]
                                            // NPC[A].Type != NPCID_RED_BOOT &&
-                                           NPC[A].Type != NPCID_BLU_BOOT && NPC[A].Type != NPCID_TOOTHYPIPE &&
+                                           NPC[A].Type != NPCID_BLU_BOOT && NPC[A].Type != NPCID_TOOTHYPIPE && NPC[A].Type != NPCID_HOMING_CANNON &&
                                            NPC[A].Type != NPCID_BOMB && NPC[A].Type != NPCID_CARRY_BUDDY && NPC[A].Type != NPCID_FLIPPED_RAINBOW_SHELL && NPC[A].Type != NPCID_EARTHQUAKE_BLOCK &&
                                            !((NPC[A].Type >= NPCID_CARRY_BLOCK_A && NPC[A].Type <= NPCID_CARRY_BLOCK_D))) // walldeath stuff
                                         {
@@ -1177,7 +1187,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                                 NPCQueues::Killed.push_back(A);
                                             }
                                         }
-                                        else if(NPC[A].Type != NPCID_SPIKY_BALL_S3 && !(NPC[A]->IsABlock && Block[B].tempBlockNpcType > 0) && block_is_not_conveyor)
+                                        else if(NPC[A].Type != NPCID_SPIKY_BALL_S3 && !((NPC[A]->IsABlock || NPC[A].Type == NPCID_RED_SPRING) && Block[B].tempBlockNpcType > 0) && block_is_not_conveyor)
                                         {
                                             addBelt = (tempf_t)NPC[A].Location.X;
 
@@ -1234,7 +1244,7 @@ void NPCBlockLogic(int A, num_t& tempHit, int& tempHitBlock, tempf_t& tempSpeedA
                                             if(NPC[A]->IsAShell || (NPC[A].Type == NPCID_SLIDE_BLOCK && NPC[A].Special == 1) || NPC[A].Type == NPCID_ICE_CUBE)
                                             {
                                                 BlockHitHard(B);
-                                                if(Block[B].Type == 4 || Block[B].Type == 188 || Block[B].Type == 60 || Block[B].Type == 90)
+                                                if(Block[B].Type == BLKID_BRICK_S3 || Block[B].Type == BLKID_BRICK_S1 || Block[B].Type == BLKID_BLU_BRICK_S1 || Block[B].Type == BLKID_SPIN_BLOCK)
                                                     NPC[A].TimeLeft = Physics.NPCTimeOffScreen;
                                             }
                                         }

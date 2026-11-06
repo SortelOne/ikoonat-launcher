@@ -252,7 +252,20 @@ FIBITMAP *GraphicsHelps::loadMask(const Files::Data &raw, bool maskIsPng, bool c
 
     // this is the main reason that we have a separate call: extract a bitmask from a PNG RGBA image
     if(maskIsPng)
+    {
         RGBAToMask(mask);
+
+        // check for downscaled QOI and re-upscale -- fully necessary because front GIFs are never downscaled
+        if(raw.size() >= 14 && raw.begin()[0] == 'q' && raw.begin()[1] == 'o' && raw.begin()[2] == 'i' && raw.begin()[3] == 'f' && raw.begin()[13] == 1)
+        {
+            int w = FreeImage_GetWidth(mask);
+            int h = FreeImage_GetHeight(mask);
+
+            FIBITMAP *temp = FreeImage_Rescale(mask, w * 2, h * 2, FILTER_BOX);
+            FreeImage_Unload(mask);
+            mask = temp;
+        }
+    }
 
     return mask;
 }
@@ -495,6 +508,26 @@ void GraphicsHelps::replaceColor(FIBITMAP* image, const PGE_Pix& src, const PGE_
             FPixP += 4;
         }
     }
+}
+
+bool GraphicsHelps::getImageMetrics(const Files::Data &imageData, PGE_Size* imgSize)
+{
+    if(!imgSize)
+        return false;
+
+    SDL_RWops* rwops = SDL_RWFromConstMem(imageData.begin(), imageData.size());
+    if(!rwops)
+        return false;
+
+    int errorCode;
+    uint32_t w, h;
+
+    // the below call closes rwops internally -- unusual design, but we'll use it
+    if(!PGE_ImageInfo::getImageSizeRW(rwops, &w, &h, &errorCode))
+        return false;
+
+    imgSize->setSize(int(w), int(h));
+    return true;
 }
 
 bool GraphicsHelps::getImageMetrics(const std::string &imageFile, PGE_Size* imgSize)

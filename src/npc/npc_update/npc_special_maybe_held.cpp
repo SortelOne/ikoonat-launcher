@@ -21,6 +21,7 @@
 #include "globals.h"
 #include "npc.h"
 #include "npc_traits.h"
+#include "blk_id.h"
 #include "npc/npc_queues.h"
 #include "npc/section_overlap.h"
 #include "sound.h"
@@ -442,7 +443,7 @@ void NPCSpecialMaybeHeld(int A)
                     for(BlockRef_t block : treeFLBlockQuery(tempLocation, false))
                     {
                         int B = block;
-                        if(Block[B].Type == 186 && CheckCollision(tempLocation, Block[B].Location) && !Block[B].Hidden)
+                        if(Block[B].Type == BLKID_RED_BRICK && CheckCollision(tempLocation, Block[B].Location) && !Block[B].Hidden)
                             SafelyKillBlock(B);
                     }
 
@@ -630,7 +631,7 @@ void NPCSpecialMaybeHeld(int A)
             }
         }
     }
-    else if(NPC[A].Type == NPCID_CANNONENEMY || NPC[A].Type == NPCID_CANNONITEM) // Bullet Bill Shooter
+    else if(NPC[A].Type == NPCID_CANNONENEMY || NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_HOMING_CANNON) // Bullet Bill Shooter
     {
         if(NPC[A].Type == NPCID_CANNONENEMY)
         {
@@ -666,6 +667,13 @@ void NPCSpecialMaybeHeld(int A)
                 shootStep = 5;
                 shootStepSpin = 10;
                 break;
+            }
+
+            if(NPC[A].Type == NPCID_HOMING_CANNON)
+            {
+                shootStep = 2;
+                shootStepSpin = 2;
+                shootStepCar = 2;
             }
 
             if(NPC[A].HoldingPlayer > 0)
@@ -761,7 +769,16 @@ void NPCSpecialMaybeHeld(int A)
                         NPC[numNPCs].TimeLeft = 100;
                         NPC[numNPCs].JustActivated = 0;
                         NPC[numNPCs].Section = NPC[A].Section;
-                        NPC[numNPCs].Type = NPCID_BULLET;
+
+                        if(NPC[A].Type == NPCID_HOMING_CANNON)
+                        {
+                            NPC[numNPCs].Type = NPCID_HOMING_BULLET;
+                            NPC[numNPCs].Location.SpeedX = 0;
+                            NPC[numNPCs].Location.SpeedY = 0;
+                        }
+                        else
+                            NPC[numNPCs].Type = NPCID_BULLET;
+
                         NPC[numNPCs].Location.Width = NPC[numNPCs]->TWidth;
                         NPC[numNPCs].Location.Height = NPC[numNPCs]->THeight;
 
@@ -786,7 +803,7 @@ void NPCSpecialMaybeHeld(int A)
                         tempLocation.Y = NPC[numNPCs].Location.Y + NPC[numNPCs].Location.Height / 2 - EffectHeight[EFFID_SMOKE_S3] / 2;
                         NewEffect(EFFID_SMOKE_S3, tempLocation);
 
-                        PlaySoundSpatial(SFX_Bullet, NPC[A].Location);
+                        PlaySoundSpatial((NPC[A].Type == NPCID_HOMING_CANNON) ? SFX_FlameThrower : SFX_Bullet, NPC[A].Location);
                     }
                 }
             }

@@ -362,6 +362,9 @@ private:
     // clock variable in seconds for shaders (loops at 60s)
     GLfloat m_shader_clock = 0.0f;
 
+    // recent camera coordinates
+    std::array<GLfloat, 2> m_recent_camera_pos;
+
     // number of times the above have been set (used to limit number of uniform update calls)
     uint64_t m_transform_tick = 0;
 
@@ -664,6 +667,10 @@ public:
      */
     void close() override;
 
+protected:
+    void drawTouchPreview() override;
+
+public:
     /*!
      * \brief Call the repaint
      */
@@ -843,9 +850,9 @@ public:
     void renderTexture(int xDst, int yDst, StdPicture &tx,
                        XTColor color = XTColor()) override;
 
-    void renderParticleSystem(StdPicture &tx,
-                              double camX,
-                              double camY) override;
+    void renderParticleSystem(StdPicture &tx) override;
+
+    void setCameraPos(int camX, int camY) override;
 
     // smbx2compat
     void renderTriangles(StdPicture *tx,

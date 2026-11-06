@@ -57,6 +57,7 @@ void initEditorStrings()
     g_editorStrings.warpNeedStarCount = "Need {0} {1}";
     g_editorStrings.warpNeedKey = "Need Key";
     g_editorStrings.warpNeedFloor = "Need Floor";
+    g_editorStrings.warpNeedTiny = "Need Tiny";
     g_editorStrings.warpStarLockMessage = "Star lock msg";
     g_editorStrings.warpToMap = "To Map";
     g_editorStrings.warpLvlWarp = "Lvl Warp";
@@ -130,18 +131,13 @@ void initEditorStrings()
     g_editorStrings.letterCoordY = "Y";
 
     g_editorStrings.toggleMagicBlock = "Magic Block";
+    g_editorStrings.gridSize = "Grid size:";
 
     g_editorStrings.testMagicHand = "Magic Hand";
     g_editorStrings.testChar = "Char";
     g_editorStrings.testPower = "Power";
     g_editorStrings.testBoot = "Boot";
     g_editorStrings.testPet = "Pet";
-
-    g_editorStrings.gridSnap = "Grid Snap:";
-    g_editorStrings.gridSnap32 = "32x32";
-    g_editorStrings.gridSnap16 = "16x16";
-    g_editorStrings.gridSnap8 = "8x8";
-    g_editorStrings.gridSnap1 = "1x1";
 
     g_editorStrings.objName = "Name:";
 

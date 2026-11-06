@@ -23,6 +23,7 @@
 #ifdef ENABLE_XTECH_LUA
 #   include "../script/include/xtech_lua_events.h"
 #endif
+#include "../blk_id.h"
 #include "../npc_id.h"
 #include "../eff_id.h"
 #include "../sound.h"
@@ -33,6 +34,7 @@
 #include "config.h"
 #include "../controls.h"
 #include "../layers.h"
+#include "blocks.h"
 
 #include "npc_traits.h"
 
@@ -162,82 +164,15 @@ bool KillNPC(int A, int B)
 
         if(!tempBool)
         {
+            PlaySoundSpatial(SFX_PSwitch, NPC[A].Location);
             if(NPC[A].Type == NPCID_YELSWITCH_FODDER || NPC[A].DefaultType == NPCID_YELSWITCH_FODDER)
-            {
-                PlaySoundSpatial(SFX_PSwitch, NPC[A].Location);
-                for(C = 1; C <= numBlock; C++)
-                {
-                    if(Block[C].Type == 171)
-                        Block[C].Type = 172;
-                    else if(Block[C].Type == 172)
-                        Block[C].Type = 171;
-                }
-#ifdef ENABLE_XTECH_LUA
-                xtech_lua_event_smbx2ColorSwitch(1); // smbx2compat: SMBX2's onColorSwitch
-#endif
-                for(C = 1; C <= numNPCs; C++)
-                {
-                    if(NPC[C].Type == NPCID_YEL_PLATFORM)
-                        NPC[C].Direction = -NPC[C].Direction;
-                }
-            }
+                BlockColorHit(BLKID_YEL_SWITCH);
             else if(NPC[A].Type == NPCID_BLUSWITCH_FODDER || NPC[A].DefaultType == NPCID_BLUSWITCH_FODDER)
-            {
-                PlaySoundSpatial(SFX_PSwitch, NPC[A].Location);
-                for(C = 1; C <= numBlock; C++)
-                {
-                    if(Block[C].Type == 174)
-                        Block[C].Type = 175;
-                    else if(Block[C].Type == 175)
-                        Block[C].Type = 174;
-                }
-#ifdef ENABLE_XTECH_LUA
-                xtech_lua_event_smbx2ColorSwitch(2); // smbx2compat: SMBX2's onColorSwitch
-#endif
-                for(C = 1; C <= numNPCs; C++)
-                {
-                    if(NPC[C].Type == NPCID_BLU_PLATFORM)
-                        NPC[C].Direction = -NPC[C].Direction;
-                }
-            }
+                BlockColorHit(BLKID_BLU_SWITCH);
             else if(NPC[A].Type == NPCID_GRNSWITCH_FODDER || NPC[A].DefaultType == NPCID_GRNSWITCH_FODDER)
-            {
-                PlaySoundSpatial(SFX_PSwitch, NPC[A].Location);
-                for(C = 1; C <= numBlock; C++)
-                {
-                    if(Block[C].Type == 177)
-                        Block[C].Type = 178;
-                    else if(Block[C].Type == 178)
-                        Block[C].Type = 177;
-                }
-#ifdef ENABLE_XTECH_LUA
-                xtech_lua_event_smbx2ColorSwitch(3); // smbx2compat: SMBX2's onColorSwitch
-#endif
-                for(C = 1; C <= numNPCs; C++)
-                {
-                    if(NPC[C].Type == NPCID_GRN_PLATFORM)
-                        NPC[C].Direction = -NPC[C].Direction;
-                }
-            }
+                BlockColorHit(BLKID_GRN_SWITCH);
             else if(NPC[A].Type == NPCID_REDSWITCH_FODDER || NPC[A].DefaultType == NPCID_REDSWITCH_FODDER)
-            {
-                PlaySoundSpatial(SFX_PSwitch, NPC[A].Location);
-                for(C = 1; C <= numBlock; C++)
-                {
-                    if(Block[C].Type == 180)
-                        Block[C].Type = 181;
-                    else if(Block[C].Type == 181)
-                        Block[C].Type = 180;
-                }
-#ifdef ENABLE_XTECH_LUA
-                xtech_lua_event_smbx2ColorSwitch(4); // smbx2compat: SMBX2's onColorSwitch
-#endif
-                for(C = 1; C <= numNPCs; C++)
-                {
-                    if(NPC[C].Type == NPCID_RED_PLATFORM)
-                        NPC[C].Direction = -NPC[C].Direction;
-                }
-            }
+                BlockColorHit(BLKID_RED_SWITCH);
         }
     }
 
@@ -352,7 +287,7 @@ resume_TriggerLast:
     if(B != 9)
     {
         NPC[A].Location.SpeedX = -NPC[A].Location.SpeedX;
-        if(NPC[A].Type == NPCID_SQUID_S1 || NPC[A].Type == NPCID_SQUID_S3 || NPC[A].Type == NPCID_FODDER_S3 || NPC[A].Type == NPCID_FODDER_S5 || NPC[A].Type == NPCID_FLY_FODDER_S5 || NPC[A].Type == NPCID_FLY_FODDER_S3 || NPC[A].Type == NPCID_BRUTE || NPC[A].Type == NPCID_BRUTE_SQUISHED || NPC[A].Type == NPCID_BIG_GUY || NPC[A].Type == NPCID_CARRY_FODDER || NPC[A].Type == NPCID_HIT_CARRY_FODDER || NPC[A].Type == NPCID_FLY_CARRY_FODDER || NPC[A].Type == NPCID_GRN_FISH_S3 || NPC[A].Type == NPCID_YEL_FISH_S4 || NPC[A].Type == NPCID_RED_FISH_S3 || NPC[A].Type == NPCID_GRN_FISH_S4 || NPC[A].Type == NPCID_GRN_FISH_S1 || NPC[A].Type == NPCID_BONE_FISH || NPC[A].Type == NPCID_ICE_BLOCK || NPC[A].Type == NPCID_ICE_CUBE) // Goomba / Rex
+        if(NPC[A].Type == NPCID_SQUID_S1 || NPC[A].Type == NPCID_SQUID_S3 || NPC[A].Type == NPCID_FODDER_S3 || NPC[A].Type == NPCID_FODDER_S5 || NPC[A].Type == NPCID_FLY_FODDER_S5 || NPC[A].Type == NPCID_FLY_FODDER_S3 || NPC[A].Type == NPCID_BRUTE || NPC[A].Type == NPCID_BRUTE_SQUISHED || NPC[A].Type == NPCID_BIG_GUY || NPC[A].Type == NPCID_CARRY_FODDER || NPC[A].Type == NPCID_HIT_CARRY_FODDER || NPC[A].Type == NPCID_FLY_CARRY_FODDER || NPC[A].Type == NPCID_GRN_FISH_S3 || NPC[A].Type == NPCID_YEL_FISH_S4 || NPC[A].Type == NPCID_RED_FISH_S3 || NPC[A].Type == NPCID_GRN_FISH_S4 || NPC[A].Type == NPCID_GRN_FISH_S1 || NPC[A].Type == NPCID_BONE_FISH || NPC[A].Type == NPCID_ICE_BLOCK || NPC[A].Type == NPCID_ICE_CUBE || NPC[A].Type == NPCID_HOMING_BULLET) // Goomba / Rex
         {
             if(B == 1 && NPC[A].Type != NPCID_GRN_FISH_S3 && NPC[A].Type != NPCID_YEL_FISH_S4 && NPC[A].Type != NPCID_RED_FISH_S3 && NPC[A].Type != NPCID_GRN_FISH_S4 && NPC[A].Type != NPCID_GRN_FISH_S1 && NPC[A].Type != NPCID_BONE_FISH)
             {
@@ -395,7 +330,7 @@ resume_TriggerLast:
             {
                 if(NPC[A].Type == NPCID_ICE_BLOCK) // Yoshi's ice break
                     PlaySoundSpatial(SFX_Icebreak, NPC[A].Location);
-                else
+                else if(NPC[A].Type != NPCID_HOMING_BULLET)
                     PlaySoundSpatial(SFX_ShellHit, NPC[A].Location); // Shell hit sound
 
                 if(NPC[A].Type == NPCID_FODDER_S3 || NPC[A].Type == NPCID_FLY_FODDER_S3)
@@ -454,7 +389,7 @@ resume_TriggerLast:
                         NPC[A].Location.SpeedY = -2;
                     NewEffect_NpcDie(EFFID_BONE_FISH_DIE, NPC[A]);
                 }
-                else if(NPC[A].Type == NPCID_ICE_BLOCK || NPC[A].Type == NPCID_ICE_CUBE)
+                else if(NPC[A].Type == NPCID_ICE_BLOCK || NPC[A].Type == NPCID_ICE_CUBE || NPC[A].Type == NPCID_HOMING_BULLET)
                 {
                     s_makeSparkles(NPC[A], 2, 3);
                 }

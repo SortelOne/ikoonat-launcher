@@ -103,6 +103,8 @@ void SwapCoop();
 // Public Sub PlayerPush(A As Integer, HitSpot As Integer)
 void PlayerPush(const int A, int HitSpot);
 // Public Sub SizeCheck(A As Integer)
+int CalcPlayerHeight(Player_t& p, bool Duck);
+// Public Sub SizeCheck(A As Integer)
 void SizeCheck(struct Player_t &p);
 // Public Sub YoshiEatCode(A As Integer)
 void YoshiEatCode(const int A);
@@ -140,6 +142,8 @@ void PlayerEffects(const int A);
 bool PlayerNormal(const Player_t& p);
 // NEW: checks if all players have normal state (if false, layer movement and events get disabled)
 bool AllPlayersNormal();
+// NEW: checks if any onscreen player has invincibility
+bool OnscreenPlayerInvincible();
 
 // NEW: ensures the players on a screen are nearby if the screen is shared
 void PlayersEnsureNearby(const Screen_t& screen);

@@ -61,6 +61,7 @@
 
 #include "pseudo_vb.h"
 #include "npc_traits.h"
+#include "blk_id.h"
 #include "npc_id.h"
 #include "eff_id.h"
 
@@ -84,8 +85,16 @@ std::string Backup_FullFileName;
 
 bool MouseCancel = false;
 bool HasCursor = false;
+bool MouseWasClicked = false;
 // bool NoReallyKillIt = false; //Unused
 int curSection = 0;
+
+#ifndef THEXTECH_NO_SDL_BUILD
+int JustPlacedBlock = 0;
+int JustPlacedBackground = 0;
+int JustPlacedNPC = 0;
+int JustPlacedTile = 0;
+#endif
 
 bool enableAutoAlign = true;
 
@@ -269,6 +278,66 @@ void InteractResize(LocType& loc, int min, int snap);
 
 void InteractResizeSection(IntegerLocation_t& section);
 
+static void FancyKillBlock(int A, bool Splode = true)
+{
+    Location_t loc = Block[A].Location;
+    int type = Block[A].Type;
+    KillBlock(A, Splode);
+
+    MagicBlock::MagicBlock(type, loc);
+}
+
+static void FancyKillBackground(int ia, bool Effect = true)
+{
+    Location_t loc = static_cast<Location_t>(Background[ia].FullLocation());
+    int type = Background[ia].Type;
+    if(Effect)
+        NewEffect(EFFID_SMOKE_S3_CENTER, loc);
+
+    Background[ia] = Background[numBackground];
+    numBackground--;
+
+    if(MagicHand)
+    {
+        qSortBackgrounds(1, numBackground);
+        UpdateBackgrounds();
+        syncLayers_AllBGOs();
+    }
+    else
+    {
+        syncLayers_BGO(ia);
+        syncLayers_BGO(numBackground+1);
+    }
+
+    MagicBlock::MagicBackground(type, loc);
+}
+
+static void KillTile(int ia)
+{
+    Location_t loc = static_cast<Location_t>(Tile[ia].FullLocation());
+    int type = Tile[ia].Type;
+
+    if(ia != numTiles)
+    {
+        Tile[ia] = Tile[numTiles];
+        treeWorldTileUpdate(&Tile[ia]);
+    }
+
+    treeWorldTileRemove(&Tile[numTiles]);
+
+    numTiles--;
+
+    MagicBlock::MagicTile(type, loc);
+}
+
+static bool BackgroundMultiPlace(int t)
+{
+    return (t == 11 || t == 12 || t == 14 || t == 15 || t == 26 || t == 30 || t == 39
+        || t == 40 || t == 41 || t == 47 || t == 49 || t == 50 || t == 51 || t == 60
+        || t == 64 || t == 65 || t == 75 || t == 76 || t == 77 || t == 78 || t == 168
+        || t == 169);
+}
+
 // this sub handles the level editor
 // it is still called when the player is testing a level in the editor in windowed mode
 void UpdateEditor()
@@ -297,15 +366,45 @@ void UpdateEditor()
             EditorCursor.SubMode = 0;
     }
 
-    if(EditorCursor.Y < 40)
+#ifndef THEXTECH_NO_SDL_BUILD
+    // special case: switched to scrolling
+    if(SharedCursor.Touch && !SharedCursor.Primary && !MagicHand)
     {
         MouseCancel = true;
+
+        if(JustPlacedBlock)
+            FancyKillBlock(JustPlacedBlock, false);
+
+        if(JustPlacedBackground)
+            FancyKillBackground(JustPlacedBackground, false);
+
+        if(JustPlacedNPC)
+            KillNPC(JustPlacedNPC, 9);
+
+        if(JustPlacedTile)
+            KillTile(JustPlacedTile);
+    }
+
+    if(!SharedCursor.Primary)
+    {
+        JustPlacedBlock = 0;
+        JustPlacedBackground = 0;
+        JustPlacedNPC = 0;
+        JustPlacedTile = 0;
+    }
+#endif
+
+    if(EditorCursor.Y < 40)
+    {
+        if(SharedCursor.Primary)
+            MouseCancel = true;
         EditorCursor.InteractMode = 0;
         EditorCursor.InteractFlags = 0;
         EditorCursor.InteractIndex = 0;
     }
 
     bool MouseClick_Current = SharedCursor.Primary && !MouseCancel;
+    bool MouseRelease_New = !SharedCursor.Primary && MouseWasClicked && !MouseCancel;
 
     if(LevelEditor)
         numPlayers = 0;
@@ -399,9 +498,11 @@ void UpdateEditor()
 
         UpdateInteract();
 
-        if(MouseClick_Current && !editorScreen.active && EditorCursor.Y > 40)
+        // affect the world when holding the mouse, or when you've just released the mouse if not resizing something
+        if(((MouseClick_Current && (EditorCursor.Paintbrush || EditorCursor.InteractFlags > 1)) || (MouseRelease_New && EditorCursor.InteractFlags <= 1 && !EditorCursor.Paintbrush)) && !editorScreen.active && EditorCursor.Y > 40)
         {
             CanPlace = true;
+            // for the select cursor, only pick things up (InteractFlags <= 1) on release
             if(EditorCursor.Mode == OptCursor_t::LVL_SELECT)
             {
                 if(EditorCursor.InteractMode == OptCursor_t::LVL_PLAYERSTART) // Player start points
@@ -525,11 +626,7 @@ void UpdateEditor()
                     EditorCursor.Location.Height = Block[ia].Location.Height;
                     SetCursor();
 
-                    Location_t loc = Block[ia].Location;
-                    int type = Block[ia].Type;
-                    KillBlock(ia, false);
-
-                    MagicBlock::MagicBlock(type, loc);
+                    FancyKillBlock(ia, false);
 
                     editorScreen.FocusBlock();
                     MouseRelease = false;
@@ -620,26 +717,9 @@ void UpdateEditor()
                     EditorCursor.Location.Y = Background[ia].Location.Y;
                     SetCursor();
 
-                    Location_t loc = static_cast<Location_t>(Background[ia].Location);
-                    int type = Background[ia].Type;
-
-                    Background[ia] = Background[numBackground];
-                    numBackground--;
+                    FancyKillBackground(ia, false);
 
                     editorScreen.FocusBGO();
-                    if(MagicHand)
-                    {
-                        qSortBackgrounds(1, numBackground);
-                        UpdateBackgrounds();
-                        syncLayers_AllBGOs();
-                    }
-                    else
-                    {
-                        syncLayers_BGO(ia);
-                        syncLayers_BGO(numBackground+1);
-                    }
-
-                    MagicBlock::MagicBackground(type, loc);
 
                     MouseRelease = false;
                     MouseCancel = true; /* Simulate "Focus out" inside of SMBX Editor */
@@ -710,7 +790,7 @@ void UpdateEditor()
                     int ia = EditorCursor.InteractIndex;
                     PlaySound(SFX_Grab);
                     EditorCursor.Mode = OptCursor_t::WLD_MUSIC;
-                    EditorCursor.Location = static_cast<Location_t>(WorldMusic[ia].Location);
+                    EditorCursor.Location = static_cast<Location_t>(WorldMusic[ia].FullLocation());
                     SetCursor();
                     EditorCursor.WorldMusic = WorldMusic[ia];
                     if(ia != numWorldMusic)
@@ -729,7 +809,7 @@ void UpdateEditor()
                     int ia = EditorCursor.InteractIndex;
                     PlaySound(SFX_Grab);
                     EditorCursor.Mode = OptCursor_t::WLD_PATHS;
-                    EditorCursor.Location = static_cast<Location_t>(WorldPath[ia].Location);
+                    EditorCursor.Location = static_cast<Location_t>(WorldPath[ia].FullLocation());
                     EditorCursor.WorldPath = WorldPath[ia];
                     SetCursor();
                     if(ia != numWorldPaths)
@@ -748,7 +828,7 @@ void UpdateEditor()
                     int ia = EditorCursor.InteractIndex;
                     PlaySound(SFX_Grab);
                     EditorCursor.Mode = OptCursor_t::WLD_SCENES;
-                    EditorCursor.Location = static_cast<Location_t>(Scene[ia].Location);
+                    EditorCursor.Location = static_cast<Location_t>(Scene[ia].FullLocation());
                     EditorCursor.Scene = Scene[ia];
                     SetCursor();
                     MouseMove(EditorCursor.X, EditorCursor.Y);
@@ -789,24 +869,11 @@ void UpdateEditor()
                     int ia = EditorCursor.InteractIndex;
                     PlaySound(SFX_Grab);
                     EditorCursor.Mode = OptCursor_t::WLD_TILES;
-                    EditorCursor.Location = static_cast<Location_t>(Tile[ia].Location);
+                    EditorCursor.Location = static_cast<Location_t>(Tile[ia].FullLocation());
                     EditorCursor.Tile = Tile[ia];
                     SetCursor();
 
-                    Location_t loc = static_cast<Location_t>(Tile[ia].Location);
-                    int type = Tile[ia].Type;
-
-                    if(ia != numTiles)
-                    {
-                        Tile[ia] = Tile[numTiles];
-                        treeWorldTileUpdate(&Tile[ia]);
-                    }
-
-                    treeWorldTileRemove(&Tile[numTiles]);
-
-                    numTiles--;
-
-                    MagicBlock::MagicTile(type, loc);
+                    KillTile(ia);
 
                     editorScreen.FocusTile();
                     MouseRelease = false;
@@ -840,11 +907,7 @@ void UpdateEditor()
                 {
                     int ia = EditorCursor.InteractIndex;
 
-                    Location_t loc = Block[ia].Location;
-                    int type = Block[ia].Type;
-                    KillBlock(ia);
-
-                    MagicBlock::MagicBlock(type, loc);
+                    FancyKillBlock(ia, true);
 
                     MouseRelease = false;
                     if(EditorCursor.SubMode == 0)
@@ -864,33 +927,13 @@ void UpdateEditor()
                 {
                     int ia = EditorCursor.InteractIndex;
 
-                    Location_t loc = static_cast<Location_t>(Background[ia].Location);
-                    int type = Background[ia].Type;
-
-                    NewEffect(EFFID_SMOKE_S3_CENTER, loc);
                     PlaySound(SFX_Smash);
 
-                    Background[ia] = Background[numBackground];
-                    numBackground--;
+                    FancyKillBackground(ia);
 
                     MouseRelease = false;
                     if(EditorCursor.SubMode == 0)
                         EditorCursor.SubMode = OptCursor_t::LVL_BGOS;
-
-                    if(MagicHand)
-                    {
-                        qSortBackgrounds(1, numBackground);
-                        UpdateBackgrounds();
-                        syncLayers_AllBGOs();
-                        syncLayers_BGO(numBackground + 1);
-                    }
-                    else
-                    {
-                        syncLayers_BGO(ia);
-                        syncLayers_BGO(numBackground + 1);
-                    }
-
-                    MagicBlock::MagicBackground(type, loc);
                 }
 
                 if(EditorCursor.InteractMode == OptCursor_t::LVL_WATER)
@@ -932,7 +975,7 @@ void UpdateEditor()
                 if(EditorCursor.InteractMode == OptCursor_t::WLD_MUSIC)
                 {
                     int ia = EditorCursor.InteractIndex;
-                    tempLocation = static_cast<Location_t>(WorldMusic[ia].Location);
+                    tempLocation = static_cast<Location_t>(WorldMusic[ia].FullLocation());
                     NewEffect(EFFID_SMOKE_S3_CENTER, tempLocation);
                     PlaySound(SFX_ShellHit);
                     if(ia != numWorldMusic)
@@ -950,7 +993,7 @@ void UpdateEditor()
                 if(EditorCursor.InteractMode == OptCursor_t::WLD_PATHS)
                 {
                     int ia = EditorCursor.InteractIndex;
-                    tempLocation = static_cast<Location_t>(WorldPath[ia].Location);
+                    tempLocation = static_cast<Location_t>(WorldPath[ia].FullLocation());
                     NewEffect(EFFID_SMOKE_S3_CENTER, tempLocation);
                     PlaySound(SFX_ShellHit);
                     if(ia != numWorldPaths)
@@ -968,7 +1011,7 @@ void UpdateEditor()
                 if(EditorCursor.InteractMode == OptCursor_t::WLD_SCENES)
                 {
                     int ia = EditorCursor.InteractIndex;
-                    tempLocation = static_cast<Location_t>(Scene[ia].Location);
+                    tempLocation = static_cast<Location_t>(Scene[ia].FullLocation());
                     NewEffect(EFFID_SMOKE_S3_CENTER, tempLocation);
                     PlaySound(SFX_ShellHit);
                     for(int B = ia; B < numScenes; B++)
@@ -1004,22 +1047,11 @@ void UpdateEditor()
                 if(EditorCursor.InteractMode == OptCursor_t::WLD_TILES)
                 {
                     int ia = EditorCursor.InteractIndex;
-                    Location_t loc = static_cast<Location_t>(Tile[ia].Location);
+                    Location_t loc = static_cast<Location_t>(Tile[ia].FullLocation());
                     NewEffect(EFFID_SMOKE_S3_CENTER, loc);
                     PlaySound(SFX_ShellHit);
 
-                    int type = Tile[ia].Type;
-
-                    if(ia != numTiles)
-                    {
-                        Tile[ia] = Tile[numTiles];
-                        treeWorldTileUpdate(&Tile[ia]);
-                    }
-                    treeWorldTileRemove(&Tile[numTiles]);
-
-                    numTiles--;
-
-                    MagicBlock::MagicTile(type, loc);
+                    KillTile(ia);
 
                     MouseRelease = false;
                     if(EditorCursor.SubMode == 0)
@@ -1028,34 +1060,34 @@ void UpdateEditor()
             }
             else if(EditorCursor.Mode == OptCursor_t::LVL_WATER) // Water
             {
-                if(MouseRelease)
+                MouseRelease = false;
+                CanPlace = true;
+                for(A = 1; A <= numWater; A++)
                 {
-                    MouseRelease = false;
-                    CanPlace = true;
-                    for(A = 1; A <= numWater; A++)
+                    if(ffEqual(Water[A].Location.X, EditorCursor.Location.X) &&
+                       ffEqual(Water[A].Location.Y, EditorCursor.Location.Y) &&
+                       ffEqual(Water[A].Location.Height, EditorCursor.Location.Height) &&
+                       ffEqual(Water[A].Location.Width, EditorCursor.Location.Width))
                     {
-                        if(ffEqual(Water[A].Location.X, EditorCursor.Location.X) &&
-                           ffEqual(Water[A].Location.Y, EditorCursor.Location.Y) &&
-                           ffEqual(Water[A].Location.Height, EditorCursor.Location.Height) &&
-                           ffEqual(Water[A].Location.Width, EditorCursor.Location.Width))
-                        {
-                            CanPlace = false;
-                            break;
-                        }
+                        CanPlace = false;
+                        break;
                     }
+                }
 
-                    if(CanPlace)
-                    {
-                        numWater++;
-                        Water[numWater] = EditorCursor.Water;
-                        syncLayers_Water(numWater);
-                    }
+                if(CanPlace)
+                {
+                    numWater++;
+                    Water[numWater] = EditorCursor.Water;
+                    syncLayers_Water(numWater);
                 }
             }
             else if(EditorCursor.Mode == OptCursor_t::LVL_BLOCKS) // Blocks
             {
                 for(A = numBlock; A >= 1; A--)
                 {
+                    if(!CanPlace)
+                        break;
+
                     if(!MouseRelease || (!BlockIsSizable[Block[A].Type] && !BlockIsSizable[EditorCursor.Block.Type]))
                     {
                         // ignore sizable background blocks in Magic Block mode
@@ -1070,12 +1102,7 @@ void UpdateEditor()
                                 break;
                             }
                             else
-                            {
-                                Location_t loc = Block[A].Location;
-                                int type = Block[A].Type;
-                                KillBlock(A, false);
-                                MagicBlock::MagicBlock(type, loc);
-                            }
+                                FancyKillBlock(A, false);
                         }
                     }
                     else
@@ -1104,7 +1131,7 @@ void UpdateEditor()
                     last_EC_loc.Height -= 2;
                 }
 
-                if(!BlockIsSizable[EditorCursor.Block.Type] && EditorCursor.Block.Type != 370 && CanPlace)
+                if(!BlockIsSizable[EditorCursor.Block.Type] && EditorCursor.Block.Type != BLKID_DIG_SAND && CanPlace)
                 {
                     for(A = 1; A <= numNPCs; A++)
                     {
@@ -1155,6 +1182,10 @@ void UpdateEditor()
                             syncLayersTrees_Block(numBlock);
 
                             MagicBlock::MagicBlock(numBlock);
+
+#ifndef THEXTECH_NO_SDL_BUILD
+                            JustPlacedBlock = numBlock;
+#endif
 #if 0
                             if(MagicHand)
                             {
@@ -1220,7 +1251,7 @@ void UpdateEditor()
 
                     if(same_type)
                     {
-                        if(CursorCollision(EditorCursor.Location, Background[A].Location) && !Background[A].Hidden)
+                        if(CursorCollision(EditorCursor.Location, Background[A].FullLocation()) && !Background[A].Hidden)
                         {
                             CanPlace = false;
                             break;
@@ -1238,6 +1269,10 @@ void UpdateEditor()
 
                         MagicBlock::MagicBackground(numBackground);
 
+#ifndef THEXTECH_NO_SDL_BUILD
+                        JustPlacedBackground = numBackground;
+#endif
+
                         if(MagicHand)
                         {
                             qSortBackgrounds(1, numBackground);
@@ -1254,7 +1289,7 @@ void UpdateEditor()
                 {
                     for(A = 1; A <= numBlock; A++)
                     {
-                        if(!BlockIsSizable[Block[A].Type] && !Block[A].Hidden && BlockSlope[Block[A].Type] == 0 && BlockSlope2[Block[A].Type] == 0)
+                        if(!BlockIsSizable[Block[A].Type] && !Block[A].Hidden && BlockSlope[Block[A].Type] == 0 && BlockSlope2[Block[A].Type] == 0 && !BlockOnlyHitspot1[Block[A].Type] && Block[A].Type != BLKID_NPCPASS)
                         {
                             if(CursorCollision(EditorCursor.Location, Block[A].Location))
                             {
@@ -1269,16 +1304,15 @@ void UpdateEditor()
                 {
                     if(CursorCollision(EditorCursor.Location, NPC[A].Location) && !NPC[A].Hidden && NPC[A].Active && (NPC[A].Type != NPCID_LIFT_SAND || EditorCursor.NPC.Type == NPCID_LIFT_SAND))
                     {
-                        if(!NPC[A].Generator || NPC[A].Type == EditorCursor.NPC.Type)
+                        // always block placement of NPC on top of itself, but otherwise, allow NPCs on top of generators and vines
+                        if(NPC[A].Type == EditorCursor.NPC.Type || (!NPC[A].Generator && !NPC[A]->IsAVine))
                         {
-                            if((EditorCursor.NPC.Type != NPCID_BOSS_CASE && NPC[A].Type != NPCID_BOSS_CASE) || (EditorCursor.NPC.Type == NPCID_BOSS_CASE && NPC[A].Type == NPCID_BOSS_CASE))
-                            {
-                                if(!NPC[A]->IsAVine)
-                                {
-                                    CanPlace = false;
-                                    break;
-                                }
-                            }
+                            // allow placing non-case on top of case, and vice-versa
+                            if((EditorCursor.NPC.Type == NPCID_BOSS_CASE) != (NPC[A].Type == NPCID_BOSS_CASE))
+                                continue;
+
+                            CanPlace = false;
+                            break;
                         }
                     }
                 }
@@ -1288,9 +1322,6 @@ void UpdateEditor()
                     if(CursorCollision(EditorCursor.Location, PlayerStart[A]) && !MagicHand)
                         CanPlace = false;
                 }
-
-                if(!MouseRelease)
-                    CanPlace = false;
 
                 if(CanPlace) // Nothing is in the way
                 {
@@ -1310,13 +1341,18 @@ void UpdateEditor()
                             NPC[numNPCs].Text = STRINGINDEX_NONE;
                             SetS(NPC[numNPCs].Text, GetS(EditorCursor.NPC.Text));
                         }
+
+#ifndef THEXTECH_NO_SDL_BUILD
+                        JustPlacedNPC = numNPCs;
+#endif
+
 //                        Netplay::sendData Netplay::AddNPC(numNPCs);
-                        if(!MagicHand)
-                        {
-                            // ugh
-                            NPCSort();
-                            syncLayers_AllNPCs();
-                        }
+                        // if(!MagicHand)
+                        // {
+                        //     // ugh
+                        //     NPCSort();
+                        //     syncLayers_AllNPCs();
+                        // }
 
                         if(MagicHand)
                         {
@@ -1353,7 +1389,7 @@ void UpdateEditor()
                 else if(Warp[A].PlacedExit)
                     EditorCursor.Warp.Exit = Warp[A].Exit;
 
-                if(EditorCursor.SubMode == 1 || EditorCursor.Warp.level != STRINGINDEX_NONE || EditorCursor.Warp.LevelEnt || EditorCursor.Warp.MapWarp)
+                if(EditorCursor.SubMode != 2 || EditorCursor.Warp.level != STRINGINDEX_NONE || EditorCursor.Warp.LevelEnt || EditorCursor.Warp.MapWarp)
                 {
                     EditorCursor.Warp.Entrance = static_cast<SpeedlessLocation_t>(EditorCursor.Location);
                     MouseCancel = true;
@@ -1406,28 +1442,15 @@ void UpdateEditor()
             {
                 for(A = numTiles; A >= 1; A--)
                 {
-                    if(CursorCollision(EditorCursor.Location, Tile[A].Location))
+                    if(CursorCollision(EditorCursor.Location, Tile[A].FullLocation()))
                     {
-                        if(!(MagicBlock::enabled && MagicBlock::replace_existing) || (!MouseRelease && CheckCollision(Tile[A].Location, last_EC_loc)))
+                        if(!(MagicBlock::enabled && MagicBlock::replace_existing) || (!MouseRelease && CheckCollision(Tile[A].FullLocation(), last_EC_loc)))
                         {
                             CanPlace = false;
                             break;
                         }
                         else
-                        {
-                            Location_t loc = static_cast<Location_t>(Tile[A].Location);
-                            int type = Tile[A].Type;
-
-                            if(A != numTiles)
-                            {
-                                Tile[A] = Tile[numTiles];
-                                treeWorldTileUpdate(&Tile[A]);
-                            }
-                            treeWorldTileRemove(&Tile[numTiles]);
-                            numTiles--;
-
-                            MagicBlock::MagicTile(type, loc);
-                        }
+                            KillTile(A);
                     }
                 }
 
@@ -1447,6 +1470,10 @@ void UpdateEditor()
                         Tile[numTiles] = EditorCursor.Tile;
                         treeWorldTileAdd(&Tile[numTiles]);
 
+#ifndef THEXTECH_NO_SDL_BUILD
+                        JustPlacedTile = numTiles;
+#endif
+
                         MagicBlock::MagicTile(numTiles);
                     }
                 }
@@ -1455,16 +1482,13 @@ void UpdateEditor()
             {
                 for(A = 1; A <= numScenes; A++)
                 {
-                    if(CursorCollision(EditorCursor.Location, Scene[A].Location))
+                    if(EditorCursor.Scene.Type == Scene[A].Type)
                     {
-                        if(EditorCursor.Scene.Type == Scene[A].Type)
+                        if(ffEqual(EditorCursor.Scene.Location.X, Scene[A].Location.X) &&
+                           ffEqual(EditorCursor.Scene.Location.Y, Scene[A].Location.Y))
                         {
-                            if(ffEqual(EditorCursor.Scene.Location.X, Scene[A].Location.X) &&
-                               ffEqual(EditorCursor.Scene.Location.Y, Scene[A].Location.Y))
-                            {
-                                CanPlace = false;
-                                break;
-                            }
+                            CanPlace = false;
+                            break;
                         }
                     }
                 }
@@ -1494,7 +1518,7 @@ void UpdateEditor()
 
                 for(A = 1; A <= numWorldPaths; A++)
                 {
-                    if(CursorCollision(EditorCursor.Location, WorldPath[A].Location))
+                    if(CursorCollision(EditorCursor.Location, WorldPath[A].FullLocation()))
                     {
                         CanPlace = false;
                         break;
@@ -1503,7 +1527,7 @@ void UpdateEditor()
 
                 for(A = 1; A <= numScenes; A++)
                 {
-                    if(CursorCollision(EditorCursor.Location, Scene[A].Location))
+                    if(CursorCollision(EditorCursor.Location, Scene[A].FullLocation()))
                     {
                         CanPlace = false;
                         break;
@@ -1537,7 +1561,7 @@ void UpdateEditor()
 
                 for(A = 1; A <= numWorldPaths; A++)
                 {
-                    if(CursorCollision(EditorCursor.Location, WorldPath[A].Location))
+                    if(CursorCollision(EditorCursor.Location, WorldPath[A].FullLocation()))
                     {
                         CanPlace = false;
                         break;
@@ -1567,7 +1591,7 @@ void UpdateEditor()
             {
                 for(A = 1; A <= numWorldMusic; A++)
                 {
-                    if(CursorCollision(EditorCursor.Location, WorldMusic[A].Location))
+                    if(CursorCollision(EditorCursor.Location, WorldMusic[A].FullLocation()))
                     {
                         CanPlace = false;
                         break;
@@ -1576,7 +1600,8 @@ void UpdateEditor()
 
                 if(CanPlace)
                 {
-                    EditorCursor.WorldMusic.Location = static_cast<TinyLocation_t>(EditorCursor.Location);
+                    EditorCursor.WorldMusic.Location.X = static_cast<int32_t>(EditorCursor.Location.X);
+                    EditorCursor.WorldMusic.Location.Y = static_cast<int32_t>(EditorCursor.Location.Y);
                     numWorldMusic++;
                     WorldMusic[numWorldMusic] = EditorCursor.WorldMusic;
                     // de-duplicate music file
@@ -1588,7 +1613,7 @@ void UpdateEditor()
                     treeWorldMusicAdd(&WorldMusic[numWorldMusic]);
                 }
             }
-            else if(EditorCursor.Mode == OptCursor_t::WLD_AREA && MouseRelease) // Areas
+            else if(EditorCursor.Mode == OptCursor_t::WLD_AREA) // Areas
             {
                 for(A = 1; A <= numWorldAreas; A++)
                 {
@@ -1627,6 +1652,8 @@ void UpdateEditor()
     {
         editorScreen.UpdateEditorScreen(EditorScreen::CallMode::Logic);
     }
+
+    MouseWasClicked = SharedCursor.Primary;
 }
 
 #ifdef THEXTECH_INTERPROC_SUPPORTED
@@ -1888,15 +1915,15 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
 
     if(!LevelEditor)
         C = B;
-    if(A == 241)
+    if(A == NPCID_EARTHQUAKE_BLOCK)
         ret = 4;
-    if(A == 195)
+    if(A == NPCID_FLIPPED_RAINBOW_SHELL)
         ret = 3;
 
     // suits
     if(N > 0)
     {
-        if(A == 169 || A == 170)
+        if(A == NPCID_STATUE_POWER || A == NPCID_HEAVY_POWER)
         {
             E = 0;
             for(D = 1; D <= numPlayers; D++)
@@ -1922,13 +1949,31 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
         }
     }
 
+    if(A == NPCID_TRANSPARENT_AXE)
+    {
+        if(LevelEditor)
+            ret = 1;
+        else
+            ret = 0;
+    }
 
-    if(A == 135 || A == 4 || A == 6 || A == 19 || A == 20 || A == 23 || A == 25 || A == 28 || A == 36 || A == 38 ||
-       A == 42 || A == 43 || A == 44 || A == 193 || A == 35 || A == 191 || A == 52 || A == 72 || A == 77 || A == 108 ||
-       (A >= 109 && A <= 112) || (A >= 121 && A <= 124) || A == 125 || (A >= 129 && A <= 132) || A == 136 || A == 158 ||
-        A == 164 || A == 163 || A == 162 || A == 165 || A == 166 || A == 189 || A == 199 || A == 209 || A == 207 ||
-        A == 229 || A == 230 || A == 232 || A == 236 || A == 233 || A == 173 || A == 175 || A == 177 ||
-        A == 178 || A == 176) // Koopa troopas / Shy guy
+
+    if(A == NPCID_WALK_BOMB_S2 || A == NPCID_GRN_TURTLE_S3 || A == NPCID_RED_TURTLE_S3
+        || A == NPCID_BLU_GUY || A == NPCID_RED_GUY || A == NPCID_GLASS_TURTLE
+        || A == NPCID_JUMPER_S3 || A == NPCID_RED_FISH_S1 || A == NPCID_SPIKY_S3
+        || A == NPCID_GHOST_S3 || A == NPCID_GHOST_FAST || A == NPCID_GHOST_S4
+        || A == NPCID_BIG_GHOST || A == NPCID_BLU_BOOT || A == NPCID_GRN_BOOT
+        || A == NPCID_RED_BOOT || A == NPCID_SIDE_PLANT || A == NPCID_BIG_TURTLE
+        || A == NPCID_JUMPER_S4 || A == NPCID_PET_FIRE || (A >= NPCID_GRN_TURTLE_S4 && A <= NPCID_YEL_TURTLE_S4)
+        || (A >= NPCID_GRN_FLY_TURTLE_S4 && A <= NPCID_YEL_FLY_TURTLE_S4) || A == NPCID_KNIGHT
+        || (A >= NPCID_BIRD && A <= NPCID_GRY_SPIT_GUY) || A == NPCID_WALK_BOMB_S3
+        || A == NPCID_CARRY_BUDDY || A == NPCID_BIG_GUY || A == NPCID_BRUTE_SQUISHED
+        || A == NPCID_BRUTE || A == NPCID_CARRY_FODDER || A == NPCID_HIT_CARRY_FODDER
+        || A == NPCID_SKELETON || A == NPCID_LAVA_MONSTER || A == NPCID_BOSS_FRAGILE
+        || A == NPCID_WALL_TURTLE || A == NPCID_GRN_FISH_S3 || A == NPCID_RED_FISH_S3
+        || A == NPCID_GRN_FISH_S4 || A == NPCID_YEL_FISH_S4 || A == NPCID_GRN_FISH_S1
+        || A == NPCID_GRN_TURTLE_S1 || A == NPCID_RED_TURTLE_S1 || A == NPCID_RED_FLY_TURTLE_S1
+        || A == NPCID_AXE || A == NPCID_GRN_FLY_TURTLE_S1) // Koopa troopas / Shy guy
     {
         if(int(B) == -1)
             ret = 0;
@@ -1937,8 +1982,10 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
     }
 
     // Bullet Bills
-    if(A == 17 || A == 18 || A == 29 || A == 31 || A == 84 || A == 94 || A == 198 ||
-       NPCIsYoshi(A) || A == 101 || A == 102 || A == 181 || A == 81)
+    if(A == NPCID_BULLET || A == NPCID_BIG_BULLET || A == NPCID_HEAVY_THROWER
+        || A == NPCID_KEY || A == NPCID_STATUE_S3 || A == NPCID_CIVILIAN
+        || A == NPCID_CHAR3 || NPCIsYoshi(A) || A == NPCID_CHAR2 || A == NPCID_CHAR5
+        || A == NPCID_STATUE_S4 || A == NPCID_SLANT_WOOD_L)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1947,7 +1994,8 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
     }
 
     // Hammer Bros.
-    if(A == 29 || A == 55 || A == 75 || A == 78 || A == 168 || A == 234)
+    if(A == NPCID_HEAVY_THROWER || A == NPCID_EXT_TURTLE || A == NPCID_CIVILIAN_SCARED
+        || A == NPCID_TANK_TREADS || A == NPCID_CHASER || A == NPCID_BONE_FISH)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1955,7 +2003,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 3;
     }
 
-    if(A == 34)
+    if(A == NPCID_LEAF_POWER)
     {
         if(int(B) == -1)
             ret = 1;
@@ -1963,7 +2011,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 0;
     }
 
-    if(A == 201)
+    if(A == NPCID_SICK_BOSS)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1971,7 +2019,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 8;
     }
 
-    if(A == 137)
+    if(A == NPCID_LIT_BOMB_S3)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1979,7 +2027,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 6;
     }
 
-    if(A == 86 || (A >= 117 && A <= 120) || A == 200)
+    if(A == NPCID_VILLAIN_S3 || (A >= NPCID_GRN_HIT_TURTLE_S4 && A <= NPCID_YEL_HIT_TURTLE_S4) || A == NPCID_VILLAIN_S1)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1988,7 +2036,8 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
     }
 
     // winged koopa / bob-omb buddy
-    if(A == 76 || A == 107 || A == 160 || A == 161 || A == 167 || A == 203 || A == 204)
+    if(A == NPCID_GRN_FLY_TURTLE_S3 || A == NPCID_PINK_CIVILIAN || A == NPCID_ROCKET_WOOD
+        || A == NPCID_RED_FLY_TURTLE_S3 || A == NPCID_FLY_CARRY_FODDER || A == NPCID_FLIER || A == NPCID_ROCKET_FLIER)
     {
         if(int(B) == -1)
             ret = 0;
@@ -1997,7 +2046,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
     }
 
     // Birdo
-    if(A == 39 || A == 208)
+    if(A == NPCID_SPIT_BOSS || A == NPCID_BOSS_CASE)
     {
         if(int(B) == -1)
             ret = 0;
@@ -2005,17 +2054,17 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 5;
     }
 
-    if(A == 45)
+    if(A == NPCID_SLIDE_BLOCK)
         ret = BlockFrame[4];
 
-    if(A == 56)
+    if(A == NPCID_VEHICLE)
     {
         ret = SpecialFrame[2];
         if(int(B) == 1)
             ret += 4;
     }
 
-    if(A == 57) // smb3 belt
+    if(A == NPCID_CONVEYOR) // smb3 belt
     {
         if(int(B) == -1)
             ret = SpecialFrame[4];
@@ -2023,7 +2072,7 @@ int EditorNPCFrame(const NPCID A, vbint_t& C, int N)
             ret = 3 - SpecialFrame[4];
     }
 
-    if(A == 60 || A == 62 || A == 64 || A == 66)
+    if(A == NPCID_YEL_PLATFORM || A == NPCID_BLU_PLATFORM || A == NPCID_GRN_PLATFORM || A == NPCID_RED_PLATFORM)
     {
         if(int(B) == -1)
             ret = 1;
@@ -2113,6 +2162,7 @@ void GetEditorControls()
         HasCursor = false;
         MouseRelease = false;
         MenuMouseRelease = false;
+        MouseWasClicked = false;
         PlaySound(SFX_Pause);
     }
 
@@ -2130,13 +2180,25 @@ void GetEditorControls()
     }
 }
 
+static bool s_NPCIsPlant()
+{
+    return EditorCursor.NPC.Type == 245 || EditorCursor.NPC.Type == 8 ||
+               EditorCursor.NPC.Type == 270 || EditorCursor.NPC.Type == 93 ||
+               EditorCursor.NPC.Type == 180 || EditorCursor.NPC.Type == 179 ||
+               EditorCursor.NPC.Type == 37 || EditorCursor.NPC.Type == 51;
+}
+
 void SetCursor()
 {
+    int DefaultGrid = 32;
+    EditorCursor.Paintbrush = false;
+
 //    EditorCursor.Layer = frmLayers::lstLayer::List(frmLayers::lstLayer::ListIndex);
     if(EditorCursor.Mode == OptCursor_t::LVL_ERASER) // Eraser
     {
         EditorCursor.Location.Width = 18;
         EditorCursor.Location.Height = 8;
+        EditorCursor.Paintbrush = true;
     }
     else if(EditorCursor.Mode == OptCursor_t::LVL_SELECT || EditorCursor.Mode == 14) // Selection
     {
@@ -2161,6 +2223,7 @@ void SetCursor()
             // EditorCursor.Water.Quicksand = false;
 //        else
 //            EditorCursor.Water.Quicksand = false;
+        DefaultGrid = 16;
     }
     else if(EditorCursor.Mode == OptCursor_t::LVL_BLOCKS) // Blocks
     {
@@ -2200,13 +2263,19 @@ void SetCursor()
                 else
                     EditorCursor.Block.Location.Height = 32;
             }
+
+            EditorCursor.Paintbrush = true;
         }
 
         EditorCursor.Location.Width = EditorCursor.Block.Location.Width;
         EditorCursor.Location.Height = EditorCursor.Block.Location.Height;
+
+        if((BlockWidth[EditorCursor.Block.Type] & 16) || (BlockHeight[EditorCursor.Block.Type] & 16))
+            DefaultGrid = 16;
     }
     else if(EditorCursor.Mode == OptCursor_t::LVL_PLAYERSTART) // Level
     {
+        DefaultGrid = 8;
         if(EditorCursor.SubMode == 4)
         {
             EditorCursor.Location.Width = Physics.PlayerWidth[1][2]; // Mario
@@ -2228,10 +2297,23 @@ void SetCursor()
         EditorCursor.Background.Layer = EditorCursor.Layer;
         EditorCursor.Background.Location.X = EditorCursor.Location.X;
         EditorCursor.Background.Location.Y = EditorCursor.Location.Y;
-        EditorCursor.Background.Location.Width = BackgroundWidth[EditorCursor.Background.Type];
-        EditorCursor.Background.Location.Height = BackgroundHeight[EditorCursor.Background.Type];
-        EditorCursor.Location.Width = EditorCursor.Background.Location.Width;
-        EditorCursor.Location.Height = EditorCursor.Background.Location.Height;
+        // EditorCursor.Background.Location.Width = BackgroundWidth[EditorCursor.Background.Type];
+        // EditorCursor.Background.Location.Height = BackgroundHeight[EditorCursor.Background.Type];
+        EditorCursor.Location.Width = EditorCursor.Background.Width();
+        EditorCursor.Location.Height = EditorCursor.Background.Height();
+
+        if(EditorCursor.Background.Type == 71 ||
+          EditorCursor.Background.Type == 72 ||
+          EditorCursor.Background.Type == 73 ||
+          EditorCursor.Background.Type == 141 ||
+          EditorCursor.Background.Type == 74 ||
+          EditorCursor.Background.Type == 70 ||
+          EditorCursor.Background.Type == 100)
+        {
+            DefaultGrid = 16;
+        }
+        else if((EditorCursor.Background.Width() <= 32 && EditorCursor.Background.Height() <= 32) || BackgroundMultiPlace(EditorCursor.Background.Type))
+            EditorCursor.Paintbrush = true;
     }
     else if(EditorCursor.Mode == OptCursor_t::LVL_NPCS) // NPCs
     {
@@ -2275,6 +2357,26 @@ void SetCursor()
 
         EditorCursor.NPC.Frame = EditorNPCFrame(EditorCursor.NPC.Type, EditorCursor.NPC.Direction);
         EditorCursor.NPC.Active = true;
+
+        if(EditorCursor.NPC.Generator ||
+            EditorCursor.NPC.Type == NPCID_BOSS_FRAGILE || EditorCursor.NPC.Type == NPCID_LONG_PLANT_UP ||
+            EditorCursor.NPC.Type == NPCID_LONG_PLANT_DOWN || EditorCursor.NPC.Type == NPCID_FIRE_CHAIN ||
+            EditorCursor.NPC.Type == NPCID_SIDE_PLANT ||
+            EditorCursor.NPC.Type == NPCID_TINY_COIN)
+        {
+            DefaultGrid = 16;
+        }
+
+        if((EditorCursor.NPC->IsACoin && EditorCursor.NPC.Type != NPCID_MEDAL) || EditorCursor.NPC->IsAVine
+            || EditorCursor.NPC.Type == NPCID_SLIDE_BLOCK || EditorCursor.NPC.Type == NPCID_FALL_BLOCK_RED
+            || EditorCursor.NPC.Type == NPCID_FALL_BLOCK_BROWN || EditorCursor.NPC.Type == NPCID_CONVEYOR
+            || EditorCursor.NPC.Type == NPCID_LIFT_SAND || EditorCursor.NPC.Type == NPCID_ITEM_BURIED)
+        {
+            EditorCursor.Paintbrush = true;
+        }
+
+        if(EditorCursor.NPC.Generator)
+            EditorCursor.Paintbrush = false;
     }
     else if(EditorCursor.Mode == OptCursor_t::LVL_WARPS) // Warps
     {
@@ -2291,6 +2393,15 @@ void SetCursor()
         // EditorCursor.Warp is now the canonical Warp object.
         // It stores the warp's entrance and exit until the warp is placed,
         // overwriting most portions of the target warp.
+
+        DefaultGrid = 16;
+
+        if(EditorCursor.Warp.tinyRequired)
+        {
+            EditorCursor.Location.Width = 16;
+            EditorCursor.Location.Height = 16;
+            DefaultGrid = 8;
+        }
     }
     else if(EditorCursor.Mode == OptCursor_t::WLD_TILES) // Tiles
     {
@@ -2298,7 +2409,9 @@ void SetCursor()
             EditorCursor.Tile.Type = 1;
         EditorCursor.Location.Width = TileWidth[EditorCursor.Tile.Type];
         EditorCursor.Location.Height = TileHeight[EditorCursor.Tile.Type];
-        EditorCursor.Tile.Location = static_cast<TinyLocation_t>(EditorCursor.Location);
+        EditorCursor.Tile.Location.X = static_cast<int32_t>(EditorCursor.Location.X);
+        EditorCursor.Tile.Location.Y = static_cast<int32_t>(EditorCursor.Location.Y);
+        EditorCursor.Paintbrush = true;
     }
     else if(EditorCursor.Mode == OptCursor_t::WLD_SCENES) // Scene
     {
@@ -2306,7 +2419,10 @@ void SetCursor()
             EditorCursor.Scene.Type = 1;
         EditorCursor.Location.Width = SceneWidth[EditorCursor.Scene.Type];
         EditorCursor.Location.Height = SceneHeight[EditorCursor.Scene.Type];
-        EditorCursor.Scene.Location = static_cast<TinyLocation_t>(EditorCursor.Location);
+        EditorCursor.Scene.Location.X = static_cast<int32_t>(EditorCursor.Location.X);
+        EditorCursor.Scene.Location.Y = static_cast<int32_t>(EditorCursor.Location.Y);
+
+        DefaultGrid = 16;
     }
     else if(EditorCursor.Mode == OptCursor_t::WLD_LEVELS) // Levels
     {
@@ -2322,13 +2438,15 @@ void SetCursor()
             EditorCursor.WorldPath.Type = 1;
         EditorCursor.Location.Width = 32;
         EditorCursor.Location.Height = 32;
-        EditorCursor.WorldPath.Location = static_cast<TinyLocation_t>(EditorCursor.Location);
+        EditorCursor.WorldPath.Location.X = static_cast<int32_t>(EditorCursor.Location.X);
+        EditorCursor.WorldPath.Location.Y = static_cast<int32_t>(EditorCursor.Location.Y);
     }
     else if(EditorCursor.Mode == OptCursor_t::WLD_MUSIC) // World Music
     {
         EditorCursor.Location.Height = 32;
         EditorCursor.Location.Width = 32;
-        EditorCursor.WorldMusic.Location = static_cast<TinyLocation_t>(EditorCursor.Location);
+        EditorCursor.WorldMusic.Location.X = static_cast<int32_t>(EditorCursor.Location.X);
+        EditorCursor.WorldMusic.Location.Y = static_cast<int32_t>(EditorCursor.Location.Y);
         // make it play the music
         if(g_isWorldMusicNotSame(EditorCursor.WorldMusic))
             g_playWorldMusic(EditorCursor.WorldMusic);
@@ -2346,6 +2464,16 @@ void SetCursor()
         if(EditorCursor.WorldArea.Location.Height < 32)
             EditorCursor.WorldArea.Location.Height = 32;
     }
+
+    if(EditorCursor.ForceGrid == -1)
+        EditorCursor.CurrentGrid = DefaultGrid;
+    else
+    {
+        EditorCursor.CurrentGrid = EditorCursor.ForceGrid;
+
+        if(EditorCursor.CurrentGrid < 32 && EditorCursor.Mode != OptCursor_t::LVL_ERASER)
+            EditorCursor.Paintbrush = false;
+    }
 }
 
 void PositionCursor()
@@ -2356,7 +2484,7 @@ void PositionCursor()
     if(EditorCursor.Mode == OptCursor_t::LVL_SELECT)
         return;
 
-    if(!enableAutoAlign)
+    if(EditorCursor.CurrentGrid == 0)
     {
         EditorCursor.Location.X += -EditorCursor.Location.Width + 4;
         EditorCursor.Location.Y += -EditorCursor.Location.Height + 12;
@@ -2366,9 +2494,12 @@ void PositionCursor()
     if(EditorCursor.Mode == OptCursor_t::LVL_PLAYERSTART)
         EditorCursor.Location.X -= 14;
 
+    if(EditorCursor.Mode == OptCursor_t::LVL_NPCS && EditorCursor.NPC.Type == NPCID_TINY_COIN)
+        return;
+
     if(EditorCursor.Mode == OptCursor_t::LVL_PLAYERSTART || EditorCursor.Mode == OptCursor_t::LVL_NPCS)
     {
-        if(!(EditorCursor.Mode == OptCursor_t::LVL_NPCS && EditorCursor.NPC.Type == 52))
+        if(!(EditorCursor.Mode == OptCursor_t::LVL_NPCS && EditorCursor.NPC.Type == NPCID_SIDE_PLANT))
         {
             num_t odd_width = EditorCursor.Location.Width - num_t::floor(EditorCursor.Location.Width / 32) * 32;
             num_t odd_height = EditorCursor.Location.Height - num_t::floor(EditorCursor.Location.Height / 32) * 32;
@@ -2399,12 +2530,9 @@ void PositionCursor()
 
     else if(EditorCursor.Mode == OptCursor_t::LVL_NPCS)
     {
-        if(EditorCursor.NPC.Type == 245 || EditorCursor.NPC.Type == 8 ||
-           EditorCursor.NPC.Type == 270 || EditorCursor.NPC.Type == 93 ||
-           EditorCursor.NPC.Type == 180 || EditorCursor.NPC.Type == 179 ||
-           EditorCursor.NPC.Type == 37 || EditorCursor.NPC.Type == 51) // Piranha Plants
+        if(s_NPCIsPlant() && EditorCursor.CurrentGrid > 16) // Piranha Plants
             EditorCursor.Location.X += 16;
-        else if(EditorCursor.NPC.Type == 197)
+        else if(EditorCursor.NPC.Type == NPCID_GOALTAPE)
         {
             EditorCursor.Location.X -= 8;
             EditorCursor.Location.Y += 16;
@@ -2418,11 +2546,11 @@ void PositionCursor()
             else
                 EditorCursor.Location.Y += 16/*32*/;
         }
-        else if(EditorCursor.NPC.Type == 105)
+        else if(EditorCursor.NPC.Type == NPCID_CHECKER_PLATFORM)
             EditorCursor.Location.Y += 22;
-        else if(EditorCursor.NPC.Type == 106)
+        else if(EditorCursor.NPC.Type == NPCID_PLATFORM_S1)
             EditorCursor.Location.Y += 16;
-        else if(EditorCursor.NPC.Type == 260)
+        else if(EditorCursor.NPC.Type == NPCID_FIRE_CHAIN)
             EditorCursor.Location.Y -= 8;
     }
 
@@ -2445,6 +2573,7 @@ void HideCursor()
     EditorControls.ScrollRight = false;
     SharedCursor.Primary = false;
     MouseCancel = true;
+    MouseWasClicked = false;
     EditorControls.ScrollLeft = false;
     EditorControls.ScrollUp = false;
     SharedCursor.GoOffscreen();
@@ -2572,7 +2701,7 @@ void zTestLevel(bool magicHand, bool interProcess)
     FontManager::clearAllCustomFonts();
 
     // this clears the cached medals and stars data from the level
-    LevelWarpSaveEntries.clear();
+    LevelSaveEntries.clear();
 
     // dead code, TestFullscreen never set
 #if 0
@@ -2757,12 +2886,18 @@ static inline int s_find_flags_section(const IntegerLocation_t& loc)
 void UpdateInteract()
 {
     // only update items in select mode (mouse up or just pressed) or erase mode
-    bool mouse_held = (SharedCursor.Primary && !MouseRelease);
+    bool mouse_held = (SharedCursor.Primary && MouseWasClicked);
     bool select_mode = EditorCursor.Mode == OptCursor_t::LVL_SELECT;
     bool erase_mode = EditorCursor.Mode == OptCursor_t::LVL_ERASER;
+    bool start_resize = select_mode && !mouse_held;
 
-    if(select_mode && mouse_held)
-        return;
+    if(select_mode && EditorCursor.InteractFlags > 1)
+    {
+        if(mouse_held)
+            return;
+        else if(MouseWasClicked)
+            MouseCancel = true;
+    }
 
     EditorCursor.InteractMode = 0;
     EditorCursor.InteractFlags = 0;
@@ -2837,15 +2972,22 @@ void UpdateInteract()
         }
 
         // warps (now sizable)
-        if(!MagicHand && ((select_mode && EditorCursor.InteractFlags < 2) || EditorCursor.InteractMode == 0) && (!need_class || need_class == OptCursor_t::LVL_WARPS))
+        if(!MagicHand && ((select_mode && EditorCursor.InteractFlags <= 1) || EditorCursor.InteractMode == 0) && (!need_class || need_class == OptCursor_t::LVL_WARPS))
         {
             for(int A = 1; A <= numWarps; A++)
             {
                 if(Warp[A].Hidden)
                     continue;
 
-                int entr_flags = (select_mode) ? s_find_flags(Warp[A].Entrance) : 0;
-                int exit_flags = (select_mode) ? s_find_flags(Warp[A].Exit) : 0;
+                int entr_flags = (start_resize) ? s_find_flags(Warp[A].Entrance) : 0;
+                int exit_flags = (start_resize) ? s_find_flags(Warp[A].Exit) : 0;
+
+                if(Warp[A].tinyRequired)
+                {
+                    entr_flags = 0;
+                    exit_flags = 0;
+                }
+
                 if(entr_flags || (EditorCursor.InteractMode == 0 && CursorCollision(EditorCursor.Location, Warp[A].Entrance)))
                 {
                     EditorCursor.InteractMode = OptCursor_t::LVL_WARPS;
@@ -2873,7 +3015,7 @@ void UpdateInteract()
             {
                 int A = *(--i);
 
-                if(CursorCollision(EditorCursor.Location, Background[A].Location) && !Background[A].Hidden)
+                if(CursorCollision(EditorCursor.Location, Background[A].FullLocation()) && !Background[A].Hidden)
                 {
                     EditorCursor.InteractMode = OptCursor_t::LVL_BGOS;
                     EditorCursor.InteractFlags = 0;
@@ -2896,7 +3038,7 @@ void UpdateInteract()
                 if(!BlockIsSizable[Block[A].Type] || Block[A].Hidden)
                     continue;
 
-                int found_flags = (select_mode) ? s_find_flags(Block[A].Location) : 0;
+                int found_flags = (start_resize) ? s_find_flags(Block[A].Location) : 0;
 
                 if(found_flags || CursorCollision(EditorCursor.Location, Block[A].Location))
                 {
@@ -2922,7 +3064,7 @@ void UpdateInteract()
                 if(Water[A].Hidden)
                     continue;
 
-                int found_flags = (select_mode) ? s_find_flags(Water[A].Location) : 0;
+                int found_flags = (start_resize) ? s_find_flags(Water[A].Location) : 0;
 
                 if(found_flags || CursorCollision(EditorCursor.Location, Water[A].Location))
                 {
@@ -2938,7 +3080,7 @@ void UpdateInteract()
         }
 
         // event section borders
-        if(!MagicHand && select_mode && EditorCursor.InteractFlags < 2)
+        if(!MagicHand && start_resize && EditorCursor.InteractFlags < 2)
         {
             for(int A = numEvents - 1; A >= 0; A--)
             {
@@ -2959,7 +3101,7 @@ void UpdateInteract()
         }
 
         // section borders
-        if(!MagicHand && select_mode && EditorCursor.InteractFlags < 2)
+        if(!MagicHand && start_resize && EditorCursor.InteractFlags < 2)
         {
             int found_flags = s_find_flags_section(LevelREAL[curSection]);
 
@@ -2980,7 +3122,7 @@ void UpdateInteract()
         {
             for(int A = numWorldAreas; A >= 1; A--)
             {
-                int found_flags = (select_mode) ? s_find_flags(WorldArea[A].Location) : 0;
+                int found_flags = (start_resize) ? s_find_flags(WorldArea[A].Location) : 0;
 
                 // count as collision if on corner, or if in top-left
                 if(found_flags || (EditorCursor.InteractMode == 0 && CursorCollision(EditorCursor.Location, newLoc(WorldArea[A].Location.X, WorldArea[A].Location.Y, 32, 32))))
@@ -2998,7 +3140,7 @@ void UpdateInteract()
         {
             for(int A : treeWorldMusicQuery(static_cast<TinyLocation_t>(EditorCursor.Location), SORTMODE_NONE))
             {
-                if(CursorCollision(EditorCursor.Location, WorldMusic[A].Location))
+                if(CursorCollision(EditorCursor.Location, WorldMusic[A].FullLocation()))
                 {
                     EditorCursor.InteractMode = OptCursor_t::WLD_MUSIC;
                     EditorCursor.InteractFlags = 0;
@@ -3013,7 +3155,7 @@ void UpdateInteract()
         {
             for(int A : treeWorldPathQuery(static_cast<TinyLocation_t>(EditorCursor.Location), SORTMODE_NONE))
             {
-                if(CursorCollision(EditorCursor.Location, WorldPath[A].Location))
+                if(CursorCollision(EditorCursor.Location, WorldPath[A].FullLocation()))
                 {
                     EditorCursor.InteractMode = OptCursor_t::WLD_PATHS;
                     EditorCursor.InteractFlags = 0;
@@ -3035,7 +3177,7 @@ void UpdateInteract()
             {
                 int A = *(--i);
 
-                if(CursorCollision(EditorCursor.Location, Scene[A].Location))
+                if(CursorCollision(EditorCursor.Location, Scene[A].FullLocation()))
                 {
                     EditorCursor.InteractMode = OptCursor_t::WLD_SCENES;
                     EditorCursor.InteractFlags = 0;
@@ -3065,7 +3207,7 @@ void UpdateInteract()
         {
             for(int A : treeWorldTileQuery(static_cast<TinyLocation_t>(EditorCursor.Location), SORTMODE_NONE))
             {
-                if(CursorCollision(EditorCursor.Location, Tile[A].Location))
+                if(CursorCollision(EditorCursor.Location, Tile[A].FullLocation()))
                 {
                     EditorCursor.InteractMode = OptCursor_t::WLD_TILES;
                     EditorCursor.InteractFlags = 0;
@@ -3264,71 +3406,14 @@ void MouseMove(int X, int Y, bool /*nCur*/)
         X += (int)(vScreenX - vScreen[A].X);
         Y += (int)(vScreenY - vScreen[A].Y);
 
-        // user-selected grid snap (default 32)
-        int grid = editorScreen.grid_snap_size;
-        int y_offset = (grid >= 8) ? 8 : 0;
+        int use_grid = EditorCursor.CurrentGrid;
+        if(EditorCursor.CurrentGrid == 0)
+            use_grid = 2;
 
-        // 16x16 alignment (hardcoded for objects that require it)
-        if(
-            (EditorCursor.Mode == OptCursor_t::LVL_BLOCKS &&
-            (EditorCursor.Block.Type == 534 || EditorCursor.Block.Type == 535 ||
-             EditorCursor.Block.Type == 536 || EditorCursor.Block.Type == 537)) ||
+        EditorCursor.Location.X = (X / use_grid) * use_grid - vScreenX;
+        EditorCursor.Location.Y = ((Y + 8) / use_grid) * use_grid - vScreenY - 8;
 
-             EditorCursor.Mode == OptCursor_t::LVL_WARPS ||
-
-            (EditorCursor.Mode == OptCursor_t::LVL_NPCS &&
-             EditorCursor.NPC.Type == 52) ||
-
-            (EditorCursor.Mode == OptCursor_t::LVL_BGOS &&
-             (EditorCursor.Background.Type == 71 ||
-              EditorCursor.Background.Type == 72 ||
-              EditorCursor.Background.Type == 73 ||
-              EditorCursor.Background.Type == 141 ||
-              EditorCursor.Background.Type == 74 ||
-              EditorCursor.Background.Type == 70 ||
-              EditorCursor.Background.Type == 100)) ||
-
-              (EditorCursor.Mode == OptCursor_t::LVL_NPCS &&
-               (EditorCursor.NPC.Generator ||
-                EditorCursor.NPC.Type == 209 || EditorCursor.NPC.Type == 256 ||
-                EditorCursor.NPC.Type == 257 || EditorCursor.NPC.Type == 260))
-        )
-        {
-            if(!(ffEqual(EditorCursor.Location.X, (X / 16) * 16 - vScreenX) &&
-                 ffEqual(EditorCursor.Location.Y, ((Y + 8) / 16) * 16 - vScreenY - 8)) )
-            {
-                EditorCursor.Location.X = (X / 16) * 16 - vScreenX;
-                EditorCursor.Location.Y = ((Y + 8) / 16) * 16 - vScreenY - 8;
-                PositionCursor();
-            }
-        }
-        else if(EditorCursor.Mode == OptCursor_t::LVL_PLAYERSTART)
-        {
-            if(!(EditorCursor.Location.X == (X / 8) * 8 - vScreenX && EditorCursor.Location.Y == (Y / 8) * 8 - vScreenY))
-            {
-                EditorCursor.Location.X = (X / 8) * 8 - vScreenX;
-                EditorCursor.Location.Y = (Y / 8) * 8 - vScreenY;
-                PositionCursor();
-            }
-        }
-        else if(EditorCursor.Mode == OptCursor_t::WLD_SCENES)
-        {
-            EditorCursor.Location.X = (X / 16) * 16 - vScreenX;
-            EditorCursor.Location.Y = ((Y + 8) / 16) * 16 - vScreenY - 8;
-            PositionCursor();
-        }
-        else if(EditorCursor.Mode == OptCursor_t::LVL_WATER)
-        {
-            EditorCursor.Location.X = (X / 16) * 16 - vScreenX;
-            EditorCursor.Location.Y = ((Y + 8) / 16) * 16 - vScreenY - 8;
-            PositionCursor();
-        }
-        else // everything else — use user-selected grid snap
-        {
-            EditorCursor.Location.X = (X / grid) * grid - vScreenX;
-            EditorCursor.Location.Y = ((Y + y_offset) / grid) * grid - vScreenY - y_offset;
-            PositionCursor();
-        }
+        PositionCursor();
     }
 //    if(nPlay.Online == true && nCur == true)
 //    {

@@ -277,7 +277,8 @@
                 "name4": "ОТР. (Г)",
                 "name5": "ОТР. (В)"
             },
-            "twoWay": "Дву-напр."
+            "twoWay": "Дву-напр.",
+            "needTiny": "Только мелкие"
         },
         "water": {
             "title": "Настройки воды"
@@ -391,6 +392,13 @@
             "statusLoadFile": "Загрузка: {0}",
             "statusTranslations": "Переводы",
             "loading": "Загрузка..."
+        },
+        "warning": {
+            "bitmaskEnforced": "Принудительно симулируется GIFs2PNG на SDL",
+            "bitmaskFallback": "Битовые маски используют GIFs2PNG на SDL",
+            "settingsStorageOverflown": "Хранилище настроек переполнено.\nПросьба удалить любые ненужные сохранения игр,\nиначе вы можете потерять свои данные.",
+            "simGIFS2PNGAct": "Симуляция GIFs2PNG (активно)",
+            "simGIFS2PNGInact": "Симуляция GIFs2PNG (неактивно)"
         }
     },
     "languageName": "Русский",
@@ -512,7 +520,12 @@
                     "scaleButtons": "Масштаб кнопок",
                     "scaleDPad": "Масштаб крестовины",
                     "scaleFactor": "Общий масштаб",
-                    "showCodeButton": "Показать кнопку кода"
+                    "showCodeButton": "Показать кнопку кода",
+                    "OffsetButtonsH": "Смещение кнопок справа",
+                    "OffsetButtonsV": "Смещение кнопок снизу",
+                    "OffsetDPadH": "Смещение крестовины слева",
+                    "OffsetDPadV": "Смещение крестовины снизу",
+                    "OffsetSStart": "Смещение Выбор-Старт"
                 },
                 "style": {
                     "ABXY": "ABXY",

@@ -33,6 +33,8 @@ enum PhysEnv_Maze_Status
     MAZE_DIR_RIGHT = 2,
     MAZE_DIR_DOWN = 3,
     MAZE_CAN_EXIT = 4,
+    MAZE_EXIT_LEFTSIDE = 8,
+    MAZE_EXIT_RIGHTSIDE = 16,
     MAZE_PLAYER_FLIP = 128,
     MAZE_DIR_FLIP_BIT = 2,
 };
@@ -43,5 +45,8 @@ void PhysEnv_Maze(Location_t& loc, vbint_t& maze_index, uint8_t& maze_state, int
 
 // picks direction for a possible maze entry
 void PhysEnv_Maze_PickDirection(const Location_t& loc, vbint_t maze_index, uint8_t& maze_state);
+
+// automatically creates the maze zone for a block
+bool PhysEnv_CreateMazeZone(const Block_t& block);
 
 #endif // #ifndef PHYS_ENV_H

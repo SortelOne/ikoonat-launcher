@@ -24,6 +24,9 @@
 #ifdef __ANDROID__
 #   include <Utils/files.h>
 #endif
+#ifdef THEXTECH_IOS
+#   include "core/ios/extras.h"
+#endif
 
 #include "AppPath/app_path.h"
 
@@ -45,6 +48,12 @@
 
 #include <SDL2/SDL_haptic.h>
 
+
+#ifdef THEXTECH_IOS
+static double s_screenSize = -1;
+static double s_screenWidth = -1;
+static double s_screenHeight = -1;
+#endif
 
 #ifdef __ANDROID__
 #   include <jni.h>
@@ -94,6 +103,12 @@ namespace Controls
 void TouchScreenGFX_t::loadImage(StdPicture& img, const std::string& fileName)
 {
     std::string imgPath = m_gfxPath + fileName;
+
+
+#ifdef THEXTECH_IOS
+    if(!Files::fileExists(imgPath)) // If not exists at assets, do load bundled
+        imgPath = AppPathManager::bundleResourcesPath() + "buttons/" + fileName;
+#endif
 
 #ifdef __ANDROID__
     if(!Files::fileExists(imgPath)) // If not exists at assets, do load bundled
@@ -304,7 +319,7 @@ static int buttonA(int player_no, int style)
 
     default:
     case TouchScreenController::style_actions:
-        if(GamePaused != PauseCode::None || GameMenu)
+        if(GamePaused != PauseCode::None || GameMenu || ScreenAssetPack::g_LoopActive)
             return TouchScreenGFX_t::BUTTON_A_DO;
         else if(GameOutro)
             return TouchScreenGFX_t::BUTTON_A_BLANK;
@@ -327,7 +342,7 @@ static int buttonX(int player_no, int style)
 
     default:
     case TouchScreenController::style_actions:
-        if(GamePaused != PauseCode::None || GameMenu)
+        if(GamePaused != PauseCode::None || GameMenu || ScreenAssetPack::g_LoopActive)
             return TouchScreenGFX_t::BUTTON_X_BACK;
         else if(LevelSelect || GameOutro)
             return TouchScreenGFX_t::BUTTON_X_BLANK;
@@ -381,7 +396,7 @@ static int buttonB(int player_no, int style)
 
     default:
     case TouchScreenController::style_actions:
-        if(LevelSelect || GamePaused != PauseCode::None || GameMenu || GameOutro)
+        if(LevelSelect || GamePaused != PauseCode::None || GameMenu || GameOutro || ScreenAssetPack::g_LoopActive)
             return TouchScreenGFX_t::BUTTON_B_BLANK;
         else
         {
@@ -412,7 +427,7 @@ static int buttonY(int player_no, int style)
 
     default:
     case TouchScreenController::style_actions:
-        if(LevelSelect || GamePaused != PauseCode::None || GameMenu || GameOutro)
+        if(LevelSelect || GamePaused != PauseCode::None || GameMenu || GameOutro || ScreenAssetPack::g_LoopActive)
             return TouchScreenGFX_t::BUTTON_Y_BLANK;
         else
         {
@@ -770,7 +785,12 @@ static void updateTouchMap(int preferredLayout,
                            int scaleFactor,
                            int scaleFactorDPad,
                            int scaleFactorButtons,
-                           int ssSpacing)
+                           int ssSpacing,
+                           int dpadOffsetH,
+                           int dpadOffsetV,
+                           int buttonsOffsetH,
+                           int buttonsOffsetV,
+                           int ssOffset)
 {
     switch(preferredLayout)
     {
@@ -831,6 +851,34 @@ static void updateTouchMap(int preferredLayout,
 
     for(int i = 0; i < TouchScreenController::key_END; i++)
     {
+        if(i >= TouchScreenController::key_left && i <= TouchScreenController::key_downright)
+        {
+            g_touchKeyMap.touchKeysMap[i].x1 += dpadOffsetH / screenWidth;
+            g_touchKeyMap.touchKeysMap[i].x2 += dpadOffsetH / screenWidth;
+            g_touchKeyMap.touchKeysMap[i].y1 -= dpadOffsetV / screenHeight;
+            g_touchKeyMap.touchKeysMap[i].y2 -= dpadOffsetV / screenHeight;
+        }
+        else if((i >= TouchScreenController::key_run && i <= TouchScreenController::key_altjump) || i == TouchScreenController::key_altjump)
+        {
+            g_touchKeyMap.touchKeysMap[i].x1 -= buttonsOffsetH / screenWidth;
+            g_touchKeyMap.touchKeysMap[i].x2 -= buttonsOffsetH / screenWidth;
+            g_touchKeyMap.touchKeysMap[i].y1 -= buttonsOffsetV / screenHeight;
+            g_touchKeyMap.touchKeysMap[i].y2 -= buttonsOffsetV / screenHeight;
+        }
+        else if(i == TouchScreenController::key_start || i == TouchScreenController::key_drop)
+        {
+            if(preferredLayout == TouchScreenController::layout_tight)
+            {
+                g_touchKeyMap.touchKeysMap[i].y1 += ssOffset / screenHeight;
+                g_touchKeyMap.touchKeysMap[i].y2 += ssOffset / screenHeight;
+            }
+            else
+            {
+                g_touchKeyMap.touchKeysMap[i].y1 -= ssOffset / screenHeight;
+                g_touchKeyMap.touchKeysMap[i].y2 -= ssOffset / screenHeight;
+            }
+        }
+
         g_touchKeyMap.touchKeysMap[i].x1 *= scaleFactor / 100.f;
         g_touchKeyMap.touchKeysMap[i].x2 *= scaleFactor / 100.f;
         g_touchKeyMap.touchKeysMap[i].y1 *= scaleFactor / 100.f;
@@ -916,6 +964,12 @@ static void updateTouchMap(int preferredLayout,
 
 void TouchScreenController::doVibration()
 {
+#ifdef THEXTECH_IOS
+    if(m_feedback_strength == 0.f)
+        return;
+
+    ios_trigger_vibrator_taps(m_feedback_strength, m_feedback_length);
+#else
     if(!m_vibrator)
         return;
 
@@ -923,15 +977,21 @@ void TouchScreenController::doVibration()
         return;
 
     SDL_HapticRumblePlay(m_vibrator, m_feedback_strength, m_feedback_length);
+#endif
+
     D_pLogDebug("TouchScreen: Vibration %g, %d ms", m_feedback_strength, m_feedback_length);
 }
 
 TouchScreenController::~TouchScreenController()
 {
+#ifdef THEXTECH_IOS
+    ios_vibrator_quit();
+#else
     if(m_vibrator)
         SDL_HapticClose(m_vibrator);
 
     m_vibrator = nullptr;
+#endif
 }
 
 TouchScreenController::TouchScreenController() noexcept
@@ -949,6 +1009,12 @@ TouchScreenController::TouchScreenController() noexcept
     }
 
     m_vibrator = nullptr;
+
+#ifdef THEXTECH_IOS
+    if(ios_vibrator_init() < 0)
+        pLogWarning("TouchScreen: Can't open haptics device!");
+
+#else
     int numHaptics = SDL_NumHaptics();
 
     const std::array<const char*, 3> allowlist = {
@@ -985,6 +1051,7 @@ TouchScreenController::TouchScreenController() noexcept
         else
             pLogInfo("TouchScreen: ignoring haptics device [%s]", SDL_HapticName(i));
     }
+#endif
 }
 
 void TouchScreenController::scanTouchDevices()
@@ -1074,7 +1141,12 @@ void TouchScreenController::updateScreenSize()
                    m_scale_factor,
                    m_scale_factor_dpad,
                    m_scale_factor_buttons,
-                   m_scale_factor_ss_spacing);
+                   m_scale_factor_ss_spacing,
+                   m_offset_dpad_h,
+                   m_offset_dpad_v,
+                   m_offset_buttons_h,
+                   m_offset_buttons_v,
+                   m_offset_ss);
 }
 
 static void updateKeyValue(bool& key, bool state)
@@ -1329,6 +1401,9 @@ void TouchScreenController::processTouchDevice(TouchDevice_t& dev)
         m_scrollActive = true;
     }
 
+    if(n_real_fingers > 0 && m_wasScrolling)
+        m_wasScrolling = 2;
+
     // Merge per-device states into common states:
     for(int key = key_BEGIN; key < key_END; ++key)
         m_keysHeld[key] |= keysHeld[key];
@@ -1397,6 +1472,36 @@ void TouchScreenController::update()
                 this->m_scale_factor_ss_spacing = p->m_scale_factor_ss_spacing;
                 this->updateScreenSize();
             }
+
+            if(this->m_offset_dpad_h != p->m_offset_dpad_h)
+            {
+                this->m_offset_dpad_h = p->m_offset_dpad_h;
+                this->updateScreenSize();
+            }
+
+            if(this->m_offset_dpad_v != p->m_offset_dpad_v)
+            {
+                this->m_offset_dpad_v = p->m_offset_dpad_v;
+                this->updateScreenSize();
+            }
+
+            if(this->m_offset_buttons_h != p->m_offset_buttons_h)
+            {
+                this->m_offset_buttons_h = p->m_offset_buttons_h;
+                this->updateScreenSize();
+            }
+
+            if(this->m_offset_buttons_v != p->m_offset_buttons_v)
+            {
+                this->m_offset_buttons_v = p->m_offset_buttons_v;
+                this->updateScreenSize();
+            }
+
+            if(this->m_offset_ss != p->m_offset_ss)
+            {
+                this->m_offset_ss = p->m_offset_ss;
+                this->updateScreenSize();
+            }
         }
     }
 
@@ -1443,13 +1548,16 @@ void TouchScreenController::update()
         m_lastScrollY = m_scrollY;
     }
 
-    m_wasScrolling = m_scrollActive;
+    if(m_scrollActive)
+        m_wasScrolling = 1;
+    else if(m_wasScrolling > 0)
+        m_wasScrolling--;
 
     if(!m_scrollActive && m_scrollMomentumX != 0)
     {
         m_scrollMomentumX *= 0.97_r;
         m_scrollX += m_scrollMomentumX;
-        if(m_scrollMomentumX > -0.1_n && m_scrollMomentumX < 0.1_n)
+        if(m_scrollMomentumX > -2_n && m_scrollMomentumX < 2_n)
             m_scrollMomentumX = 0;
     }
 
@@ -1457,7 +1565,7 @@ void TouchScreenController::update()
     {
         m_scrollMomentumY *= 0.97_r;
         m_scrollY += m_scrollMomentumY;
-        if(m_scrollMomentumY > -0.1_n && m_scrollMomentumY < 0.1_n)
+        if(m_scrollMomentumY > -2_n && m_scrollMomentumY < 2_n)
             m_scrollMomentumY = 0;
     }
 
@@ -1479,11 +1587,14 @@ void TouchScreenController::render(int player_no)
     if(!touchSupported())
         return;
 
+    if(LoadingInProcess && !ScreenAssetPack::g_LoopActive)
+        return;
+
     int style = m_touchpad_style;
 
     for(int key = key_BEGIN; key < key_END; key++)
     {
-        if((m_touchHidden && key != TouchScreenController::key_toggleKeysView) || (LoadingInProcess && !ScreenAssetPack::g_LoopActive) || LevelEditor)
+        if((m_touchHidden && key != TouchScreenController::key_toggleKeysView) || LevelEditor)
             continue;
 
         const auto& k = g_touchKeyMap.touchKeysMap[key];
@@ -1628,7 +1739,10 @@ bool InputMethod_TouchScreen::Update(int player, Controls_t& c, CursorControls_t
 
     const TouchScreenController::ExtraKeys_t& te = t->m_controller.m_current_extra_keys;
 
-    if(GamePaused == PauseCode::None && !GameMenu && !GameOutro && !LevelSelect && t->m_controller.m_runHeld)
+    if(GamePaused == PauseCode::None
+       && !GameMenu && !GameOutro && !LevelSelect
+       && !ScreenAssetPack::g_LoopActive
+       && t->m_controller.m_runHeld)
     {
         // Alt Run functions as normal
         if(c.AltRun)
@@ -1651,6 +1765,7 @@ bool InputMethod_TouchScreen::Update(int player, Controls_t& c, CursorControls_t
     {
         m.GoOffscreen();
         m.Move = true;
+        m.Touch = true;
     }
     else if(allowed && t->m_controller.m_cursorActive)
     {
@@ -1661,15 +1776,10 @@ bool InputMethod_TouchScreen::Update(int player, Controls_t& c, CursorControls_t
             {
                 m.Primary = true;
             }
-            else if(t->m_controller.m_lastCursorX == -42
-                || (t->m_controller.m_cursorX - t->m_controller.m_lastCursorX > -10
-                && t->m_controller.m_cursorX - t->m_controller.m_lastCursorX < 10
-                && t->m_controller.m_cursorY - t->m_controller.m_lastCursorY > -10
-                && t->m_controller.m_cursorY - t->m_controller.m_lastCursorY < 10))
+            else
             {
                 m.Primary = true;
-                // special value to allow drags
-                t->m_controller.m_lastCursorX = -42;
+                m.Touch = true;
             }
         }
         else
@@ -1684,8 +1794,6 @@ bool InputMethod_TouchScreen::Update(int player, Controls_t& c, CursorControls_t
             m.X = t->m_controller.m_cursorX;
             m.Y = t->m_controller.m_cursorY;
         }
-
-        m.Touch = true;
     }
 
     // update editor scroll
@@ -1726,6 +1834,9 @@ void InputMethod_TouchScreen::Rumble(int ms, float strength)
     if(!t->m_controller.touchSupported())
         return;
 
+#ifdef THEXTECH_IOS
+    ios_trigger_vibrator(strength, ms);
+#else
     if(!t->m_controller.m_vibrator)
         return;
 
@@ -1733,6 +1844,7 @@ void InputMethod_TouchScreen::Rumble(int ms, float strength)
 
     if(SDL_HapticRumblePlay(t->m_controller.m_vibrator, strength, ms) == 0)
         return;
+#endif
 }
 
 StatusInfo InputMethod_TouchScreen::GetStatus()
@@ -1749,7 +1861,23 @@ InputMethodProfile_TouchScreen::InputMethodProfile_TouchScreen()
 {
     this->m_showPowerStatus = false;
 
-#ifdef __ANDROID__
+#ifdef THEXTECH_IOS
+    if(s_screenSize < 0.0)
+        s_screenSize = ios_get_screen_diagonal(&s_screenWidth, &s_screenHeight);
+
+    int cut_off = ios_get_cut_off_size();
+    m_default_offset_dpad_h = cut_off;
+
+    if(cut_off > 0)
+    {
+        // To compensate thin edge
+        m_default_offset_buttons_h = 100;
+        // To don't overlap the home bar
+        m_default_offset_ss = 20;
+    }
+#endif
+
+#if defined(__ANDROID__) || defined(THEXTECH_IOS)
     if(s_screenSize >= 9.0) // Big tablets
     {
         m_default_layout = TouchScreenController::layout_standard;
@@ -1795,6 +1923,9 @@ InputMethodProfile_TouchScreen::InputMethodProfile_TouchScreen()
         }
     }
 #endif
+
+    // Assign all the defaults to fix the initial state on profile creation
+    OptionChange_Custom(Options::reset_layout);
 }
 
 bool InputMethodProfile_TouchScreen::PollPrimaryButton(ControlsClass c, size_t i)
@@ -1846,6 +1977,11 @@ void InputMethodProfile_TouchScreen::SaveConfig(IniProcessing* ctl)
     ctl->setValue("scale-factor-dpad", this->m_scale_factor_dpad);
     ctl->setValue("scale-factor-buttons", this->m_scale_factor_buttons);
     ctl->setValue("scale-factor-ss-spacing", this->m_scale_factor_ss_spacing);
+    ctl->setValue("offset-dpad-h", this->m_offset_dpad_h);
+    ctl->setValue("offset-dpad-v", this->m_offset_dpad_v);
+    ctl->setValue("offset-buttons-h", this->m_offset_buttons_h);
+    ctl->setValue("offset-buttons-v", this->m_offset_buttons_v);
+    ctl->setValue("offset-ss", this->m_offset_ss);
     ctl->setValue("ui-style", this->m_touchpad_style);
     ctl->setValue("vibration-strength", this->m_feedback_strength);
     ctl->setValue("vibration-length", this->m_feedback_length);
@@ -1864,6 +2000,11 @@ void InputMethodProfile_TouchScreen::LoadConfig(IniProcessing* ctl)
     ctl->read("scale-factor-dpad", this->m_scale_factor_dpad, this->m_default_scale_factor_dpad);
     ctl->read("scale-factor-buttons", this->m_scale_factor_buttons, this->m_default_scale_factor_buttons);
     ctl->read("scale-factor-ss-spacing", this->m_scale_factor_ss_spacing, this->m_default_scale_factor_ss_spacing);
+    ctl->read("offset-dpad-h", this->m_offset_dpad_h, this->m_default_offset_dpad_h);
+    ctl->read("offset-dpad-v", this->m_offset_dpad_v, this->m_default_offset_dpad_v);
+    ctl->read("offset-buttons-h", this->m_offset_buttons_h, this->m_default_offset_buttons_h);
+    ctl->read("offset-buttons-v", this->m_offset_buttons_v, this->m_default_offset_buttons_v);
+    ctl->read("offset-ss", this->m_offset_ss, this->m_default_offset_ss);
     ctl->read("ui-style", this->m_touchpad_style, TouchScreenController::style_actions);
     ctl->read("vibration-strength", this->m_feedback_strength, 0.f);
     ctl->read("vibration-length", this->m_feedback_length, 12);
@@ -1899,6 +2040,21 @@ const char* InputMethodProfile_TouchScreen::GetOptionName_Custom(size_t i)
 
     case Options::scale_factor_ss_spacing:
         return g_controlsStrings.touchscreenOptionSStartSpacing.c_str();
+
+    case Options::offset_dpad_h:
+        return g_controlsStrings.touchscreenOptionOffsetDPadH.c_str();
+
+    case Options::offset_dpad_v:
+        return g_controlsStrings.touchscreenOptionOffsetDPadV.c_str();
+
+    case Options::offset_buttons_h:
+        return g_controlsStrings.touchscreenOptionOffsetButtonsH.c_str();
+
+    case Options::offset_buttons_v:
+        return g_controlsStrings.touchscreenOptionOffsetButtonsV.c_str();
+
+    case Options::offset_ss:
+        return g_controlsStrings.touchscreenOptionOffsetSStart.c_str();
 
     case Options::reset_layout:
         return g_controlsStrings.touchscreenOptionResetLayout.c_str();
@@ -1964,6 +2120,26 @@ const char* InputMethodProfile_TouchScreen::GetOptionValue_Custom(size_t i)
         SDL_snprintf(length_buf, 8, "%d%%", this->m_scale_factor_ss_spacing);
         return length_buf;
 
+    case Options::offset_dpad_h:
+        SDL_snprintf(length_buf, 8, "%d", this->m_offset_dpad_h);
+        return length_buf;
+
+    case Options::offset_dpad_v:
+        SDL_snprintf(length_buf, 8, "%d", this->m_offset_dpad_v);
+        return length_buf;
+
+    case Options::offset_buttons_h:
+        SDL_snprintf(length_buf, 8, "%d", this->m_offset_buttons_h);
+        return length_buf;
+
+    case Options::offset_buttons_v:
+        SDL_snprintf(length_buf, 8, "%d", this->m_offset_buttons_v);
+        return length_buf;
+
+    case Options::offset_ss:
+        SDL_snprintf(length_buf, 8, "%d", this->m_offset_ss);
+        return length_buf;
+
     case Options::style:
         if(this->m_touchpad_style == TouchScreenController::style_actions)
             return g_controlsStrings.touchscreenStyleActions.c_str();
@@ -2017,6 +2193,11 @@ bool InputMethodProfile_TouchScreen::OptionChange_Custom(size_t i)
         this->m_scale_factor_dpad = this->m_default_scale_factor_dpad;
         this->m_scale_factor_buttons = this->m_default_scale_factor_buttons;
         this->m_scale_factor_ss_spacing = this->m_default_scale_factor_ss_spacing;
+        this->m_offset_dpad_h = this->m_default_offset_dpad_h;
+        this->m_offset_dpad_v = this->m_default_offset_dpad_v;
+        this->m_offset_buttons_h = this->m_default_offset_buttons_h;
+        this->m_offset_buttons_v = this->m_default_offset_buttons_v;
+        this->m_offset_ss = this->m_default_offset_ss;
         return true;
 
     default:
@@ -2068,6 +2249,51 @@ bool InputMethodProfile_TouchScreen::OptionRotateLeft_Custom(size_t i)
         if(this->m_scale_factor_ss_spacing > 20)
         {
             this->m_scale_factor_ss_spacing -= 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_dpad_h:
+        if(this->m_offset_dpad_h > 0)
+        {
+            this->m_offset_dpad_h -= 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_dpad_v:
+        if(this->m_offset_dpad_v > 0)
+        {
+            this->m_offset_dpad_v -= 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_buttons_h:
+        if(this->m_offset_buttons_h > 0)
+        {
+            this->m_offset_buttons_h -= 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_buttons_v:
+        if(this->m_offset_buttons_v > 0)
+        {
+            this->m_offset_buttons_v -= 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_ss:
+        if(this->m_offset_ss > 0)
+        {
+            this->m_offset_ss -= 5;
             return true;
         }
         else
@@ -2155,6 +2381,51 @@ bool InputMethodProfile_TouchScreen::OptionRotateRight_Custom(size_t i)
         if(this->m_scale_factor_ss_spacing < 110)
         {
             this->m_scale_factor_ss_spacing += 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_dpad_h:
+        if(this->m_offset_dpad_h < 500)
+        {
+            this->m_offset_dpad_h += 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_dpad_v:
+        if(this->m_offset_dpad_v < 500)
+        {
+            this->m_offset_dpad_v += 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_buttons_h:
+        if(this->m_offset_buttons_h < 500)
+        {
+            this->m_offset_buttons_h += 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_buttons_v:
+        if(this->m_offset_buttons_v < 500)
+        {
+            this->m_offset_buttons_v += 5;
+            return true;
+        }
+        else
+            return false;
+
+    case Options::offset_ss:
+        if(this->m_offset_ss < 500)
+        {
+            this->m_offset_ss += 5;
             return true;
         }
         else

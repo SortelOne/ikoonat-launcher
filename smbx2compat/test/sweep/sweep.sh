@@ -7,7 +7,7 @@
 # SWEEP_QUALITY=1|2|3 plays SMATRS at Low/Medium/High graphics (sweep.lua).
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
-D=$REPO/../TheXTech-data
+D=${XTECH_DATA:-$REPO/../TheXTech-data}
 OUT=$1; SECS=$2; shift 2
 mkdir -p "$OUT"
 for L in "$@"; do

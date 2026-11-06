@@ -40,6 +40,7 @@
 
 #include "globals.h"
 #include "game_main.h"
+#include "main/game_save.h"
 #include "sound.h"
 #include "gfx.h"
 #include "config.h"
@@ -54,6 +55,7 @@
 #include "main/menu_main.h"
 #include "main/screen_options.h"
 #include "main/screen_quickreconnect.h"
+#include "main/screen_connect.h"
 #include "main/screen_library.h"
 #include "main/episode_library.h"
 #include "main/smbx2_mode.h"
@@ -527,10 +529,10 @@ static void s_startEpisode(Card &c, int slot)
     int ch1 = s_charAllowed(c.lib.character) ? c.lib.character : s_nextChar(c.lib.character, 1);
     int ch2 = s_nextChar(ch1, 1);
 
-    l_screen->charSelect = {};
-    l_screen->charSelect[0] = (uint8_t)ch1;
+    ConnectScreen::g_charSelect = {};
+    ConnectScreen::g_charSelect[0] = (uint8_t)ch1;
     if(players == 2)
-        l_screen->charSelect[1] = (uint8_t)ch2;
+        ConnectScreen::g_charSelect[1] = (uint8_t)ch2;
 
     numPlayers = players;
 
@@ -542,7 +544,7 @@ static void s_startEpisode(Card &c, int slot)
         QuickReconnectScreen::g_active = true;
     }
 
-    XMessage::g_session.init_char_select = l_screen->charSelect;
+    XMessage::g_session.init_char_select = ConnectScreen::g_charSelect;
 
     c.lib.lastSlot = slot;
     Library_set(c.key, c.lib);

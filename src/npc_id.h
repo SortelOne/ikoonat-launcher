@@ -373,14 +373,20 @@ enum NPCID : vbint_t
     NPCID_RESERVED_300 = 300,
 
     // TheXTech-exclusive NPCs
-    // smbx2compat: moved past SMBX2's 1000 NPC IDs (SMBX2's 301-306 are other NPCs).
-    // Level files and graphics still call them 301-306 (smbx2_ids.h).
+    // smbx2compat: moved past SMBX2's 1000 NPC IDs (SMBX2's 301-312 are other NPCs).
+    // Level files and graphics still call them 301-312 (smbx2_ids.h).
     NPCID_INVINCIBILITY_POWER = 1001,
     NPCID_AQUATIC_POWER = 1002,
     NPCID_POLAR_POWER = 1003,
     NPCID_CYCLONE_POWER = 1004,
     NPCID_SHELL_POWER = 1005,
     NPCID_FLAG_EXIT = 1006,
+    NPCID_TINY_POWER = 1007,
+    NPCID_HOMING_CANNON = 1008,
+    NPCID_HOMING_BULLET = 1009,
+    NPCID_TINY_COIN = 1010,
+    NPCID_RED_SPRING = 1011,
+    NPCID_TRANSPARENT_AXE = 1012,
 };
 
 

@@ -56,6 +56,8 @@ static bool s_exportSingleSaveInfo(saveLevelInfo& s, const LevelSaveInfo_t& info
         s.medals_best[i] = (info.medals_best & (1 << i));
     }
 
+    s.fails = info.fails;
+
     return true;
 }
 
@@ -93,6 +95,8 @@ static bool s_importSingleSaveInfo(LevelSaveInfo_t& info, const saveLevelInfo& s
             info.medals_best |= (1 << i);
     }
 
+    info.fails = s.fails;
+
     return true;
 }
 
@@ -100,14 +104,9 @@ void ImportLevelSaveInfo(const GamesaveData& s)
 {
     // reset all world levels' save info
     for(int A = 1; A <= numWorldLevels; A++)
-    {
-        if(WorldLevel[A].FileName.empty())
-            continue;
+        WorldLevel[A].save_info_idx = 0xFFFF;
 
-        WorldLevel[A].save_info = LevelSaveInfo_t();
-    }
-
-    LevelWarpSaveEntries.clear();
+    LevelSaveEntries.clear();
 
     for(const saveLevelInfo& e : s.levelInfo)
     {
@@ -118,33 +117,24 @@ void ImportLevelSaveInfo(const GamesaveData& s)
 
         D_pLogDebug("Loaded save info (stars %d, medals %d - got %x, best %x) for level [%s]", (int)info.max_stars, (int)info.max_medals, (int)info.medals_got, (int)info.medals_best, e.level_filename.c_str());
 
-        // see if it applies to a world level
-        bool worldLevelHit = false;
+        // see if it is a duplicate
+        bool is_duplicate = false;
 
-        for(int A = 1; A <= numWorldLevels; A++)
+        for(auto& ent : LevelSaveEntries)
         {
-            WorldLevel_t& l = WorldLevel[A];
-
-            // can skip the string comparison if the level has already been initialized and we are no longer checking whether this save info has any level
-            if(l.save_info.inited() && worldLevelHit)
-                continue;
-
-            if(l.FileName == e.level_filename)
+            if(ent.levelPath == e.level_filename)
             {
-                // update level save info if not yet initialized
-                if(!l.save_info.inited())
-                    l.save_info = info;
-
-                // mark save info as paired with a level
-                worldLevelHit = true;
-
-                // don't break, in case another level has the same filename
+                is_duplicate = true;
+                // update fails counter
+                if(e.fails > ent.save_info.fails)
+                    ent.save_info.fails = e.fails;
+                break;
             }
         }
 
-        // otherwise, add a new level warp save entry
-        if(!worldLevelHit)
-            LevelWarpSaveEntries.push_back(LevelWarpSaveEntry_t{e.level_filename, info});
+        // otherwise, add a new level save entry
+        if(!is_duplicate)
+            LevelSaveEntries.push_back(LevelSaveEntry_t{e.level_filename, info});
     }
 }
 
@@ -152,16 +142,7 @@ void ExportLevelSaveInfo(GamesaveData& s)
 {
     saveLevelInfo tempInfo;
 
-    for(int A = 1; A <= numWorldLevels; A++)
-    {
-        if(s_exportSingleSaveInfo(tempInfo, WorldLevel[A].save_info))
-        {
-            tempInfo.level_filename = WorldLevel[A].FileName;
-            s.levelInfo.push_back(tempInfo);
-        }
-    }
-
-    for(const auto& e : LevelWarpSaveEntries)
+    for(const auto& e : LevelSaveEntries)
     {
         if(s_exportSingleSaveInfo(tempInfo, e.save_info))
         {
@@ -193,11 +174,7 @@ void SaveInfoInit::on_error()
         *target = LevelSaveInfo_t();
 }
 
-#ifdef PGEFL_CALLBACK_API
 void SaveInfoInit::check_head(const LevelHead& head)
-#else
-void SaveInfoInit::check_head(const LevelData& head)
-#endif
 {
     if(!target)
         return;
@@ -249,8 +226,6 @@ void SaveInfoInit::check_npc(const LevelNPC& npc)
     }
 }
 
-#ifdef PGEFL_CALLBACK_API
-
 static void InitLevelSaveInfo_on_error(void* userdata, FileFormatsError& e)
 {
     SaveInfoInit& si = *static_cast<SaveInfoInit*>(userdata);
@@ -301,34 +276,13 @@ LevelSaveInfo_t InitLevelSaveInfo(const std::string& fullPath, LevelData&)
     return ret;
 }
 
-#else // #ifdef PGEFL_CALLBACK_API
-LevelSaveInfo_t InitLevelSaveInfo(const LevelData& loadedLevel)
+LevelSaveInfo_t* CurSaveInfo()
 {
-    LevelSaveInfo_t ret;
-
-    SaveInfoInit si;
-    si.begin(&ret);
-
-    si.check_head(loadedLevel);
-
-    for(const auto& n : loadedLevel.npc)
-        si.check_npc(n);
-
-    return ret;
-}
-
-LevelSaveInfo_t InitLevelSaveInfo(const std::string& fullPath, LevelData& tempData)
-{
-    if(!FileFormats::OpenLevelFile(fullPath, tempData))
+    for(auto& e : LevelSaveEntries)
     {
-        pLogWarning("During save info init: failed to load [%s]", fullPath.c_str());
-        return LevelSaveInfo_t();
+        if(e.levelPath == FileNameFull)
+            return &e.save_info;
     }
 
-    auto ret = InitLevelSaveInfo(tempData);
-
-    pLogDebug("Initing level save data at [%s] with %d stars and %d medals", fullPath.c_str(), (int)ret.max_stars, (int)ret.max_medals);
-
-    return ret;
+    return nullptr;
 }
-#endif // #else // #ifdef PGEFL_CALLBACK_API

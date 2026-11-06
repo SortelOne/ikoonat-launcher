@@ -27,6 +27,10 @@
 #include "message.h"
 #include "main/client.h"
 
+#ifdef __WII__
+#include "network.h"
+#endif
+
 static constexpr bool max_debug = false;
 
 namespace XMessage
@@ -271,6 +275,19 @@ void NetworkClient::Connect(const char* host, int port)
 {
     Disconnect();
 
+#if defined(__WII__)
+    if(!net_gethostip())
+    {
+        char localip[16] = {0};
+        char gateway[16] = {0};
+        char netmask[16] = {0};
+
+        // Configure the network interface
+        int if_ret = if_config( localip, netmask, gateway, true, 20);
+        pLogInfo("Wii network init: %d %s", if_ret, localip);
+    }
+#endif
+
     IPaddress addr;
     if(SDLNet_ResolveHost(&addr, host, port) != 0)
         return;
@@ -387,7 +404,7 @@ void NetworkClient::SyncData()
         return;
 
     auto session_access = get_session_access();
-    if(!session_access)
+    if(!session_access || !g_session.active)
         return;
 
     // checks if there was a new frame on the main thread's side
@@ -623,10 +640,11 @@ void NetworkClient::ReceiveData()
 
                 if(acked_frame >= ping_send_frame && ping_send_frame != 0)
                 {
-                    latency_ms = SDL_GetTicks() - ping_send_ms;
-                    latency_frames = temp_state.current_frame - ping_send_frame;
+                    status.latency_ms = SDL_GetTicks() - ping_send_ms;
+                    status.latency_frames = temp_state.current_frame - ping_send_frame;
+                    status.udp_active = true;
                     ping_send_frame = 0;
-                    pLogDebug("UDP latency: %u ms, %d ticks", latency_ms, latency_frames);
+                    push_status();
                 }
                 break;
             case(XMessage::Type::frame_end):
@@ -701,56 +719,59 @@ void NetworkClient::client_loop()
         if(status_req.client_state != status.client_state)
         {
             // always shift through lobby (in the future...)
-            if(status.client_state != CLIENT_LOBBY && status.client_state != CLIENT_SESSION_CONFIG && status.client_state != CLIENT_HOST_IDLE)
+            if(status.client_state != CLIENT_LOBBY && status.client_state != CLIENT_SESSION_CONFIG && !(status.client_state == CLIENT_HOST_IDLE && status_req.client_state == CLIENT_HOST))
             {
-                // request leave room, mark as pending
+                Disconnect();
+                if(status_req.client_state == CLIENT_LOBBY)
+                    Connect(status_req.server_address.c_str(), status_req.server_port);
                 return;
             }
 
-            if(status.client_state == CLIENT_SESSION_CONFIG || status.client_state == CLIENT_HOST_IDLE)
+            if(status_req.client_state == CLIENT_GUEST && status.client_state == CLIENT_SESSION_CONFIG)
             {
-                if(status_req.client_state == CLIENT_GUEST && status.client_state == CLIENT_SESSION_CONFIG)
+                std::array<uint8_t, 1> to_send =
                 {
-                    std::array<uint8_t, 1> to_send =
+                    HEADER_GET_SESSION,
+                };
+
+                SDLNet_TCP_Send(tcp_control.socket, to_send.data(), to_send.size());
+            }
+            else if(status_req.client_state == CLIENT_HOST && status.client_state == CLIENT_HOST_IDLE)
+            {
+                MutexSent session_access = get_session_access();
+
+                if(session_access)
+                {
+                    uint32_t session_size = 10 + g_session.save_data.size();
+                    uint32_t current_frame = g_session.current_frame;
+                    uint32_t history_size = g_session.history.size() * 4;
+
+                    temp_state.remote_frame = current_frame;
+                    temp_state.available_frame = current_frame;
+
+                    // encode session here
+                    std::array<uint8_t, 22> to_send_a =
                     {
-                        HEADER_GET_SESSION,
+                        HEADER_PUT_SESSION,
+                        uint8_t(current_frame >> 16), uint8_t(current_frame >> 8), uint8_t(current_frame >> 0),
+                        uint8_t(session_size >> 24), uint8_t(session_size >> 16), uint8_t(session_size >> 8), uint8_t(session_size >> 0),
+                        uint8_t(history_size >> 24), uint8_t(history_size >> 16), uint8_t(history_size >> 8), uint8_t(history_size >> 0),
+                        uint8_t(g_session.random_seed  >> 24), uint8_t(g_session.random_seed  >> 16), uint8_t(g_session.random_seed  >> 8), uint8_t(g_session.random_seed  >> 0),
+                        g_session.init_char_select[0], g_session.init_char_select[1], g_session.init_char_select[2], g_session.init_char_select[3],
+                        g_session.save_present, g_session.init_save_configs,
                     };
 
-                    SDLNet_TCP_Send(tcp_control.socket, to_send.data(), to_send.size());
+                    // FIXME: blocking while lock is held
+                    SDLNet_TCP_Send(tcp_control.socket, to_send_a.data(), to_send_a.size());
+                    SDLNet_TCP_Send(tcp_control.socket, g_session.save_data.data(), g_session.save_data.size());
+                    SDLNet_TCP_Send(tcp_control.socket, g_session.history.data(), history_size);
+
+                    pLogDebug("Activating hosting, sending session to server (frame %d, save size %d, history size %d)...", (int)current_frame, (int)g_session.save_data.size(), (int)(g_session.history.size() * 4));
                 }
-                else if(status_req.client_state == CLIENT_HOST && status.client_state == CLIENT_HOST_IDLE)
+                else
                 {
-                    MutexSent session_access = get_session_access();
-
-                    if(session_access)
-                    {
-                        uint32_t session_size = 9 + g_session.save_data.size();
-                        uint32_t current_frame = g_session.current_frame;
-                        uint32_t history_size = g_session.history.size() * 4;
-
-                        temp_state.remote_frame = current_frame;
-
-                        // encode session here
-                        std::array<uint8_t, 21> to_send_a =
-                        {
-                            HEADER_PUT_SESSION,
-                            uint8_t(current_frame >> 16), uint8_t(current_frame >> 8), uint8_t(current_frame >> 0),
-                            uint8_t(session_size >> 24), uint8_t(session_size >> 16), uint8_t(session_size >> 8), uint8_t(session_size >> 0),
-                            uint8_t(history_size >> 24), uint8_t(history_size >> 16), uint8_t(history_size >> 8), uint8_t(history_size >> 0),
-                            uint8_t(g_session.random_seed  >> 24), uint8_t(g_session.random_seed  >> 16), uint8_t(g_session.random_seed  >> 8), uint8_t(g_session.random_seed  >> 0),
-                            g_session.init_char_select[0], g_session.init_char_select[1], g_session.init_char_select[2], g_session.init_char_select[3],
-                            g_session.save_present
-                        };
-
-                        // FIXME: blocking while lock is held
-                        SDLNet_TCP_Send(tcp_control.socket, to_send_a.data(), to_send_a.size());
-                        SDLNet_TCP_Send(tcp_control.socket, g_session.save_data.data(), g_session.save_data.size());
-                        SDLNet_TCP_Send(tcp_control.socket, g_session.history.data(), history_size);
-
-                        pLogDebug("Activating hosting, sending session to server (frame %d, save size %d, history size %d)...", (int)current_frame, (int)g_session.save_data.size(), (int)(g_session.history.size() * 4));
-                    }
-                    else
-                        Disconnect();
+                    Disconnect();
+                    return;
                 }
             }
             else if(status_req.client_state == CLIENT_GUEST)
@@ -900,6 +921,10 @@ void NetworkClient::client_loop()
             temp_state.available_frame = -1;
             temp_state.new_history.clear();
 
+            acked_frame = -1;
+            ping_send_frame = 0;
+            ping_send_ms = 0;
+
             pLogInfo("NetPlay: joining room %s", DisplayRoom(status.room_info.room_key).room_name);
 
             if(status_req.client_state == CLIENT_HOST || status_req.client_state == CLIENT_HOST_IDLE)
@@ -924,10 +949,8 @@ void NetworkClient::client_loop()
 
             if(status_req_in_progress == REQUEST_PENDING && (status.client_state == CLIENT_SESSION_CONFIG || status.client_state == CLIENT_HOST_IDLE))
             {
-                temp_state.available_frame = temp_state.remote_frame;
-
                 status.client_state = CLIENT_HOST;
-                pLogDebug("Hosting begun. The random seed is %d.", (int)g_session.random_seed);
+                pLogDebug("Hosting begun. The random seed is %d, and the init save configs are %d.", (int)g_session.random_seed, (int)g_session.init_save_configs);
                 push_completed_request();
             }
             else
@@ -945,11 +968,11 @@ void NetworkClient::client_loop()
             tcp_control.ShiftBuffer(8);
 
             // decode session here
-            if(session_size < 9 || session_size > 2048000)
+            if(session_size < 10 || session_size > 2048000)
                 Disconnect();
 
             // FIXME: not NB, should be checking for cancel
-            if(!tcp_control.FillBufferTo(9))
+            if(!tcp_control.FillBufferTo(10))
                 Disconnect();
 
             if(status_req_in_progress == REQUEST_PENDING && status.client_state == CLIENT_SESSION_CONFIG)
@@ -963,8 +986,9 @@ void NetworkClient::client_loop()
                     g_session.init_char_select[2] = tcp_control.buffer[6];
                     g_session.init_char_select[3] = tcp_control.buffer[7];
                     g_session.save_present = tcp_control.buffer[8];
+                    g_session.init_save_configs = tcp_control.buffer[9];
 
-                    session_size -= 9;
+                    session_size -= 10;
 
                     // FIXME: may throw
                     g_session.save_data.resize(session_size);
@@ -977,7 +1001,7 @@ void NetworkClient::client_loop()
 
                 session_access.release();
 
-                tcp_control.ShiftBuffer(9);
+                tcp_control.ShiftBuffer(10);
 
                 // yes, we're accessing this memory directly, because we know exactly where this gets called from
                 char* dest = &g_session.save_data[0];
@@ -1003,7 +1027,7 @@ void NetworkClient::client_loop()
                 if(session_size == 0)
                 {
                     status.client_state = CLIENT_GUEST;
-                    pLogDebug("The random seed is %d", (int)g_session.random_seed);
+                    pLogDebug("Client session begun. The random seed is %d, and the init save configs are %d.", (int)g_session.random_seed, (int)g_session.init_save_configs);
                     push_completed_request();
                 }
             }
@@ -1022,10 +1046,11 @@ void NetworkClient::client_loop()
 
             if(acked_frame >= ping_send_frame && ping_send_frame != 0)
             {
-                latency_ms = SDL_GetTicks() - ping_send_ms;
-                latency_frames = temp_state.current_frame - ping_send_frame;
+                status.latency_ms = SDL_GetTicks() - ping_send_ms;
+                status.latency_frames = temp_state.current_frame - ping_send_frame;
+                status.udp_active = false;
                 ping_send_frame = 0;
-                pLogDebug("TCP latency: %u ms, %d ticks", latency_ms, latency_frames);
+                push_status();
             }
 
             tcp_control.ShiftBuffer(4);

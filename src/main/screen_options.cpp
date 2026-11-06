@@ -48,6 +48,10 @@
 #include "control/controls_methods.h" // to cancel keyboard's double-click fullscreen
 #include "message.h"
 
+#ifdef THEXTECH_ENABLE_SDL_NET
+#include "main/client_methods.h" // g_hideNetplay (will become outdated)
+#endif
+
 namespace OptionsScreen
 {
 
@@ -80,6 +84,7 @@ size_t cur_scroll = 0;
 int8_t mouse_scroll_cooldown = -1;
 bool controls_ready = false;
 bool cur_item_changed = false;
+static bool s_pending_change_item = false;
 
 bool global_dirty = false;
 
@@ -266,6 +271,11 @@ void RefreshVisibleItems()
 
             if(g_options.m_options[i] == &g_options.compat && !g_CheatEditYourFriends)
                 continue;
+
+#ifdef THEXTECH_ENABLE_SDL_NET
+            if(g_options.m_options[i] == &g_options.network && (g_hideNetplay && !g_config.netplay_enable))
+                continue;
+#endif
 
             if(g_options.m_options[i]->m_scope & current_scope)
                 visible_items.push_back(i);
@@ -454,8 +464,9 @@ void Do()
         }
         else if(opt && opt->change())
         {
-            s_change_item();
             PlaySoundMenu(SFX_Do);
+            // defer update because (for strings) we go through a text entry screen here
+            s_pending_change_item = true;
         }
         else
         {
@@ -577,7 +588,7 @@ bool Back()
 
         s_switch_item();
 
-        int last_section = section_index;
+        int last_section = (int)section_index;
 
         section_index = SECTION_NONE;
         cur_scroll = 0;
@@ -702,7 +713,7 @@ bool Mouse_Render(bool mouse, bool render)
             return false;
 
         int cur_mouse_line = ((int)SharedCursor.Y - sY) / line;
-        int cur_mouse_item = cur_scroll + cur_mouse_line - first_display_row;
+        int cur_mouse_item = (int)(cur_scroll + cur_mouse_line - first_display_row);
 
         if(SharedCursor.Primary && cur_mouse_item == (int)cur_item && MenuMouseRelease)
         {
@@ -788,7 +799,7 @@ bool Mouse_Render(bool mouse, bool render)
     SuperPrintScreenCenter(s_temp_string, 3, sY);
 
     // locate the cursor
-    int cur_item_row = cur_item - cur_scroll;
+    int cur_item_row = (int)(cur_item - cur_scroll);
 
     // handle forced scrolling
     if(cur_item_row < 1 && cur_scroll > 0)
@@ -978,6 +989,12 @@ void Render()
 
 bool Logic()
 {
+    if(s_pending_change_item)
+    {
+        s_change_item();
+        s_pending_change_item = false;
+    }
+
     size_t num_items = get_num_items();
 
     MenuControls_t menuControls = Controls::GetMenuControls();

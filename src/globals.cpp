@@ -48,7 +48,7 @@ std::string EoT;
 
 std::string Checkpoint;
 std::vector<Checkpoint_t> CheckpointsList;
-std::vector<LevelWarpSaveEntry_t> LevelWarpSaveEntries;
+std::vector<LevelSaveEntry_t> LevelSaveEntries;
 bool MagicHand = false;
 RangeArr<Player_t, 1, maxLocalPlayers> testPlayer;
 bool ClearBuffer = false;
@@ -247,13 +247,17 @@ RangeArrI<vbint_t, 1, maxBlockType, 0> BlockFrame2;
 // int sBlockNum = 0;
 
 RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame;
-RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame2;
+// RangeArrI<vbint_t, 1, maxSceneType, 0> SceneFrame2;
 RangeArrI<vbint_t, 1, maxTileType, 0> TileWidth;
 RangeArrI<vbint_t, 1, maxTileType, 0> TileHeight;
 RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame;
-RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame2;
+// RangeArrI<vbint_t, 1, maxTileType, 0> TileFrame2;
 RangeArrI<vbint_t, 1, 100, 0> LevelFrame;
-RangeArrI<vbint_t, 1, 100, 0> LevelFrame2;
+// RangeArrI<vbint_t, 1, 100, 0> LevelFrame2;
+
+// NEW: replaces previous redundant frames
+RangeArrI<vbint_t, 1, 4, 0> WorldFrame;
+
 RangeArrI<bool, 1, maxBlockType, false> BlockHasNoMask;
 // RangeArrI<bool, 1, 100, false> LevelHasNoMask;
 RangeArrI<bool, 0, maxBlockType, false> BlockOnlyHitspot1;
@@ -298,6 +302,9 @@ std::string FileNameFullWorld;
 std::string FileNamePathWorld;
 int FileFormatWorld = 0;
 
+bool LevelTargetsEngine = false;
+bool WorldTargetsEngine = false;
+
 bool IsEpisodeIntro = false;
 bool IsHubLevel = false;
 int Coins = 0;
@@ -309,6 +316,7 @@ bool LevelSelect = false;
 bool LevelRestartRequested = false;
 RangeArr<WorldPlayer_t, 0, 1> WorldPlayer;
 LevelBeatCode_t LevelBeatCode = BEATCODE_NONE;
+bool QuitToWorldMap = false;
 int curWorldLevel = 0;
 int curWorldMusic = 0;
 std::string curWorldMusicFile;
@@ -324,7 +332,6 @@ int selWorld = 0;
 int selSave = 0;
 int PSwitchTime = 0;
 int PSwitchStop = 0;
-int InvincibilityTime = 0;
 int PSwitchPlayer = 0;
 
 RangeArr<SaveSlotInfo_t, 1, maxSaveSlots> SaveSlotInfo;
@@ -413,7 +420,7 @@ RangeArr<StdPicture, 0, maxNPCType> GFXNPCBMP;
 //RangeArr<StdPicture, 0, maxNPCType> GFXNPCMaskBMP;
 // RangeArrI<int, 1, maxNPCType, 0> GFXNPCHeight;
 // RangeArrI<int, 1, maxNPCType, 0> GFXNPCWidth;
-RangeArrI<bool, 1, maxEffectType, false> GFXEffectCustom;
+// RangeArrI<bool, 1, maxEffectType, false> GFXEffectCustom;
 //RangeArrI<long, 1, maxEffectType, 0> GFXEffect;
 //RangeArrI<long, 1, maxEffectType, 0> GFXEffectMask;
 RangeArr<StdPicture, 1, maxEffectType> GFXEffectBMP;

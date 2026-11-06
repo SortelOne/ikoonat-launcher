@@ -1591,6 +1591,22 @@ free/reset at level unload; (4) the same soak on the Odin (Android's
   than leaks); worth one run before release. On the Odin: read the memory
   lines in a long session's log.
 
+*To do after the TheXTech merge (Jake asked, 2026-11-06):* repeat the leak
+test on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), the same way
+as above: the soak (1-1, 2-1, 1-4 and 2-7 from the map, four rounds,
+`test/sweep/episode.sh`) comparing the `[smbx2core] memory:` lines with the
+2026-11-06 figures (resident ~280 MB by rounds 3-4, textures ~100-115, GL
+programs 151), then `leaks` on the running Release game. Places the merge
+changed that hold resources: single-file saves keep the save file open
+between saves (`s_open_gamesave` in `game_save.cpp`; `CloseSave`), the
+OpenGL renderer's program list and unloading (`render_gl_frontend.cpp`,
+the new `m_no_tint_program`), the Background2 draw refactor, effect sizes
+read from graphics (`ResetEffectSize`, also run after an episode-mode
+sprite switch), and LevelSaveEntries (world map save info, which our Lua
+world-map helpers now add to). Also play two episodes in a row (SMATRS,
+then The Invasion 2, then SMATRS) so the SMBX/SMBX2 sprite switch is in
+the soak.
+
 ## Risks
 
 - **Scale:** SMATRS leans on almost all of SMBX2. Expect a long tail of

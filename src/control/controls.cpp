@@ -44,6 +44,7 @@
 #include "main/menu_main.h"
 #include "main/translate.h"
 #include "main/game_strings.h"
+#include "main/screen_asset_pack.h"
 #include "../graphics.h"
 #include "../frame_timer.h"
 
@@ -147,9 +148,12 @@ void Hotkeys::Activate(size_t i, int player)
         return;
 
     case Buttons::EnterCheats:
-        l_SharedControls.Pause = true;
-        l_SharedControls.ForcePause = true;
-        PauseScreen::UnlockCheats();
+        if(!GameMenu && !GameOutro && !LevelEditor && !BattleMode && !LoadingInProcess && !ScreenAssetPack::g_LoopActive)
+        {
+            l_SharedControls.Pause = true;
+            l_SharedControls.ForcePause = true;
+            PauseScreen::UnlockCheats();
+        }
         return;
 
     case Buttons::ToggleHUD:
@@ -848,6 +852,9 @@ bool Update(bool check_lost_devices)
     SharedCursor.Tertiary = false;
     SharedCursor.ScrollUp = false;
     SharedCursor.ScrollDown = false;
+#ifndef THEXTECH_NO_SDL_BUILD
+    SharedCursor.Touch = false;
+#endif
     // reset l_SharedControls
     l_SharedControls = SharedControls_t();
 
@@ -924,6 +931,12 @@ bool Update(bool check_lost_devices)
     // sync any messages, and reset player controls to raw controls
     XMessage::Tick();
 
+#ifndef THEXTECH_NO_SDL_BUILD
+    // never warp the system cursor if it was moved this frame
+    if(SharedCursor.SDLCursorMove)
+        SharedCursor.SDLCursorMove = false;
+    else
+#endif
     if(SharedCursor.Move)
     {
         if(SharedCursor.X >= 0 && SharedCursor.Y >= 0)
@@ -1245,7 +1258,7 @@ void RemoveNullInputMethods()
         if(Controls::g_InputMethods[i])
             i++;
         else
-            Controls::DeleteInputMethodSlot(i);
+            Controls::DeleteInputMethodSlot((int)i);
     }
 }
 
@@ -1302,7 +1315,7 @@ MenuControls_t GetMenuControls(int limit_player)
 // player is 1-indexed :(
 void Rumble(int player, int ms, float strength)
 {
-    if(GameMenu || GameOutro)
+    if(GameMenu || GameOutro || XMessage::GetStatus() == XMessage::Status::replay)
         return;
 
     const Screen_t& screen = ScreenByPlayer(player);
@@ -1367,12 +1380,14 @@ StatusInfo GetStatus(int l_player_i)
 }
 
 
-void RenderTouchControls()
-{
 #ifdef TOUCHSCREEN_H
+SDL_FORCE_INLINE InputMethod_TouchScreen* s_getActiveTouchScreen(int *player_no_p = nullptr)
+{
     // only want to render when the touchscreen is in use
-    InputMethod_TouchScreen* active_touchscreen = nullptr;
-    int player_no = 1;
+    InputMethod_TouchScreen* ret = nullptr;
+
+    if(player_no_p)
+        *player_no_p = 1;
 
     for(size_t i = 0; i < g_InputMethods.size(); i++)
     {
@@ -1384,11 +1399,46 @@ void RenderTouchControls()
         auto* m = dynamic_cast<InputMethod_TouchScreen*>(method);
         if(m)
         {
-            active_touchscreen = m;
-            player_no = (int)i + 1;
+            ret = m;
+            if(player_no_p)
+                *player_no_p = (int)i + 1;
             break;
         }
     }
+
+    return ret;
+}
+
+SDL_FORCE_INLINE InputMethodType_TouchScreen* s_getTouchScreenType()
+{
+    InputMethodType_TouchScreen* ret = nullptr;
+
+    for(InputMethodType* type : g_InputMethodTypes)
+    {
+        if(!type)
+            continue;
+
+        auto* t = dynamic_cast<InputMethodType_TouchScreen*>(type);
+
+        if(t)
+        {
+            ret = t;
+            break;
+        }
+    }
+
+    return ret;
+}
+#endif
+
+void RenderTouchControls()
+{
+#ifdef TOUCHSCREEN_H
+    // only want to render when the touchscreen is in use
+    InputMethod_TouchScreen* active_touchscreen = nullptr;
+    int player_no = 1;
+
+    active_touchscreen = s_getActiveTouchScreen(&player_no);
 
     if(!g_renderTouchscreen)
         return;
@@ -1398,20 +1448,7 @@ void RenderTouchControls()
     if(active_touchscreen)
         touchscreen = dynamic_cast<InputMethodType_TouchScreen*>(active_touchscreen->Type);
     else
-    {
-        for(InputMethodType* type : g_InputMethodTypes)
-        {
-            if(!type)
-                continue;
-
-            auto* t = dynamic_cast<InputMethodType_TouchScreen*>(type);
-            if(t)
-            {
-                touchscreen = t;
-                break;
-            }
-        }
-    }
+        touchscreen = s_getTouchScreenType();
 
     if(!touchscreen)
         return;
@@ -1423,21 +1460,7 @@ void RenderTouchControls()
 void UpdateTouchScreenSize()
 {
 #ifdef TOUCHSCREEN_H
-    InputMethodType_TouchScreen* touchscreen = nullptr;
-
-    for(InputMethodType* type : g_InputMethodTypes)
-    {
-        if(!type)
-            continue;
-
-        auto* t = dynamic_cast<InputMethodType_TouchScreen*>(type);
-
-        if(t)
-        {
-            touchscreen = t;
-            break;
-        }
-    }
+    InputMethodType_TouchScreen* touchscreen = s_getTouchScreenType();
 
     if(!touchscreen)
         return;
@@ -1449,21 +1472,7 @@ void UpdateTouchScreenSize()
 void LoadTouchScreenGFX()
 {
 #ifdef TOUCHSCREEN_H
-    InputMethodType_TouchScreen* touchscreen = nullptr;
-
-    for(InputMethodType* type : g_InputMethodTypes)
-    {
-        if(!type)
-            continue;
-
-        auto* t = dynamic_cast<InputMethodType_TouchScreen*>(type);
-
-        if(t)
-        {
-            touchscreen = t;
-            break;
-        }
-    }
+    InputMethodType_TouchScreen* touchscreen = s_getTouchScreenType();
 
     if(!touchscreen)
         return;

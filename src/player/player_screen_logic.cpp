@@ -141,7 +141,7 @@ void PlayerSharedScreenLogic(int A)
         {
             SharedScreenAvoidJump_Pre(screen);
             p.Dead = true;
-            p.Effect2 = 0;
+            p.Effect2 = CheckNearestLiving(A);
             SizeCheck(p);
             SharedScreenAvoidJump_Post(screen, 0);
         }
@@ -154,7 +154,11 @@ void PlayerEffectWings(int A)
     Player_t& p = Player[A];
 
     // check if the player should be moving towards another player or towards the screen
-    int target_plr = CheckNearestLiving(A);
+    int target_plr = p.Effect2;
+    if(!target_plr || Player[target_plr].Dead || Player[target_plr].TimeToLive)
+        target_plr = CheckNearestLiving(A);
+    p.Effect2 = target_plr;
+
     if(target_plr)
         p.Section = Player[target_plr].Section;
 
@@ -266,6 +270,7 @@ void PlayerEffectWings(int A)
 
     // tag other players
     bool found_player = false;
+    bool is_below = false;
     for(int B = 1; B <= numPlayers; B++)
     {
         if(Player[B].Dead || Player[B].TimeToLive != 0 || Player[B].Effect != PLREFF_NORMAL)
@@ -274,12 +279,15 @@ void PlayerEffectWings(int A)
         if(!CheckCollision(Player[A].Location, Player[B].Location))
             continue;
 
+        if(Player[A].Location.Y + Player[A].Location.Height > Player[B].Location.Y + Player[B].Location.Height)
+            is_below = true;
+
         found_player = true;
         break;
     }
 
-    // just collided with player
-    if(found_player && !p.Effect2)
+    // just collided with player (not from below) -- Bumped is used to track old collisions
+    if(found_player && !p.Bumped && !is_below)
     {
         // if we're inside a block, then we can't respawn yet
         bool hit_block = false;
@@ -312,7 +320,7 @@ void PlayerEffectWings(int A)
         }
     }
 
-    p.Effect2 = found_player;
+    p.Bumped = found_player;
 
     if(p.Effect != PLREFF_COOP_WINGS)
     {
@@ -320,6 +328,7 @@ void PlayerEffectWings(int A)
 
         p.Dead = false;
         p.CanJump = false;
+        p.Bumped = false;
         p.Effect2 = 0;
         p.Immune = 50;
         p.Immune2 = false;
@@ -327,6 +336,9 @@ void PlayerEffectWings(int A)
         PlayerFrame(p);
 
         SharedScreenAvoidJump_Post(screen, 0);
+
+        if(screen.Type != ScreenTypes::SharedScreen)
+            vScreenAvoidJump(vScreenByPlayer(A));
     }
 }
 
@@ -506,6 +518,9 @@ void PlayerLevelEdgeCheck(int A, bool check_X)
                 Player[A].Pinched.Moving = 2;
                 Player[A].Pinched.MovingLR = true;
             }
+
+            if(Player[A].CurMazeZone && (Player[A].MazeZoneStatus % 4) == MAZE_DIR_LEFT)
+                Player[A].MazeZoneStatus |= MAZE_PLAYER_FLIP;
         }
         else if(Player[A].Location.X + Player[A].Location.Width > level[Player[A].Section].Width)
         {
@@ -521,6 +536,9 @@ void PlayerLevelEdgeCheck(int A, bool check_X)
                 Player[A].Pinched.Moving = 2;
                 Player[A].Pinched.MovingLR = true;
             }
+
+            if(Player[A].CurMazeZone && (Player[A].MazeZoneStatus % 4) == MAZE_DIR_RIGHT)
+                Player[A].MazeZoneStatus |= MAZE_PLAYER_FLIP;
         }
     }
 
@@ -533,6 +551,9 @@ void PlayerLevelEdgeCheck(int A, bool check_X)
             Player[A].Pinched.Moving = 3;
             Player[A].Pinched.MovingUD = true;
         }
+
+        if(Player[A].CurMazeZone && (Player[A].MazeZoneStatus % 4) == MAZE_DIR_UP)
+            Player[A].MazeZoneStatus |= MAZE_PLAYER_FLIP;
     }
 }
 

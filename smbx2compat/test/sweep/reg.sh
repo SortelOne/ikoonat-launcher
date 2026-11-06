@@ -1,12 +1,13 @@
 #!/bin/sh
 # reg.sh <outdir>: the regression set on the Debug build (XTECH_BUILD to
 # change): the smoke levels, then SMATRS 1-1 and 2-1. Prints each level's
-# OK/WRONG checks, script errors and unknown mem() addresses. Expected:
+# OK/WRONG checks, script errors and unknown mem() addresses (XTECH_DATA as
+# in run-level.sh). Expected:
 # collisiontest 3 OK, actiontest 12, eventtest 24, pausetest 12; errtest 1
 # error and bonus1 2 (on purpose); 1-1 and 2-1 none.
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO=$(cd "$HERE/../../.." && pwd)
-D=$REPO/../TheXTech-data
+D=${XTECH_DATA:-$REPO/../TheXTech-data}
 OUT=$1
 mkdir -p "$OUT"
 EP="$D/userdir/worlds/smbx/SMATRS Chapter 1+2"

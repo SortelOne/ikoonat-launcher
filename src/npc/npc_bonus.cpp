@@ -97,6 +97,9 @@ void DropBonus(int A)
     NPC[numNPCs].Location.Width = NPC[numNPCs]->TWidth;
     NPC[numNPCs].Location.Height = 32;
 
+    if(Player[A].HeldBonus == NPCID_TINY_POWER)
+        NPC[numNPCs].Location.Height = NPC[numNPCs]->THeight;
+
     // need to find a position to place the bonus -- look for ths HUD
     const Screen_t& screen = ScreenByPlayer(A);
     bool is_shared = (screen.player_count > 1) && (screen.Type != 6) && (screen.active_end() == screen.active_begin() + 1);
@@ -182,8 +185,8 @@ void CheckAfterStarTake(bool many)
             {
                 auto &b = Background[d];
                 if(b.Type == 160 &&
-                    (CheckCollision(w.Entrance, b.Location) ||
-                     (w.twoWay && CheckCollision(w.Exit, b.Location)))
+                    (CheckCollision(w.Entrance, b) ||
+                     (w.twoWay && CheckCollision(w.Exit, b)))
                 )
                 {
                     // this makes the background permanently disappear
@@ -232,6 +235,30 @@ void CollectMedal(const NPC_t& medal)
 
     if(!GameMenu && !GameOutro)
         g_curLevelMedals.get(medal.Variant - 1);
+}
+
+// convert a tiny player to small, with appropriate resizes and state changes
+static void s_TinyToSmall(int A)
+{
+    if(Player[A].State != PLR_STATE_TINY)
+        return;
+
+    Player[A].State = PLR_STATE_SMALL;
+    Player[A].HoldingNPC = 0;
+
+    // reset walk on water counter
+    if(!Player[A].Mount)
+        Player[A].MountSpecial = 0;
+
+    // resize width first
+    if(Player[A].Location.Width < Physics.PlayerWidth[Player[A].Character][PLR_STATE_SMALL])
+    {
+        Player[A].Location.set_width_center(Physics.PlayerWidth[Player[A].Character][PLR_STATE_SMALL]);
+        PlayerPush(A, 6); // a new "push X"
+    }
+
+    // now fully resize
+    SizeCheck(Player[A]);
 }
 
 void TouchBonus(int A, int B)
@@ -387,10 +414,14 @@ void TouchBonus(int A, int B)
     {
         RumbleForPowerup(A);
 
+        if(Player[A].State == PLR_STATE_TINY && Player[A].HeldBonus == 0)
+            Player[A].HeldBonus = NPCID_POWER_S3;
+        else if(Player[A].Hearts == 1)
+            Player[A].Hearts = 2;
+
         if(Player[A].State == 1)
             Player[A].State = 2;
-        if(Player[A].Hearts == 1)
-            Player[A].Hearts = 2;
+
         SizeCheck(Player[A]);
 
         PlaySoundSpatial(SFX_Checkpoint, NPC[B].Location);
@@ -406,7 +437,7 @@ void TouchBonus(int A, int B)
     {
         MoreScore(12, NPC[B].Location);
     }
-    else if(NPC[B].Type == NPCID_AXE)
+    else if(NPC[B].Type == NPCID_AXE || NPC[B].Type == NPCID_TRANSPARENT_AXE)
     {
         // go straight to code to kill NPC
     }
@@ -422,7 +453,7 @@ void TouchBonus(int A, int B)
     else if(NPC[B].Type == NPCID_INVINCIBILITY_POWER)
     {
         PSwitchPlayer = A;
-        InvincibilityTime = Physics.NPCPSwitch;
+        Player[A].InvincibilityTime = Physics.NPCPSwitch;
     }
     else if(NPC[B].Type == NPCID_POWER_S3 || NPC[B].Type == NPCID_POWER_S1 || NPC[B].Type == NPCID_POWER_S4 || NPC[B].Type == NPCID_POWER_S2 || NPC[B].Type == NPCID_POWER_S5) // Bonus is a mushroom
     {
@@ -431,7 +462,7 @@ void TouchBonus(int A, int B)
 
         UpdatePlayerBonus(A, NPC[B].Type);
 
-        if(Player[A].State == 1 && Player[A].Character != 5)
+        if((Player[A].State == 1 && Player[A].Character != 5) || Player[A].State == PLR_STATE_TINY)
         {
             RumbleForPowerup(A);
 
@@ -445,6 +476,8 @@ void TouchBonus(int A, int B)
             if(g_config.fix_player_grab_clip && Player[A].Character >= 3)
                 Player[A].GrabTime = 0;
 
+            s_TinyToSmall(A);
+
             UnDuck(Player[A]);
 
             Player[A].GrabTime = BackupGrabTime;
@@ -453,11 +486,14 @@ void TouchBonus(int A, int B)
             Player[A].Frame = 1;
             Player[A].Effect = PLREFF_TURN_BIG;
 
+            if(Player[A].Character == 5)
+                Player[A].Effect = (PlayerEffect)(PLREFF_TURN_TO_STATE + PLR_STATE_BIG);
+
             // Duck already unset above
             // if(Player[A].Mount > 0)
             //     UnDuck(Player[A]);
 
-            PlaySoundSpatial(SFX_PlayerGrow, NPC[B].Location);
+            PlaySoundSpatial(sfx_grow_item, NPC[B].Location);
         }
         else if(NPC[B].Type == NPCID_POWER_S5)
             PlaySoundSpatial(SFX_HeroHeart, NPC[B].Location);
@@ -472,7 +508,8 @@ void TouchBonus(int A, int B)
         || NPC[B].Type == NPCID_ICE_POWER_S3 || NPC[B].Type == NPCID_ICE_POWER_S4
         || NPC[B].Type == NPCID_LEAF_POWER || NPC[B].Type == NPCID_STATUE_POWER || NPC[B].Type == NPCID_HEAVY_POWER
         || NPC[B].Type == NPCID_AQUATIC_POWER || NPC[B].Type == NPCID_POLAR_POWER
-        || NPC[B].Type == NPCID_CYCLONE_POWER || NPC[B].Type == NPCID_SHELL_POWER)
+        || NPC[B].Type == NPCID_CYCLONE_POWER || NPC[B].Type == NPCID_SHELL_POWER
+        || NPC[B].Type == NPCID_TINY_POWER)
     {
         int target_state = PLR_STATE_BIG;
         PlayerEffect target_effect = PLREFF_TURN_TO_STATE;
@@ -516,12 +553,16 @@ void TouchBonus(int A, int B)
             target_state = PLR_STATE_POLAR;
         else if(NPC[B].Type == NPCID_SHELL_POWER)
             target_state = PLR_STATE_SHELL;
+        else if(NPC[B].Type == NPCID_TINY_POWER)
+            target_state = PLR_STATE_TINY;
 
         UpdatePlayerBonus(A, NPC[B].Type);
         Player[A].StateNPC = NPC[B].Type;
 
         if(Player[A].State != target_state)
         {
+            s_TinyToSmall(A);
+
             RumbleForPowerup(A);
 
             // fixes a vanilla downwards clip that happens even if the player is just ducking (not even digging)

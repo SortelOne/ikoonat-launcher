@@ -26,15 +26,17 @@
 #include "globals.h"
 #include "sound.h"
 #include "change_res.h"
+#include "config.h"
 
 #include "core/events.h"
 
 #include "main/client.h"
 #include "main/client_methods.h"
 #include "main/screen_progress.h"
+#include "main/menu_main.h"
+#include "main/asset_pack.h"
 
-std::string g_netplayServer = "thextech.link";
-std::string g_netplayNickname;
+bool g_hideNetplay = true;
 
 namespace XMessage
 {
@@ -45,6 +47,8 @@ static NetworkClient s_network_client;
 static bool s_in_fast_forward = false;
 static uint32_t s_fast_forward_begin_ms = 0;
 static uint32_t s_fast_forward_begin_frame = 0;
+
+static std::array<uint8_t, maxLocalPlayers> s_client_char_select;
 
 void GameThread::push_status_req()
 {
@@ -110,20 +114,63 @@ void Connect(const char* host)
 {
     s_game_thread.status_req = ClientStatus();
     s_game_thread.status_req.client_state = CLIENT_LOBBY;
-    s_game_thread.status_req.server_address = (host) ? host : g_netplayServer;
+    s_game_thread.status_req.server_address = (host) ? host : g_config.netplay_server.m_value;
 
     s_game_thread.push_status_req();
 }
 
 void Disconnect()
 {
+    bool was_netplay = (GetStatus() != Status::local);
+
     s_game_thread.status_req = ClientStatus();
     s_game_thread.push_status_req();
+
+    // deactivate Netplay-related settings
+    if(was_netplay)
+        UpdateConfig();
+}
+
+void SyncReqStatus()
+{
+    bool cur_guest = (s_game_thread.status_req.client_state == CLIENT_GUEST && g_session.active);
+    if(cur_guest)
+        return;
+
+    bool cur_host = (s_game_thread.status_req.client_state == CLIENT_HOST);
+
+    s_game_thread.status_req = ClientStatus();
+
+    if(g_config.netplay_enable)
+    {
+        if(cur_host)
+            s_game_thread.status_req.server_address = s_game_thread.status.server_address;
+        else
+            s_game_thread.status_req.server_address = g_config.netplay_server.m_value;
+
+        if(!g_session.active || !XT_episodeHash())
+            s_game_thread.status_req.client_state = CLIENT_LOBBY;
+        else
+        {
+            s_game_thread.status_req.client_state = (cur_host) ? CLIENT_HOST : CLIENT_HOST_IDLE;
+
+            XMessage::RoomInfo room_info = XMessage::RoomInfo();
+            room_info.engine_hash = XT_engineHash();
+            room_info.asset_hash = XT_assetPackHash();
+            room_info.content_hash = XT_episodeHash();
+
+            s_game_thread.status_req.room_info = room_info;
+        }
+    }
+
+    s_game_thread.push_status_req();
+    // need to figure out how to safely UpdateConfig when we suddenly disconnect
 }
 
 void NetStartup()
 {
     s_network_client.Startup();
+    SyncReqStatus();
 }
 
 void NetShutdown()
@@ -236,6 +283,18 @@ void ClientFrameSync(std::vector<Message>& submit_buffer, std::vector<Message>& 
             UpdateMusicVolume();
             // update current resolution (may need to resync screen size)
             UpdateInternalRes();
+
+            // add players from char select
+            for(int i = 0; i < maxLocalPlayers; i++)
+            {
+                if(s_client_char_select[i] == 0)
+                    break;
+
+                if(l_screen->player_count <= i)
+                    XMessage::PushMessage({XMessage::Type::add_player, 0, s_client_char_select[i]});
+
+                s_client_char_select[i] = 0;
+            }
         }
     }
 }
@@ -257,33 +316,59 @@ const RoomInfo* GetRoomInfo()
 }
 
 
-void JoinNewRoom(const RoomInfo& room_info)
+void PrepareSession()
 {
+    s_client_char_select = {};
+
     XMessage::g_session.random_seed = iRand(2147483647);
-
-    XMessage::g_session.current_frame = 0;
-    XMessage::g_session.available_frame = -1;
-    XMessage::g_session.remote_frame = -1;
-
-    XMessage::g_session.submit_buffer.clear();
-    XMessage::g_session.history.clear();
-    XMessage::g_session.next_message = 0;
-
-    s_game_thread.status_req.client_state = CLIENT_HOST_IDLE;
-    s_game_thread.status_req.room_info = room_info;
-
-    s_game_thread.push_status_req();
 }
+
+void Client_InitSession()
+{
+    SDL_LockMutex(s_network_client.status_req_sync_lock);
+    if(!BattleMode)
+        g_session.active = true;
+
+    g_session.current_frame = 0;
+    g_session.available_frame = -1;
+    g_session.remote_frame = -1;
+
+    g_session.submit_buffer.clear();
+    g_session.history.clear();
+    g_session.next_message = 0;
+
+    seedRandom(g_session.random_seed);
+    SDL_UnlockMutex(s_network_client.status_req_sync_lock);
+
+    if(g_session.init_save_configs >= 128)
+    {
+        if(g_config.speedrun_mode.m_set != ConfigSetLevel::cmdline)
+        {
+            g_config.speedrun_mode.m_value = 256 - g_session.init_save_configs;
+            g_config.speedrun_mode.m_set = ConfigSetLevel::ep_config;
+        }
+    }
+    else
+    {
+        g_config.playstyle.m_value = g_session.init_save_configs - 1;
+        g_config.speedrun_mode.m_set = ConfigSetLevel::ep_config;
+    }
+
+    SyncReqStatus();
+}
+
+void Client_EndSession()
+{
+    SDL_LockMutex(s_network_client.status_req_sync_lock);
+    g_session.active = false;
+    SDL_UnlockMutex(s_network_client.status_req_sync_lock);
+    SyncReqStatus();
+}
+
 
 void JoinRoom(uint32_t room_key)
 {
-    XMessage::g_session.current_frame = 0;
-    XMessage::g_session.available_frame = -1;
-    XMessage::g_session.remote_frame = -1;
-
-    XMessage::g_session.submit_buffer.clear();
-    XMessage::g_session.history.clear();
-    XMessage::g_session.next_message = 0;
+    s_client_char_select = XMessage::g_session.init_char_select;
 
     s_game_thread.status_req.client_state = CLIENT_GUEST;
     s_game_thread.status_req.room_info.room_key = room_key;
@@ -298,6 +383,9 @@ void ActivateHost()
 
     s_game_thread.status_req.client_state = CLIENT_HOST;
     s_game_thread.push_status_req();
+
+    // activate Netplay-related settings
+    UpdateConfig();
 }
 
 uint32_t CurrentRoom()

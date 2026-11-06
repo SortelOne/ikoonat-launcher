@@ -105,9 +105,9 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                         if(!NPC[B].Inert)
                         {
                             // battlemode stuff
-                            if(NPC[B].Type == NPCID_PLR_FIREBALL || NPC[B].Type == NPCID_PLR_HEAVY || NPC[B].Type == NPCID_PLR_ICEBALL || NPC[B].Type == NPCID_SWORDBEAM || NPC[B].Type == NPCID_PET_FIRE || NPC[B].Type == NPCID_CHAR3_HEAVY || NPC[B].Type == NPCID_CHAR4_HEAVY)
+                            if(NPC[B].Type == NPCID_PLR_FIREBALL || NPC[B].Type == NPCID_PLR_HEAVY || NPC[B].Type == NPCID_PLR_ICEBALL || NPC[B].Type == NPCID_SWORDBEAM || NPC[B].Type == NPCID_PET_FIRE || NPC[B].Type == NPCID_CHAR3_HEAVY || NPC[B].Type == NPCID_CHAR4_HEAVY || NPC[B].Type == NPCID_HOMING_BULLET)
                             {
-                                if(BattleMode && NPC[B].CantHurtPlayer != A)
+                                if((BattleMode && NPC[B].CantHurtPlayer != A) || (NPC[B].Type == NPCID_HOMING_BULLET && NPC[B].CantHurtPlayer == 0))
                                 {
                                     // duck projectile-resistance in heavy suit
                                     if(Player[A].State == 6 && Player[A].Duck && Player[A].Character != 5)
@@ -344,7 +344,7 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                         if(HitSpot == 1) // Player landed on a NPC
                         {
                             // the following code is for spin jumping and landing on things as yoshi/shoe
-                            if(!InvincibilityTime && (Player[A].Mount == 1 || Player[A].Mount == 3 || Player[A].SpinJump || (Player[A].Stoned && !NPC[B]->CanWalkOn)))
+                            if(!Player[A].InvincibilityTime && (Player[A].Mount == 1 || Player[A].Mount == 3 || Player[A].SpinJump || (Player[A].Stoned && !NPC[B]->CanWalkOn)))
                             {
                                 // these types were not hit during spin bounces in SMBX 1.3 (but may be vulnerable to stomps by mounts)
                                 bool dont_hit_spin_bounce = (NPC[B].Type == NPCID_FIRE_PLANT || NPC[B].Type == NPCID_QUAD_SPITTER || NPC[B].Type == NPCID_PLANT_S3 || NPC[B].Type == NPCID_LAVABUBBLE ||
@@ -541,7 +541,8 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                             }
                             else if(NPC[B].Type == NPCID_CANNONITEM || NPC[B].Type == NPCID_KEY ||
                                     NPC[B].Type == NPCID_TOOTHYPIPE || NPC[B].Type == NPCID_TOOTHY ||
-                                    ((Player[A].SlideKill || InvincibilityTime) && !NPC[B]->WontHurt)) // NPCs that cannot be walked on
+                                    NPC[B].Type == NPCID_HOMING_CANNON ||
+                                    ((Player[A].SlideKill || Player[A].InvincibilityTime) && !NPC[B]->WontHurt)) // NPCs that cannot be walked on
                             {
                                 // cancel jump
                             }
@@ -558,7 +559,7 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                                     TouchBonus(A, B);
                                 else if(Player[A].Rolling && Player[A].State == PLR_STATE_SHELL)
                                 {
-                                    if(NPC[B].Type == NPCID_SPRING)
+                                    if(NPC[B].Type == NPCID_SPRING || NPC[B].Type == NPCID_RED_SPRING)
                                     {
                                         tempSpring = true;
                                         bounceNpc = B;
@@ -628,7 +629,7 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                                     NPCHit(B, 1, A); // NPC 'B' was jumped on '1' by player 'A'
                                 else if(NPC[B].Killed != 10 && !NPCIsBoot(NPC[B]) && !NPCIsYoshi(NPC[B]) && !(NPC[B]->IsAShell && NPC[B].CantHurtPlayer == A)) // Bounce off everything except Bonus and Piranha Plants
                                 {
-                                    if(NPC[B].Type == NPCID_SPRING)
+                                    if(NPC[B].Type == NPCID_SPRING || NPC[B].Type == NPCID_RED_SPRING)
                                         tempSpring = true;
 
                                     if(NPC[B]->IsAShell && NPC[B].Location.SpeedX == 0 && NPC[B].Location.SpeedY == 0)
@@ -686,7 +687,8 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                                 {
                                     if((HitSpot == 2 && Player[A].Direction == -1) ||
                                        (HitSpot == 4 && Player[A].Direction == 1) ||
-                                       (NPC[B].Type == NPCID_CANNONITEM || NPC[B].Type == NPCID_TOOTHYPIPE || NPC[B].Effect == NPCEFF_DROP_ITEM || (NPCIsVeggie(NPC[B]) && NPC[B].CantHurtPlayer != A)))
+                                       (NPC[B].Type == NPCID_CANNONITEM || NPC[B].Type == NPCID_TOOTHYPIPE || NPC[B].Type == NPCID_HOMING_CANNON
+                                        || NPC[B].Effect == NPCEFF_DROP_ITEM || (NPCIsVeggie(NPC[B]) && NPC[B].CantHurtPlayer != A)))
                                     {
                                         if(NPC[B].Type == NPCID_SLIDE_BLOCK && NPC[B].Projectile != 0)
                                         {
@@ -810,14 +812,14 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                                 // someone's going to get hurt...
                                 else
                                 {
-                                    if(InvincibilityTime || (Player[A].SlideKill && !NPC[B]->JumpHurt) || (Player[A].Rolling && Player[A].State == PLR_STATE_SHELL))
+                                    if(Player[A].InvincibilityTime || (Player[A].SlideKill && !NPC[B]->JumpHurt) || (Player[A].Rolling && Player[A].State == PLR_STATE_SHELL))
                                     {
                                         if(Player[A].Rolling && (NPC[B].Type == NPCID_FIRE_BOSS_SHELL || NPC[B].Type == NPCID_MAGIC_BOSS_SHELL || NPC[B].Type == NPCID_HEAVY_THROWN || NPC[B].Type == NPCID_HOMING_BALL))
                                         {
                                             // be vulnerable to these NPCs while rolling
                                         }
                                         // DO cause damage to VILLAIN_S3 even though it's meant to be immune to this kind of damage.
-                                        else if(InvincibilityTime && NPC[B].Type == NPCID_VILLAIN_S3)
+                                        else if(Player[A].InvincibilityTime && NPC[B].Type == NPCID_VILLAIN_S3)
                                         {
                                             // But use fireball -- this will take ~6 rounds of invincibility power to kill the boss
                                             NPC[numNPCs + 1].Type = NPCID_PLR_FIREBALL;
@@ -951,8 +953,19 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
                                         // save current X location (for NPCs riding player's vehicle)
                                         tempf_t D = (tempf_t)Player[A].Location.X;
 
+                                        bool push_left = NPC[B].Location.to_right_of(Player[A].Location);
+
+                                        // special cases to prevent vanilla softlock
+                                        if(HitSpot == 5 && g_config.fix_player_clip_wall_at_npc)
+                                        {
+                                            if(Player[A].Pinched.Right4 && Player[A].Direction > 0)
+                                                push_left = true;
+                                            else if(Player[A].Pinched.Left2 && Player[A].Direction < 0)
+                                                push_left = false;
+                                        }
+
                                         // actually move the player
-                                        if(NPC[B].Location.to_right_of(Player[A].Location))
+                                        if(push_left)
                                         {
                                             Player[A].Pinched.Right4 = 2;
 
@@ -1079,6 +1092,17 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
         {
             Player[A].Jump = Physics.PlayerSpringJumpHeight;
             Player[A].Location.SpeedY = Physics.PlayerJumpVelocity - 4;
+
+            if(NPC[bounceNpc].Type == NPCID_RED_SPRING)
+            {
+                Player[A].Jump -= 20;
+
+                if(NPC[bounceNpc].Location.SpeedY < 0)
+                {
+                    Player[A].Location.SpeedY += NPC[bounceNpc].Location.SpeedY;
+                    Player[A].Jump += num_t::floor(-NPC[bounceNpc].Location.SpeedY * 3);
+                }
+            }
         }
         else
         {
@@ -1265,7 +1289,7 @@ void PlayerNPCLogic(int A, bool& tempSpring, bool& tempShell, int& MessageNPC, c
         {
             if(Player[A].Controls.Down && Player[A].Mount == 0 &&
                !NPC[B].playerTemp && Player[A].DuckRelease &&
-               (Player[A].HoldingNPC == 0 || Player[A].Character == 5))
+               (Player[A].HoldingNPC == 0 || Player[A].Character == 5 || Player[A].State == PLR_STATE_TINY))
             {
                 UnDuck(Player[A]);
 

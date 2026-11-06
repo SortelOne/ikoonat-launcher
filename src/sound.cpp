@@ -29,6 +29,7 @@
 #include "global_dirs.h"
 #include "frame_timer.h"
 #include "message.h"
+#include "player.h"
 
 #include "load_gfx.h"
 #include "core/msgbox.h"
@@ -50,7 +51,13 @@
 #include <Utils/files.h>
 #include <Utils/files_ini.h>
 #include <Utils/strings.h>
-#include <unordered_map>
+#ifdef LOW_MEM
+#   include <map>
+#   define x_map std::map
+#else
+#   include <unordered_map>
+#   define x_map std::unordered_map
+#endif
 #include <atomic> // smbx2compat
 #include <fmt_format_ne.h>
 
@@ -195,7 +202,7 @@ struct SectionEffect_t
 };
 
 static SectionEffect_t s_sectionEffect[maxSections + 1];
-static std::unordered_map<std::string, SectionEffect_t> s_effectsList;
+static x_map<std::string, SectionEffect_t> s_effectsList;
 #endif
 
 struct Music_t
@@ -219,13 +226,20 @@ struct SFX_t
     bool isSilentOrig = false;
 };
 
-static std::unordered_map<std::string, Music_t> music;
-static std::unordered_map<int, SFX_t>           sound;
+struct ExtSfxPlaying_t
+{
+    std::string path;
+    bool pausable = false;
+    int section = -1;
+};
+
+static x_map<std::string, Music_t> music;
+static x_map<int, SFX_t>           sound;
 
 //! Sounds played by scripts
-static SDL_atomic_t                                extSfxBusy;
-static std::unordered_map<std::string, Mix_Chunk*> extSfx;
-static std::unordered_map<int, std::string>        extSfxPlaying;
+static SDL_atomic_t                   extSfxBusy;
+static x_map<std::string, Mix_Chunk*> extSfx;
+static x_map<int, ExtSfxPlaying_t>    extSfxPlaying;
 #ifndef THEXTECH_NO_SDL_BUILD
 static void extSfxStopCallback(int channel);
 #endif
@@ -301,6 +315,21 @@ static void clear_sfx(SFX_t &s)
     s.musicOrig = nullptr;
 }
 
+/**
+ * @brief Check if any local player appears at the given section
+ * @param section Section to find
+ * @return true if found, false if nobody at that
+ */
+static bool s_anyPlayerInSection(int section)
+{
+    for(int i = 1; i <= numPlayers; ++i)
+    {
+        if(Player[i].Section == section)
+            return true;
+    }
+
+    return false;
+}
 
 int CustomWorldMusicId()
 {
@@ -997,8 +1026,8 @@ void StartMusic(int A, int fadeInMs)
             pLogDebug("Starting custom music [%s]", curWorldMusicFile.c_str());
             if(g_curMusic)
                 Mix_FreeMusic(g_curMusic);
-            std::string p = FileNamePath + "/" + curWorldMusicFile;
-            processPathArgs(p, FileNamePath + "/", FileName + "/");
+            std::string p = FileNamePath + curWorldMusicFile;
+            processPathArgs(p, FileNamePath, FileName + "/");
             g_curMusic = Mix_LoadMUS(p.c_str());
             s_musicHasYoshiMode = false;
             s_musicYoshiTrackNumber = -1;
@@ -1025,7 +1054,7 @@ void StartMusic(int A, int fadeInMs)
             PlayMusic("stmusic", fadeInMs);
             musicName = "stmusic";
         }
-        else if(InvincibilityTime && !PSwitchTime && g_totalMusicSpecial >= 4)
+        else if(OnscreenPlayerInvincible() && !PSwitchTime && g_totalMusicSpecial >= 4)
         {
             pLogDebug("Starting special music [smusic4]");
             PlayMusic("smusic4", fadeInMs);
@@ -1528,7 +1557,7 @@ void UnloadSound()
     music.clear();
 }
 
-static const std::unordered_map<int, int> s_soundDelays =
+static const x_map<int, int> s_soundDelays =
 {
     {2, 12}, {3, 12},  {4, 12},  {5, 30}, {8, 10},  {9, 4},
     {10, 8}, {12, 10}, {17, 10}, {26, 8}, {31, 20}, {37, 10},
@@ -1572,7 +1601,7 @@ static void s_resetSoundDelay(int A)
 #endif
 }
 
-static const std::unordered_map<int, int> s_soundFallback =
+static const x_map<int, int> s_soundFallback =
 {
     {SFX_Iceball, SFX_Fireball},
     {SFX_Freeze, SFX_ShellHit},
@@ -1654,6 +1683,14 @@ void PlaySoundSpatial(int A, int l, int t, int r, int b, int loops, int volume)
 
         if(g_config.sfx_spatial_audio)
             Sound_ResolveSpatialMod(left, right, l, t, r, b);
+
+        // Properly handling sound volumes isn't easy at all.
+        // We'd probably want to maintain a "tentative loudest" instance of the sound on the frame when SoundPause == 0,
+        // and play that loudest instance at the end of the frame during UpdateSound.
+        // We'd also allow mid-cycle interruptions (when SoundPause > 0) by louder sounds.
+        // For now, this is a start that prevents fully offscreen sounds messing with onscreen ones.
+        if(left < 16 && right < 16)
+            return;
 
         int alias = A;
         PlaySfx(alias, loops, volume, left, right);
@@ -1788,6 +1825,12 @@ void UpdateYoshiMusic()
     Mix_SetMusicTrackMute(g_curMusic, s_musicYoshiTrackNumber, hasYoshi ? 0 : 1);
 }
 
+void UpdateAudioSection(int recentSection)
+{
+    UpdateExtSoundSections();
+    UpdateSoundFX(recentSection);
+}
+
 void PreloadExtSound(const std::string& path)
 {
     if(!g_mixerLoaded)
@@ -1830,7 +1873,7 @@ void UnloadExtSounds()
     SDL_AtomicSet(&extSfxBusy, 0);
 }
 
-void PlayExtSound(const std::string &path, int loops, int volume)
+void PlayExtSound(const std::string &path, int loops, int volume, bool pausable, int section)
 {
     int play_ch = -1;
 
@@ -1855,10 +1898,17 @@ void PlayExtSound(const std::string &path, int loops, int volume)
 
     if(play_ch >= 0)
     {
+        if(section >= 0 && !s_anyPlayerInSection(section))
+            Mix_Pause(play_ch); // Don't loop that!
+
         SDL_AtomicSet(&extSfxBusy, 1);
         // Never re-use the same channel!
         SDL_assert_release(extSfxPlaying.find(play_ch) == extSfxPlaying.end());
-        extSfxPlaying.insert({play_ch, path});
+        ExtSfxPlaying_t playing;
+        playing.path = path;
+        playing.pausable = pausable;
+        playing.section = section;
+        extSfxPlaying.insert({play_ch, playing});
         SDL_AtomicSet(&extSfxBusy, 0);
     }
     else
@@ -1890,13 +1940,55 @@ void StopExtSound(const std::string& path)
 
     for(auto i = extSfxPlaying.begin(); i != extSfxPlaying.end();)
     {
-        if(i->second == path)
+        if(i->second.path == path)
         {
             Mix_HaltChannel(i->first);
             i = extSfxPlaying.erase(i);
         }
         else
             ++i;
+    }
+
+    SDL_AtomicSet(&extSfxBusy, 0);
+}
+
+void SuspendExtSound(bool pause)
+{
+    if(!g_mixerLoaded)
+        return;
+
+    SDL_AtomicSet(&extSfxBusy, 1);
+
+    for(auto i = extSfxPlaying.begin(); i != extSfxPlaying.end(); ++i)
+    {
+        if(i->second.pausable)
+        {
+            if(pause)
+                Mix_Pause(i->first);
+            else
+                Mix_Resume(i->first);
+        }
+    }
+
+    SDL_AtomicSet(&extSfxBusy, 0);
+}
+
+void UpdateExtSoundSections()
+{
+    if(!g_mixerLoaded)
+        return;
+
+    SDL_AtomicSet(&extSfxBusy, 1);
+
+    for(auto i = extSfxPlaying.begin(); i != extSfxPlaying.end(); ++i)
+    {
+        if(i->second.section >= 0)
+        {
+            if(s_anyPlayerInSection(i->second.section))
+                Mix_Resume(i->first);
+            else
+                Mix_Pause(i->first);
+        }
     }
 
     SDL_AtomicSet(&extSfxBusy, 0);

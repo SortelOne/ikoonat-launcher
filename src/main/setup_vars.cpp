@@ -23,16 +23,255 @@
 #include "../custom.h"
 #include "npc_traits.h"
 #include "npc_id.h"
+#include "blk_id.h"
+
+void ResetWorldTileSize()
+{
+    For(A, 1, maxTileType)
+    {
+        TileWidth[A] = 32;
+        TileHeight[A] = 32;
+    }
+
+    TileWidth[8] = 64;
+    TileHeight[8] = 64;
+    TileWidth[9] = 96;
+    TileHeight[9] = 96;
+    TileWidth[12] = 64;
+    TileHeight[12] = 64;
+    TileWidth[13] = 96;
+    TileHeight[13] = 96;
+    TileWidth[27] = 128;
+    TileHeight[27] = 128;
+    TileWidth[325] = 64;
+    TileHeight[325] = 64;
+}
+
+void CalcWorldTileSize()
+{
+    if(!WorldTargetsEngine)
+        return;
+
+    For(A, 1, maxTileType)
+    {
+        if(!GFXTile[A].inited)
+            continue;
+
+        TileWidth[A] = GFXTile[A].w;
+        TileHeight[A] = GFXTile[A].h;
+
+        // animated tiles, with 4 frames each
+        if(A == 14 || A == 27 || A == 241)
+            TileHeight[A] /= 4;
+    }
+}
+
+void ResetWorldSceneSize()
+{
+    For(A, 1, maxSceneType)
+    {
+        SceneWidth[A] = 32;
+        SceneHeight[A] = 32;
+        if((A >= 15 && A <= 18) || (A == 21) || (A == 24) || (A == 58) || (A == 59) || (A == 63))
+        {
+            SceneWidth[A] = 16;
+            SceneHeight[A] = 16;
+        }
+    }
+
+    SceneWidth[20] = 64;
+    SceneHeight[20] = 64;
+    SceneWidth[27] = 48;
+    SceneHeight[27] = 16;
+    SceneWidth[28] = 48;
+    SceneHeight[28] = 16;
+    SceneWidth[29] = 64;
+    SceneHeight[29] = 16;
+    SceneWidth[30] = 64;
+    SceneHeight[30] = 16;
+    SceneWidth[33] = 14;
+    SceneHeight[33] = 14;
+    SceneWidth[34] = 14;
+    SceneHeight[34] = 14;
+    SceneWidth[44] = 64;
+    SceneHeight[50] = 48;
+    SceneWidth[50] = 64;
+    SceneWidth[54] = 30;
+    SceneHeight[54] = 24;
+    SceneWidth[55] = 30;
+    SceneHeight[55] = 24;
+    SceneWidth[57] = 64;
+    SceneHeight[57] = 64;
+    SceneWidth[60] = 48;
+    SceneHeight[60] = 48;
+    SceneWidth[61] = 64;
+    SceneHeight[61] = 76;
+}
+
+void CalcWorldSceneSize()
+{
+    if(!WorldTargetsEngine)
+        return;
+
+    For(A, 1, maxSceneType)
+    {
+        if(!GFXScene[A].inited)
+            continue;
+
+        SceneWidth[A] = GFXScene[A].w;
+        SceneHeight[A] = GFXScene[A].h;
+
+        // animated scenes
+        if(A == 1 || A == 4 || A == 5 || A == 6 || A == 9 || A == 10 || A == 12
+            || A == 51 || A == 52 || A == 53 || A == 54 || A == 55)
+        {
+            SceneHeight[A] /= 4;
+        }
+        else if(A == 62 || A == 63)
+            SceneHeight[A] /= 8;
+        else if(A == 27 || A == 28 || A == 29 || A == 30)
+            SceneHeight[A] /= 12;
+        else if(A == 33 || A == 34)
+            SceneHeight[A] /= 14;
+    }
+}
+
+static void _CalcBGOSize(bool reset)
+{
+    For(A, 1, maxBackgroundType)
+    {
+        if(!GFXBackgroundBMP[A].inited)
+            continue;
+
+        BackgroundWidth[A] = GFXBackground[A].w;
+        BackgroundHeight[A] = GFXBackground[A].h;
+
+        // animated backgrounds
+        if(A == 18 || A == 19 || A == 20 || A == 36 || A == 65 || A == 66 || A == 68
+            || A == 70 || A == 82 || A == 100 || A == 134 || A == 135 || A == 136
+            || A == 137 || A == 138 || A == 158 || A == 161 || A == 170 || A == 171
+            || A == 172 || A == 187 || A == 188 || A == 189 || A == 190)
+        {
+            BackgroundHeight[A] /= 4;
+        }
+        else if(A == 26 || A == 159 || A == 168)
+            BackgroundHeight[A] /= 8;
+        else if(A == 125 || A == 173)
+            BackgroundHeight[A] /= 2;
+    }
+
+
+    // SMBX 1.3 resets dimensions for animated backgrounds, and some non-animated
+    if(reset)
+    {
+        // animated backgrounds
+        BackgroundHeight[158] = 32;
+        BackgroundHeight[159] = 32;
+
+        BackgroundHeight[187] = 32;
+        BackgroundHeight[188] = 32;
+        BackgroundHeight[189] = 32;
+        BackgroundHeight[190] = 32;
+
+        BackgroundHeight[170] = 32;
+        BackgroundHeight[171] = 32;
+        BackgroundHeight[172] = 32;
+
+        BackgroundHeight[26] = 64;
+        BackgroundHeight[18] = 32;
+        BackgroundHeight[19] = 32;
+        BackgroundHeight[20] = 32;
+        BackgroundHeight[36] = 96;
+        BackgroundHeight[65] = 96;
+
+        BackgroundHeight[66] = 32;
+
+        BackgroundHeight[68] = 64;
+        BackgroundHeight[70] = 32;
+        BackgroundHeight[82] = 32;
+        BackgroundHeight[100] = 32;
+        BackgroundHeight[125] = 64;
+        BackgroundHeight[134] = 32;
+        BackgroundHeight[135] = 32;
+        BackgroundHeight[136] = 32;
+        BackgroundHeight[137] = 32;
+        BackgroundHeight[138] = 32;
+
+        BackgroundHeight[161] = 48;
+        BackgroundHeight[168] = 32;
+        BackgroundHeight[173] = 120;
+
+        // non-animated backgrounds
+        BackgroundWidth[160] = 24;
+        BackgroundHeight[160] = 24;
+
+        BackgroundWidth[169] = 64;
+        BackgroundHeight[169] = 64;
+
+        BackgroundWidth[161] = 64;
+        BackgroundWidth[163] = 64;
+        BackgroundWidth[168] = 64;
+        BackgroundWidth[173] = 112;
+    }
+}
+
+void ResetBGOSize()
+{
+    _CalcBGOSize(true);
+}
+
+void CalcBGOSize()
+{
+    if(!LevelTargetsEngine)
+        return;
+
+    _CalcBGOSize(false);
+}
+
+void ResetEffectSize()
+{
+    for(size_t A = 1; A <= maxEffectType; A++)
+    {
+        const auto& eGfx = GFXEffectBMP[A];
+
+        if(eGfx.inited)
+        {
+            EffectWidth[A] = eGfx.w;
+            EffectHeight[A] = eGfx.h / EffectDefaults.EffectFrames[A];
+        }
+        else
+        {
+            EffectWidth[A] = 32;
+            EffectHeight[A] = 32;
+        }
+    }
+
+    // Fix cases where SMBX 1.3 default size did not match graphics:
+    // (1) The heights for EFFID_FODDER_S3_SQUISH (2), EFFID_YELSWITCH_FODDER_SQUISH (37),
+    //     EFFID_BLUSWITCH_FODDER_SQUISH (39), EFFID_GRNSWITCH_FODDER_SQUISH (41),
+    //     and EFFID_REDSWITCH_FODDER_SQUISH (43) were 32, but the graphics are 34.
+    //     This does not affect gameplay because the heights were force-initialized to 34 in NewEffect,
+    //     so EffectHeight is not used for them.
+    // (2) The height for EFFID_STONE_S3_DIE (90) and the widths for EFFID_STONE_S4_DIE (98)
+    //     and EFFID_SAW_DIE (99) were incorrect. This does not affect gameplay, because
+    //     NewEffect force-uses the provided location for these types (ignoring EffectWidth/EffectHeight).
+    // (3) The width for EFFID_BIG_DOOR_OPEN (103) was incorrectly set to 120, but this did not affect
+    //     gameplay, because NewEffect force-uses the provided location (which had width 104) for doors.
+    // (4) The sprite for EFFID_HEAVY_THROWER_DIE (effect-25.gif) was accidentally missing one row in SMBX 1.3.
+    if(EffectHeight[EFFID_HEAVY_THROWER_DIE] == 47)
+        EffectHeight[EFFID_HEAVY_THROWER_DIE] = 48;
+}
 
 void SetupVars()
 {
     //int A;
     SetupPlayerFrames();
-    for(int A = 1; A <= maxEffectType; A++)
-    {
-        EffectWidth[A] = 32;
-        EffectHeight[A] = 32;
-    }
+    // Effect sizes now calculated below
+    // for(int A = 1; A <= maxEffectType; A++)
+    // {
+    //     EffectWidth[A] = 32;
+    //     EffectHeight[A] = 32;
+    // }
     // now part of the default NPCTraits_t initializer'
     // for(int A = 1; A <= maxNPCType; ++A)
     //     NPCTraits[A].Speedvar = 1;
@@ -45,6 +284,12 @@ void SetupVars()
     GFXLevelBig[24] = true;
     GFXLevelBig[28] = true;
 
+    // NEW: allow custom-range levels to be big
+    for(int A = 33; A <= maxLevelType; A++)
+        GFXLevelBig[A] = true;
+
+    // Effect sizes now calculated from frame counts and graphics
+#if 0
     EffectWidth[145] = 32;
     EffectHeight[145] = 60;
 
@@ -300,6 +545,38 @@ void SetupVars()
     EffectWidth[46] = 48;
     EffectHeight[47] = 44;
     EffectWidth[47] = 44;
+#endif
+
+    // NEW: initialize effects from graphics and frame counts,
+    // instead of initializing frame counts from graphics and default sizes
+    const std::array<uint8_t, 148> effect_frames =
+    {
+        4, 1, 1, 2, 1, 1, 2, 1, 1, 4, // 1 - 10
+        7, 3, 3, 4, 2, 2, 8, 8, 1, 8, // 11 - 20
+        4, 2, 1, 8, 2, 4, 4, 1, 2, 4, // 21 - 30
+        2, 1, 2, 2, 1, 2, 1, 2, 1, 2, // 31 - 40
+        1, 2, 1, 2, 1, 2, 1, 1, 2, 2, // 41 - 50
+        4, 1, 2, 5, 5, 17, 4, 16, 5, 4, // 51 - 60
+       16, 4, 3, 8, 8, 8, 8, 1, 2, 1, // 61 - 70
+        4, 2, 4, 3, 2, 1, 15, 3, 13, 3, // 71 - 80
+        1, 4, 8, 2, 4, 4, 4, 4, 2, 1, // 81 - 90
+        4, 4, 4, 4, 1, 1, 4, 1, 2, 4, // 91 - 100
+        4, 4, 5, 2, 2, 2, 3, 7, 16, 2, // 101 - 110
+       14, 2, 2, 5, 4, 4, 2, 4, 4, 4, // 111 - 120
+        2, 4, 1, 1, 4, 1, 2, 6, 1, 1, // 121 - 130
+        4, 2, 4, 2, 4, 5, 4, 2, 3, 8, // 131 - 140
+        2, 2, 2, 1, 2, 4, 4, 4, // 141 - 148
+    };
+
+    for(size_t A = 1; A <= maxEffectType; A++)
+    {
+        if(A <= effect_frames.size())
+            EffectDefaults.EffectFrames[A] = effect_frames[A - 1];
+        else
+            EffectDefaults.EffectFrames[A] = 1;
+    }
+
+    ResetEffectSize();
 
     // NEW: reset all variables to their original values (it will be nice to convert all NPC traits to a single struct)
     NPCTraits.fill(NPCTraits_t());
@@ -1246,6 +1523,26 @@ void SetupVars()
     NPCTraits[NPCID_PLR_HEAVY].NoClipping = true;
     NPCTraits[NPCID_PLR_HEAVY].NoYoshi = true;
 
+    NPCTraits[NPCID_HOMING_BULLET].TWidth = 26; // player's homing bullet
+    NPCTraits[NPCID_HOMING_BULLET].THeight = 26;
+    NPCTraits[NPCID_HOMING_BULLET].WontHurt = true;
+    NPCTraits[NPCID_HOMING_BULLET].NoClipping = true;
+    NPCTraits[NPCID_HOMING_BULLET].NoYoshi = true;
+    NPCTraits[NPCID_HOMING_BULLET].Foreground = true;
+    NPCTraits[NPCID_HOMING_BULLET].NoFireBall = true;
+    NPCTraits[NPCID_HOMING_BULLET].NoIceBall = true;
+    NPCTraits[NPCID_HOMING_BULLET].FrameStyle = 1;
+    NPCTraits[NPCID_HOMING_BULLET].TFrames = 3;
+    NPCTraits[NPCID_HOMING_BULLET].FrameSpeed = 8;
+    NPCTraits[NPCID_HOMING_BULLET].Score = 0;
+    NPCTraits[NPCID_HOMING_BULLET].UseDefaultCam = true;
+    NPCTraits[NPCID_HOMING_BULLET].InactiveRender = NPCTraits_t::SMOKE;
+
+    NPCTraits[NPCID_TRANSPARENT_AXE].NoYoshi = true;
+    NPCTraits[NPCID_TRANSPARENT_AXE].IsABonus = true;
+    NPCTraits[NPCID_TRANSPARENT_AXE].NoIceBall = true;
+    NPCTraits[NPCID_TRANSPARENT_AXE].InactiveRender = NPCTraits_t::SHOW_ALWAYS;
+
     NPCTraits[NPCID_GRN_SHELL_S1].THeight = 28; //  Green SMB1 Shell
     NPCTraits[NPCID_GRN_SHELL_S1].IsAShell = true;
     NPCTraits[NPCID_RED_SHELL_S1].THeight = 28; //  Red SMB1 Shell
@@ -1485,6 +1782,35 @@ void SetupVars()
     NPCTraits[NPCID_CYCLONE_POWER].NoGravity = true;
     NPCTraits[NPCID_CYCLONE_POWER].NoClipping = true;
     NPCTraits[NPCID_SHELL_POWER].IsABonus = true;
+    NPCTraits[NPCID_TINY_POWER].IsABonus = true;
+    NPCTraits[NPCID_TINY_POWER].TWidth = 16;
+    NPCTraits[NPCID_TINY_POWER].THeight = 16;
+    NPCTraits[NPCID_HOMING_CANNON].InactiveRender = NPCTraits_t::SHOW_ALWAYS;
+    NPCTraits[NPCID_HOMING_CANNON].WontHurt = true;
+    NPCTraits[NPCID_HOMING_CANNON].IsGrabbable = true;
+    NPCTraits[NPCID_HOMING_CANNON].IsAHit1Block = true;
+    NPCTraits[NPCID_HOMING_CANNON].StandsOnPlayer = true;
+    NPCTraits[NPCID_HOMING_CANNON].TFrames = 5;
+    NPCTraits[NPCID_HOMING_CANNON].FrameSpeed = 3;
+    NPCTraits[NPCID_HOMING_CANNON].FrameStyle = 1;
+
+    NPCTraits[NPCID_TINY_COIN].TWidth = 16; // tiny coin
+    NPCTraits[NPCID_TINY_COIN].THeight = 16;
+    NPCTraits[NPCID_TINY_COIN].IsABonus = true;
+    NPCTraits[NPCID_TINY_COIN].IsACoin = true;
+
+    NPCTraits[NPCID_RED_SPRING].TWidth = 32; // Spring
+    NPCTraits[NPCID_RED_SPRING].THeight = 16;
+    NPCTraits[NPCID_RED_SPRING].WidthGFX = 32;
+    NPCTraits[NPCID_RED_SPRING].HeightGFX = 32;
+    NPCTraits[NPCID_RED_SPRING].FrameOffsetY = 2;
+    NPCTraits[NPCID_RED_SPRING].WontHurt = true;
+    NPCTraits[NPCID_RED_SPRING].IsGrabbable = true;
+    NPCTraits[NPCID_RED_SPRING].IsAHit1Block = true;
+    NPCTraits[NPCID_RED_SPRING].StandsOnPlayer = true;
+    NPCTraits[NPCID_RED_SPRING].NoIceBall = true;
+    NPCTraits[NPCID_RED_SPRING].InactiveRender = NPCTraits_t::SHOW_ALWAYS;
+
     NPCTraits[NPCID_COIN_S3].IsACoin = true;
     NPCTraits[NPCID_COIN_S4].IsACoin = true;
     NPCTraits[NPCID_COIN_5].IsACoin = true;
@@ -2119,6 +2445,22 @@ void SetupVars()
         BlockHeight[A] = 32;
     }
 
+    for(int A = BLKID_MAZE_START; A <= BLKID_MAZE_END; A++)
+    {
+        BlockWidth[A] = 64;
+        BlockHeight[A] = 64;
+    }
+
+    BlockWidth[BLKID_MAZE_ENTER_LR] = 32;
+    BlockWidth[BLKID_MAZE_TRAVEL_LR] = 32;
+    BlockWidth[BLKID_MAZE_EXIT_L] = 32;
+    BlockWidth[BLKID_MAZE_EXIT_R] = 32;
+
+    BlockHeight[BLKID_MAZE_ENTER_UD] = 32;
+    BlockHeight[BLKID_MAZE_TRAVEL_UD] = 32;
+    BlockHeight[BLKID_MAZE_EXIT_U] = 32;
+    BlockHeight[BLKID_MAZE_EXIT_D] = 32;
+
     BlockWidth[571] = 64;
     BlockWidth[572] = 64;
     BlockWidth[615] = 64;
@@ -2206,6 +2548,38 @@ void SetupVars()
     {
         BlockHeight[A] = 64;
     }
+
+    For(A, 690, 699)
+    {
+        BlockWidth[A] = 16;
+        BlockHeight[A] = 16;
+    }
+
+    BlockWidth[700] = 16;
+
+    // smbx2compat: TheXTech's tiny blocks (718-723 and 697 in its files) moved past 2000
+    For(A, BLKID_TINY_HIT_BLOCK_S1, BLKID_TINY_SEMISOLID)
+    {
+        BlockWidth[A] = 16;
+        BlockHeight[A] = 16;
+    }
+
+    BlockWidth[BLKID_TINY_SLIPPY] = 16;
+    BlockHeight[BLKID_TINY_SLIPPY] = 16;
+
+    BlockPSwitch[BLKID_TINY_HIT_BLOCK_S1] = true;
+    BlockPSwitch[BLKID_TINY_HIT_BLOCK_S4] = true;
+    BlockPSwitch[BLKID_TINY_HIT_BLOCK_S3] = true;
+    BlockPSwitch[BLKID_TINY_BRICK] = true;
+    BlockOnlyHitspot1[BLKID_TINY_SEMISOLID] = true;
+
+    BlockOnlyHitspot1[BLKID_TRANSPARENT_SEMISOLID] = true;
+    BlockOnlyHitspot1[BLKID_PLAYERPASS_SEMISOLID] = true;
+    BlockOnlyHitspot1[BLKID_NPCPASS_SEMISOLID] = true;
+
+    BlockHurts[BLKID_KAIZO_HURT] = true;
+    BlockHurts[BLKID_KAIZO_KILL] = true;
+
     BlockWidth[301] = 128;
     BlockWidth[302] = 128;
     BlockWidth[303] = 128;
@@ -2708,115 +3082,13 @@ void SetupVars()
     Foreground[156] = true;
     Foreground[157] = true;
 
-    BackgroundHeight[158] = 32;
-    BackgroundHeight[159] = 32;
+    ResetBGOSize();
 
-    BackgroundHeight[187] = 32;
-    BackgroundHeight[188] = 32;
-    BackgroundHeight[189] = 32;
-    BackgroundHeight[190] = 32;
-
-
-
-    BackgroundHeight[170] = 32;
-    BackgroundHeight[171] = 32;
-
-    BackgroundHeight[26] = 64;
-    BackgroundHeight[18] = 32;
-    BackgroundHeight[19] = 32;
-    BackgroundHeight[20] = 32;
-    BackgroundHeight[36] = 96;
-    BackgroundHeight[65] = 96;
-
-    BackgroundHeight[66] = 32;
-
-    BackgroundHeight[68] = 64;
-    BackgroundHeight[70] = 32;
-    BackgroundHeight[172] = 32;
-    BackgroundHeight[82] = 32;
-    BackgroundHeight[100] = 32;
-    BackgroundHeight[125] = 64;
-    BackgroundHeight[134] = 32;
-    BackgroundHeight[135] = 32;
-    BackgroundHeight[136] = 32;
-    BackgroundHeight[137] = 32;
-    BackgroundHeight[138] = 32;
-    BackgroundWidth[163] = 64;
-
-    BackgroundWidth[173] = 112;
-    BackgroundHeight[173] = 120;
-
-
-    BackgroundWidth[160] = 24;
-    BackgroundHeight[160] = 24;
-
-    BackgroundWidth[161] = 64;
-    BackgroundHeight[161] = 48;
-
-    BackgroundHeight[168] = 32;
-    BackgroundWidth[168] = 64;
-
-    BackgroundHeight[169] = 64;
-    BackgroundWidth[169] = 64;
     BackgroundHasNoMask[169] = true;
 
+    ResetWorldTileSize();
+    ResetWorldSceneSize();
 
-
-    For(A, 1, maxSceneType)
-    {
-        SceneWidth[A] = 32;
-        SceneHeight[A] = 32;
-        if((A >= 15 && A <= 18) || (A == 21) || (A == 24) || (A == 58) || (A == 59) || (A == 63))
-        {
-            SceneWidth[A] = 16;
-            SceneHeight[A] = 16;
-        }
-    }
-    SceneWidth[20] = 64;
-    SceneHeight[20] = 64;
-    SceneWidth[27] = 48;
-    SceneHeight[27] = 16;
-    SceneWidth[28] = 48;
-    SceneHeight[28] = 16;
-    SceneWidth[29] = 64;
-    SceneHeight[29] = 16;
-    SceneWidth[30] = 64;
-    SceneHeight[30] = 16;
-    SceneWidth[33] = 14;
-    SceneHeight[33] = 14;
-    SceneWidth[34] = 14;
-    SceneHeight[34] = 14;
-    SceneWidth[44] = 64;
-    SceneHeight[50] = 48;
-    SceneWidth[50] = 64;
-    SceneWidth[54] = 30;
-    SceneHeight[54] = 24;
-    SceneWidth[55] = 30;
-    SceneHeight[55] = 24;
-    SceneWidth[57] = 64;
-    SceneHeight[57] = 64;
-    SceneWidth[60] = 48;
-    SceneHeight[60] = 48;
-    SceneWidth[61] = 64;
-    SceneHeight[61] = 76;
-
-    For(A, 1, maxTileType)
-    {
-        TileWidth[A] = 32;
-        TileHeight[A] = 32;
-    }
-    TileWidth[8] = 64;
-    TileHeight[8] = 64;
-    TileWidth[9] = 96;
-    TileHeight[9] = 96;
-    TileWidth[12] = 64;
-    TileHeight[12] = 64;
-    TileWidth[13] = 96;
-    TileHeight[13] = 96;
-    TileWidth[27] = 128;
-    TileHeight[27] = 128;
-    TileWidth[325] = 64;
-    TileHeight[325] = 64;
     Points[1] = 10;
     Points[2] = 100;
     Points[3] = 200;
@@ -2835,14 +3107,16 @@ void SetupVars()
         if(NPCTraits[A].IsFish)
             NPCTraits[A].Foreground = true;
     }
+
+#ifndef LOW_MEM
+    // kept only for debugging that it's safe to remove them
     For(A, 1, maxEffectType)
     {
-#ifndef LOW_MEM
-        // kept only for debugging that it's safe to remove them
         EffectDefaults.EffectHeight[A] = EffectHeight[A];
         EffectDefaults.EffectWidth[A] = EffectWidth[A];
-#endif // #ifndef LOW_MEM
 
+        // old VB6 logic for calculating Frames from default size and graphics
+#if 0
         if(EffectHeight[A] > 0)
         {
             // EffectDefaults.EffectFrames[A] = vb6Round(double(GFXEffectBMP[A].h) / EffectHeight[A]);
@@ -2852,7 +3126,10 @@ void SetupVars()
         }
         else
             EffectDefaults.EffectFrames[A] = 1;
+#endif
     }
+#endif // #ifndef LOW_MEM
+
     SaveNPCDefaults();
     SavePlayerDefaults();
 }

@@ -50,6 +50,20 @@ void ReportLoadFailure(const std::string& filename, bool isIPC = false);
 void MainLoadAll();
 
 int GameMain(const CmdLineSetup_t &setup);
+//! Resets size for world map tiles to default
+void ResetWorldTileSize();
+//! Calculates size for world map tiles based on graphical dimensions
+void CalcWorldTileSize();
+//! Resets size for world map scenes to default
+void ResetWorldSceneSize();
+//! Calculates size for world map scenes based on graphical dimensions
+void CalcWorldSceneSize();
+//! Resets size for BGOs to default (don't call if custom GFX are loaded)
+void ResetBGOSize();
+//! Calculates size for BGOs based on graphical dimensions
+void CalcBGOSize();
+//! Resets size for Effects to default (don't call if custom GFX are loaded)
+void ResetEffectSize();
 //! Set up object sizes and frame offsets for blocks/npcs/effects
 void SetupVars();
 //! The loop for the game
@@ -86,21 +100,6 @@ void FindWorlds();
 void LoadSingleWorld(const std::string wPath);
 
 void FindLevels();
-
-void FindSaves();
-
-extern std::string makeGameSavePath(std::string episode, std::string saveFile);
-
-void SaveGame();
-
-#ifdef THEXTECH_ENABLE_SDL_NET
-void PreloadGame();
-#endif
-void LoadGame();
-//! Removes gamesave file and restores initial state of all level objects
-void ClearGame(bool punnish = false);
-void DeleteSave(int world, int save);
-void CopySave(int world, int src, int dst);
 
 void PauseInit(PauseCode code, int plr = 0, void (*callback)() = nullptr);
 void PauseLoop();

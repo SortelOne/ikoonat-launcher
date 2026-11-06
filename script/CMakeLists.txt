@@ -52,6 +52,10 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_G
     target_compile_options(XTechLua PRIVATE -fpermissive)
 endif()
 
+# smbx2compat: the engine's shared definitions (THEXTECH_ENABLE_SDL_NET, ...),
+# so structs such as Config_t have the same layout on both sides
+target_compile_definitions(XTechLua PRIVATE $<TARGET_PROPERTY:A2XT_Int,INTERFACE_COMPILE_DEFINITIONS>)
+
 # Inherit THEXTECH_FIXED_POINT from the main build (num_t layout must match)
 if(THEXTECH_FIXED_POINT)
     target_compile_definitions(XTechLua PRIVATE -DTHEXTECH_FIXED_POINT)

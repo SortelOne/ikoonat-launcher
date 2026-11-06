@@ -59,11 +59,17 @@
 #endif
 
 
+#ifdef THEXTECH_IOS
+int XRender::TargetOverscanX = 0;
+#endif
+
 int XRender::TargetW = 800;
 int XRender::TargetH = 600;
 bool XRender::g_BitmaskTexturePresent = false;
 
+#ifdef THEXTECH_BUILD_GL_MODERN
 static const unsigned char blank_gif[] = "GIF89a\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00!\xf9\x04\x01\x00\x00\x00\x00,\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\2D\x01\x00;";
+#endif
 
 AbstractRender_t* g_render = nullptr;
 
@@ -232,7 +238,6 @@ void AbstractRender_t::lazyLoadPicture(StdPicture_Sub& target,
                                        const std::string &maskFallbackPath)
 {
     PGE_Size tSize;
-    bool useMask = true;
 
     if(!GameIsActive)
         return; // do nothing when game is closed
@@ -244,33 +249,32 @@ void AbstractRender_t::lazyLoadPicture(StdPicture_Sub& target,
     target.origPath = path;
 #endif
 
-    // Don't load mask if PNG image is used
-    if(Files::hasSuffix(path, ".png"))
-        useMask = false;
+    target.l.raw = Files::load_file(path);
 
-    if(!GraphicsHelps::getImageMetrics(path, &tSize))
+    if(!GraphicsHelps::getImageMetrics(target.l.raw, &tSize))
     {
         pLogWarning("Error loading of image file:\n"
                     "%s\n"
                     "Reason: %s.",
                     path.c_str(),
-                    (Files::fileExists(path) ? "wrong image format" : "file not exist"));
+                    (!target.l.raw.empty() ? "wrong image format" : "file not exist"));
         // target = g_renderer->getDummyTexture();
+        target.l.raw = Files::Data();
         return;
     }
 
     target.w = tSize.w() * scaleFactor;
     target.h = tSize.h() * scaleFactor;
 
-    target.l.raw = Files::load_file(path);
-
     //Apply Alpha mask
-    if(useMask && !maskPath.empty() && Files::fileExists(maskPath))
+    if(!maskPath.empty())
     {
         target.l.rawMask = Files::load_file(maskPath);
         target.l.isMaskPng = false; //-V1048
     }
-    else if(useMask && !maskFallbackPath.empty())
+
+    // try loading from fallback path if needed
+    if(target.l.rawMask.empty() && !maskFallbackPath.empty())
     {
         target.l.rawMask = Files::load_file(maskFallbackPath);
         target.l.isMaskPng = true;
@@ -865,11 +869,63 @@ void AbstractRender_t::renderSizableBlock(int bLeftOnscreen, int bTopOnscreen, i
     }
 }
 
-void AbstractRender_t::renderParticleSystem(StdPicture &tx, double camX, double camY)
+void AbstractRender_t::renderGrid(int size, int xOff, int yOff)
+{
+    static int last_grid = 0;
+    if(!m_gridTexture.inited || last_grid != size)
+    {
+        unloadTexture(m_gridTexture);
+
+        // load the grid image
+        std::vector<uint32_t> pixels(32 * 32);
+        uint32_t white = 0xFFFFFFFF;
+        uint32_t black = 0x00000000;
+        ((uint8_t*)(&black))[3] = 0xFF;
+        for(int i = 0; i < 32; i++)
+        {
+            uint32_t col = (i & (size / 4)) ? black : white;
+            pixels[i] = col;
+            pixels[32 * i] = col;
+        }
+
+        m_gridTexture.w = 32;
+        m_gridTexture.h = 32;
+        loadTexture(m_gridTexture, 32, 32, (uint8_t*)pixels.data(), 32 * 4);
+        last_grid = size;
+    }
+
+    int startX = xOff % 32 - 32;
+    int startY = yOff % 32 - 32;
+
+    for(int x = startX; x < XRender::TargetW; x += 32)
+    {
+        for(int y = startY; y < XRender::TargetH; y += 32)
+        {
+            renderTextureScale(x, y, 32, 32, m_gridTexture, XTAlpha(96));
+
+            if(size <= 16)
+                renderTextureScale(x + 16, y + 16, 32, 32, m_gridTexture, XTAlpha(32));
+
+            if(size <= 8)
+            {
+                renderTextureScale(x + 8, y + 8, 32, 32, m_gridTexture, XTAlpha(16));
+                renderTextureScale(x + 24, y + 24, 32, 32, m_gridTexture, XTAlpha(16));
+            }
+        }
+    }
+}
+
+void AbstractRender_t::renderParticleSystem(StdPicture &tx)
 {
     // no-op
 
     UNUSED(tx);
+}
+
+void AbstractRender_t::setCameraPos(int camX, int camY)
+{
+    // no-op
+
     UNUSED(camX);
     UNUSED(camY);
 }

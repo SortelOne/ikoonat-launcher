@@ -1844,6 +1844,21 @@ void SetupPlayerFrames()
         base++;
     }
 
+    // this fills the tiny power frames with a fixed offset
+    for(int A = 1151; A <= 1250; A++)
+    {
+        MarioFrameX[A] = -8;
+        MarioFrameY[A] = -16;
+        LuigiFrameX[A] = -8;
+        LuigiFrameY[A] = -16;
+        PeachFrameX[A] = -8;
+        PeachFrameY[A] = -16;
+        ToadFrameX[A] = -8;
+        ToadFrameY[A] = -16;
+        LinkFrameX[A] = -8;
+        LinkFrameY[A] = -16;
+    }
+
     // special power corrections
     for(int D = -1; D <= 1; D += 2)
     {
@@ -1890,20 +1905,29 @@ void SetupPlayerFrames()
         LinkFrameY[1100 + D * 15] = -12;
 
         // aquatic frame corrections
-        MarioFrameY[800 + D * 4] += 6;
-        MarioFrameY[800 + D * 5] += 6;
+        MarioFrameY[800 + D * 1] -= 12;
+        MarioFrameY[800 + D * 4] -= 6;
+        MarioFrameY[800 + D * 5] -= 6;
         MarioFrameY[800 + D * 7] -= 2;
         MarioFrameY[800 + D * 23] += 6;
+        MarioFrameY[800 + D * 24] -= 12;
 
-        LuigiFrameY[800 + D * 4] += 8;
-        LuigiFrameY[800 + D * 5] += 8;
+        LuigiFrameY[800 + D * 1] -= 12;
+        LuigiFrameY[800 + D * 4] -= 4;
+        LuigiFrameY[800 + D * 5] -= 4;
         LuigiFrameY[800 + D * 7] -= 8;
         LuigiFrameY[800 + D * 23] += 2;
+        LuigiFrameY[800 + D * 24] -= 12;
 
-        PeachFrameY[800 + D * 5] += 4;
+        PeachFrameY[800 + D * 1] -= 12;
+        PeachFrameY[800 + D * 4] -= 12;
+        PeachFrameY[800 + D * 5] -= 8;
         PeachFrameY[800 + D * 7] -= 14;
         PeachFrameY[800 + D * 27] -= 14;
 
+        ToadFrameY[800 + D * 1] -= 12;
+        ToadFrameY[800 + D * 4] -= 12;
+        ToadFrameY[800 + D * 5] -= 12;
         ToadFrameY[800 + D * 7] -= 12;
         ToadFrameY[800 + D * 8] -= 4;
         ToadFrameY[800 + D * 9] -= 4;

@@ -90,6 +90,10 @@
 #    include "core/opengl/gl_program_bank.h"
 #endif
 
+#ifdef THEXTECH_ENABLE_SDL_NET
+#    include "main/client_methods.h"
+#endif
+
 #include <fmt_format_ne.h>
 
 struct ScreenShake_t
@@ -353,7 +357,7 @@ public:
         else if(NPC[A].Effect == NPCEFF_NORMAL && NPC[A].HoldingPlayer == 0 &&
             (NPC[A].vehiclePlr > 0 || NPC[A].Type == NPCID_VEHICLE || NPC[A].Type == NPCID_CANNONITEM ||
                 NPC[A].Type == NPCID_TOOTHYPIPE || NPC[A].Type == NPCID_ITEM_BURIED || NPC[A].Type == NPCID_ROCKET_WOOD ||
-                NPC[A].Type == NPCID_FIRE_BOSS_FIRE || NPC[A]->IsACoin))
+                NPC[A].Type == NPCID_FIRE_BOSS_FIRE || NPC[A]->IsACoin || NPC[A].Type == NPCID_HOMING_CANNON))
         {
             if(Low_n == sizeof(Low) / sizeof(uint16_t))
                 return;
@@ -630,7 +634,7 @@ void DrawNPCWings(const NPC_t& n, int sX, int sY, XTColor cn)
         sX += 8;
         w -= 16;
     }
-    else if(n.Type == NPCID_SPRING && !LevelEditor)
+    else if((n.Type == NPCID_SPRING || n.Type == NPCID_RED_SPRING) && !LevelEditor)
         sY -= 16;
 
     for(int direction = 0; direction < 2; direction++)
@@ -1068,7 +1072,7 @@ void GraphicsLazyPreLoad()
         for(BackgroundRef_t bgo : s_drawBGOs[Z - 1])
         {
             Background_t& b = bgo;
-            if(vScreenCollision(Z, b.Location) && !b.Hidden && IF_INRANGE(b.Type, 1, maxBackgroundType))
+            if(vScreenCollision(Z, b) && !b.Hidden && IF_INRANGE(b.Type, 1, maxBackgroundType))
                 XRender::lazyPreLoad(GFXBackgroundBMP[b.Type]);
         }
 
@@ -1152,7 +1156,7 @@ void ClassicNPCScreenLogic(int Z, int numScreens, bool fill_draw_queue, NPC_Draw
 
         if(NPC[A].Effect == NPCEFF_NORMAL && ((NPC[A].HoldingPlayer == 0 && (NPC[A].vehiclePlr > 0 || NPC[A].Type == NPCID_VEHICLE ||
                                    NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_TOOTHYPIPE || NPC[A].Type == NPCID_ITEM_BURIED || NPC[A].Type == NPCID_ROCKET_WOOD ||
-                                   NPC[A].Type == NPCID_FIRE_BOSS_FIRE || NPC[A]->IsACoin) && (!NPC[A].Generator || LevelEditor))))
+                                   NPC[A].Type == NPCID_FIRE_BOSS_FIRE || NPC[A]->IsACoin || NPC[A].Type == NPCID_HOMING_CANNON) && (!NPC[A].Generator || LevelEditor))))
         {
             npcALoc = newLoc(NPC[A].Location.X - (NPC[A]->WidthGFX - NPC[A].Location.Width) / 2,
                                   NPC[A].Location.Y,
@@ -1179,7 +1183,8 @@ void ClassicNPCScreenLogic(int Z, int numScreens, bool fill_draw_queue, NPC_Draw
             if(!(NPC[A].HoldingPlayer > 0 || NPC[A]->IsAVine || NPC[A].Type == NPCID_BOSS_FRAGILE || NPC[A].Type == NPCID_FIRE_BOSS_FIRE ||
                  NPC[A].Type == NPCID_JUMP_PLANT || NPC[A].Type == NPCID_ROCKET_WOOD || NPC[A].Type == NPCID_LIFT_SAND || NPC[A].Type == NPCID_PLANT_S3 || NPC[A].Type == NPCID_FIRE_PLANT ||
                  NPC[A].Type == NPCID_PLANT_S1 || NPC[A].Type == NPCID_BOTTOM_PLANT || NPC[A].Type == NPCID_SIDE_PLANT || NPC[A].Type == NPCID_BIG_PLANT || NPC[A].Type == NPCID_LONG_PLANT_UP ||
-                 NPC[A].Type == NPCID_LONG_PLANT_DOWN || NPC[A].Type == NPCID_VEHICLE || NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_TOOTHYPIPE || NPC[A].Type == NPCID_ITEM_BURIED) &&
+                 NPC[A].Type == NPCID_LONG_PLANT_DOWN || NPC[A].Type == NPCID_VEHICLE || NPC[A].Type == NPCID_CANNONITEM || NPC[A].Type == NPCID_TOOTHYPIPE || NPC[A].Type == NPCID_HOMING_CANNON
+                 || NPC[A].Type == NPCID_ITEM_BURIED) &&
                !(NPC[A].Type == NPCID_SLIDE_BLOCK && NPC[A].Special == 0) && NPC[A].vehiclePlr == 0 &&
                !NPC[A]->Foreground && (!NPC[A].Generator || LevelEditor) &&
                NPC[A].Type != NPCID_SAW && NPC[A].Type != NPCID_ICE_CUBE)
@@ -1471,8 +1476,8 @@ void ModernNPCScreenLogic(Screen_t& screen, int vscreen_i, bool fill_draw_queue,
             // if it will look different after resetting, don't reset it
             if(!cannot_reset && render &&
                     (!NPC_InactiveRender(NPC[A])
-                        || num_t::floor(NPC[A].Location.X) != num_t::floor(NPC[A].DefaultLocationX)
-                        || num_t::floor(NPC[A].Location.Y) != num_t::floor(NPC[A].DefaultLocationY)
+                        || (int)(NPC[A].Location.X - NPC[A].DefaultLocationX) != 0
+                        || (int)(NPC[A].Location.Y - NPC[A].DefaultLocationY) != 0
                         || (!NPC[A].Active && !NPC[A].Reset[2])
                     )
                 )
@@ -2278,12 +2283,14 @@ void UpdateGraphicsScreen(Screen_t& screen)
         int camX_i = num_t::floor(camX);
         int camY_i = num_t::floor(camY);
 
+        XRender::setCameraPos(camX_i, camY_i);
+
         if(SMBX2_VANILLA(BACKGROUND)) // smbx2compat: SMBX2's paralx2.lua draws them itself
             DrawBackground(S, Z);
 
 #ifdef THEXTECH_BUILD_GL_MODERN
         if(SectionParticlesBG[S])
-            XRender::renderParticleSystem(**SectionParticlesBG[S], camX_i, camY_i);
+            XRender::renderParticleSystem(**SectionParticlesBG[S]);
 #endif
 
         // don't show background outside of the current section!
@@ -2350,7 +2357,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
                     break;
 
                 g_stats.checkedBGOs++;
-                if(vScreenCollision(Z, bgo.Location) && !bgo.Hidden)
+                if(vScreenCollision(Z, bgo) && !bgo.Hidden)
                 {
                     g_stats.renderedBGOs++;
 
@@ -2445,7 +2452,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
                     break;
 
                 g_stats.checkedBGOs++;
-                if(vScreenCollision(Z, bgo.Location) && !bgo.Hidden)
+                if(vScreenCollision(Z, bgo) && !bgo.Hidden)
                 {
                     g_stats.renderedBGOs++;
 
@@ -2748,6 +2755,9 @@ void UpdateGraphicsScreen(Screen_t& screen)
                     break;
                 }
 
+                if(Player[A].State == PLR_STATE_TINY)
+                    Y = 10;
+
                 int sX = num_t::floor(camX + Player[A].Location.X);
                 int sY = num_t::floor(camY + Player[A].Location.Y);
                 int pW = s_round2int(Player[A].Location.Width);
@@ -2816,7 +2826,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
                     continue;
 
                 g_stats.checkedBGOs++;
-                if(vScreenCollision(Z, bgo.Location) && !bgo.Hidden)
+                if(vScreenCollision(Z, bgo) && !bgo.Hidden)
                 {
                     auto &bgoGfx = GFXBackgroundBMP[bgo.Type];
                     const vbint_t bgoHeight = BackgroundHeight[bgo.Type];
@@ -3080,7 +3090,7 @@ void UpdateGraphicsScreen(Screen_t& screen)
 
 #ifdef THEXTECH_BUILD_GL_MODERN
         if(SectionParticlesFG[S])
-            XRender::renderParticleSystem(**SectionParticlesFG[S], camX_i, camY_i);
+            XRender::renderParticleSystem(**SectionParticlesFG[S]);
 
         // smbx2compat: in core mode SMBX2's darkness.lua draws the section's
         // darkness (the same LVLX settings this lighting emulates)
@@ -3264,6 +3274,14 @@ void UpdateGraphicsMeta()
         double slow = g_microStats.view_slow_frame_time / 66.0;
         XTColor color = slow > 15.6 ? XTColor(255, 64, 64) : avg > 11.0 ? XTColor(255, 255, 0) : XTColor(0, 255, 0);
         SuperPrint(fmt::sprintf_ne("%.1f ms (max %.1f)", avg, slow), 3, x, 8, color);
+    }
+#endif
+
+#ifdef THEXTECH_ENABLE_SDL_NET
+    if(XMessage::GetStatus() == XMessage::Status::connected && g_config.show_fps)
+    {
+        const auto& stat = *XMessage::GetClientStatus();
+        SuperPrint(std::to_string(stat.latency_frames), 1, XRender::TargetOverscanX + 8, 28, (stat.udp_active) ? XTColor{0, 255, 0} : XTColor{255, 255, 0});
     }
 #endif
 

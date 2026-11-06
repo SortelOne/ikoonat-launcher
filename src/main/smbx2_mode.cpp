@@ -173,7 +173,7 @@ static bool s_endsWith(const std::string &s, const char *suffix)
 }
 
 // "npc-400.png" -> true: a custom sprite or config for an ID SMBX 1.3 and
-// TheXTech don't have (TheXTech's own: NPCs 301-306, blocks 701-702)
+// TheXTech don't have (TheXTech's own: NPCs 301-312, blocks up to 730)
 static bool s_idPastClassic(const std::string &lowerName)
 {
     struct Range { const char *prefix; int max; };
@@ -181,8 +181,8 @@ static bool s_idPastClassic(const std::string &lowerName)
     {
         {"background2-", 100},
         {"background-", 200},
-        {"block-", 702},
-        {"npc-", 306},
+        {"block-", 730},
+        {"npc-", 312},
         {"effect-", 200},
     };
 

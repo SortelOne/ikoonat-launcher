@@ -30,8 +30,8 @@ if(PGE_USE_LUAJIT)
         "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
         "-DLUAJIT_FORCE_UTF8_FOPEN=ON"
         "-DLUAJIT_ENABLE_LUA52COMPAT=ON" # smbx2compat: SMBX2 scripts need it, as LunaLua's LuaJIT has it (smbx2compat/luajit.patch)
-        ${ANDROID_CMAKE_FLAGS}
-        ${LUAJIT_USE_CMAKE_FLAG}
+        ${XTECH_PLATFORM_GENERAL_CMAKE_FLAGS}
+        ${LUAJIT_USE_CMAKE_FLAG}  # This flag is defined at the library_luabind.cmake
         $<$<BOOL:APPLE>:-DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}>
     BUILD_BYPRODUCTS
         "${libLuaJit_Lib}"
