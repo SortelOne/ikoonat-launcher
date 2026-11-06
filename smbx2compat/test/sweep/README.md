@@ -26,6 +26,15 @@ workspace 1, and from Claude's shell they need the sandbox off.
   kind of drawing bug 2-A's barrels had). Dark artwork shows up too, so look
   at what it flags.
 - `sheet.py <out.png> <cols> <png>...` — tiles screenshots into one image.
+- `exittest.lua` — a `SMBX2COMPAT_DEBUG` file that calls `Misc.exitEngine()`
+  (SMATRS's Quit) after `EXITTEST_FRAME` frames (default 300) in levels
+  whose name contains `EXITTEST_LEVEL`. Episode restart loop through the
+  library, for memory checks (Continue is slot 3 once slot 3 was played
+  last; back up and restore `save3-ext.dat` as `episode.sh` does):
+  `SMBX2COMPAT_DEBUG=$PWD/exittest.lua EXITTEST_FRAME=400 EXITTEST_LEVEL="World Map" SMBX2COMPAT_LIBKEYS="60:do,100:do" XTECH_BUILD=build-release run-level.sh menu 240`
+  (the library's test keys start again each time it opens).
+- `lsprobe.lua` — finds what keeps old loading screens alive in that
+  state; needs a temporary hook in `core/loadscreen.lua` (in its header).
 
 Reading a run: errors are the `==>` lines; `MemEmu: Unknown` and
 `outside emulated memory` are fields scripts use that the engine doesn't

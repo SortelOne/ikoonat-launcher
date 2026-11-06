@@ -1640,7 +1640,22 @@ on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), Release build.
 - Not done: two episodes of different modes in one process (SMATRS, then
   The Invasion 2, then SMATRS) for the SMBX/SMBX2 sprite switch: an SMBX
   episode can only be left through the engine's pause menu, which test
-  runs can't press yet. An AddressSanitizer build; the Odin's memory lines.
+  runs can't press yet. The Odin's memory lines.
+- Next (Jake wants it, 2026-11-06): an AddressSanitizer build for memory
+  errors (use-after-free, overruns), part of clang, nothing to install.
+  Plan: its own folder, `cmake -S . -B build-asan -G Ninja
+  -DCMAKE_BUILD_TYPE=Debug -DTHEXTECH_ENABLE_LUA=ON
+  -DTHEXTECH_BUNDLE_NAME="Ikoonat Launcher" -DTHEXTECH_ENABLE_SDL_NET=OFF
+  -DCMAKE_C_FLAGS="-fsanitize=address -fno-omit-frame-pointer"
+  -DCMAKE_CXX_FLAGS=<same> -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address`
+  (check the flags reach the script library and our submodule builds;
+  LuaJIT's own makefile and allocator stay outside ASan, which is fine).
+  Run with `XTECH_BUILD=build-asan`: `reg.sh`, the soak (`episode.sh`),
+  the Quit loop (`test/sweep/exittest.lua`), the library and an import.
+  ASan prints to stderr: check where `run-level.sh` sends it, or set
+  `ASAN_OPTIONS=log_path=<scratchpad>/asan` (LeakSanitizer isn't
+  available on Apple Silicon; `leaks` covers that). Debug + ASan is ~2-3x
+  slower, so allow longer runs.
 
 ## Risks
 
