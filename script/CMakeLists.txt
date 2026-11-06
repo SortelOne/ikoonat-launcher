@@ -34,6 +34,12 @@ add_library(XTechLua STATIC
     ${LIB_XTECHLUA_SRCS}
 )
 
+# smbx2compat: Android links it into the shared libthextech.so, so it needs
+# -fPIC (the top-level CMakeLists turns position-independent code off)
+if(ANDROID)
+    set_target_properties(XTechLua PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
+
 target_include_directories(XTechLua PRIVATE
     include src lib
     ${TheXTech_SOURCE_DIR}/src
