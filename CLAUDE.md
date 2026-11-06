@@ -249,6 +249,10 @@ How it works (details in `core/boot.lua`'s header):
   their values as linked, since SMATRS's shaders have initializers such as
   `framebufferSize = vec2(800.0, 600.0)`; the loading screen's state has
   programs of its own). `SMBX2COMPAT_SHADERCACHE=0` turns all three off.
+- The engine's texture draws (`render_gl_frontend.cpp`) skip a source
+  rectangle wholly outside the texture, as LunaLua's `GLDraw::DrawSprite`
+  does: SMBX2's `npcutils.hideNPC` hides NPCs with frame -999, and the GPU
+  stretched the texture's edge row into a bar instead (2-A's barrels).
 - TheXTech's own section lighting (`SectionLighting`, read from the same LVLX
   `darkness` settings) is off in core mode (`SMBX2_CORE()` in `gfx_update.cpp`):
   SMBX2's `darkness.lua` draws it, and both together darkened twice.
@@ -337,7 +341,10 @@ How it works (details in `core/boot.lua`'s header):
 - Debugging episode scripts: `SMBX2COMPAT_DEBUG=/path/file.lua` runs that file
   in the level's state after its scripts load (before onStart), with `core`
   as its argument; `Misc.getCustomEnvironment()._G.require(...)` reaches the
-  episode's modules and `SaveData`. Keep such files in the scratchpad.
+  episode's modules and `SaveData`; `core.ffi` is LuaJIT's FFI (SMBX2's
+  lockdown hides `require("ffi")`), e.g. to wrap the `LunaDll.dll` draw
+  exports (`core.ffi.load("LunaDll.dll").FFI_GLDraw`) and log every draw.
+  Keep such files in the scratchpad.
 - SMATRS's 3D world map is the level `World Map.lvlx` (hub of `World.wld`),
   drawn by the episode's `map.lua`/`lib3d.lua`. Played as an episode, a new
   save goes to `_prologue.lvlx` and a save boots to SMATRS's start menu over
@@ -373,6 +380,10 @@ How it works (details in `core/boot.lua`'s header):
   NPCs activate on that whole screen (`ModernNPCScreenLogic`,
   `xtech_lua_drawScriptScreenSize`), not on TheXTech's 800x600 one in its
   middle; other levels keep the 800x600 one, SMBX's screen.
+- TheXTech's controller overlay doesn't flash the input profile's name
+  ("Keyboard 1") in core mode (`speedRun_renderControls`); the missing-
+  controller picture ("P1 ?") still shows, so test runs with no key
+  pressed show it in the bottom-left corner throughout.
 - Every file read goes through `core.resolve`: backslashes → `/`, relative
   paths from SMBX2's data folder (its working folder on Windows), case-insensitive
   names (SMBX2 ships `classexpander.lua` but requires `classExpander`), files in
@@ -414,11 +425,13 @@ How it works (details in `core/boot.lua`'s header):
   Double globals also take Float reads/writes (SMBX's Singles, e.g. SMBX2's
   `Defines`). Fields TheXTech dropped that scripts use get engine values or
   storage: NPC spawn size 0xB8/0xC0 (`NPC_t::smbx2SpawnWidth/Height`),
-  the episode list (`SelectWorld`), `Star`, Defines without an engine value.
+  the episode list (`SelectWorld`), `Star`, Defines without an engine value,
+  NPC 0x74 (`GeneratorActive`, which SMATRS sets to run a room's generators
+  off screen) and 0xE0 (`NPC_t::smbx2DefaultSpecial2`, `ai2` on respawn).
   SMBX2's NPC type flags (`isflying`, `iswalker`, ...) are fixed per type in
   TheXTech (`npc_constant_traits.h`); writes are dropped, logged once.
   Unknown addresses log once as `smbx2compat: mem() read outside emulated
-  memory`. To find who reads one, temporarily log `debug.traceback()` in
+  memory`; MemEmu's unknown object fields log once each too. To find who reads one, temporarily log `debug.traceback()` in
   `ffi_mem.lua`'s `readmem` for that address range.
 - Custom params: the `CustomParams` field on `Block_t`/`Background_t`/`NPC_t`
   (set in `level_file.cpp`) + `core/extrasettings.lua` (needs SMBX2's

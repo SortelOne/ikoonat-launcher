@@ -421,6 +421,9 @@ struct NPC_t
     //! NPC's type; kept once a script sets it (0: not set)
     num_t smbx2SpawnWidth = 0_n;
     num_t smbx2SpawnHeight = 0_n;
+    //! smbx2compat: SMBX's DefaultSpecial2 (ai2 on respawn), which TheXTech dropped;
+    //! only scripts set it
+    vbint_t smbx2DefaultSpecial2 = 0;
 
 //    Projectile As Boolean 'If the NPC is a projectile
     bool Projectile = false;

@@ -1004,10 +1004,40 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
     screen (drawn that way, `loadscreenShared.lua`) are SMATRS's too.
     `1-2 - Jolly Seaside.lvlx` is an unused level with no map spot (leaving
     it puts Mario over open sea); sweeps skip it.
+  - TheXTech's controller overlay flashed the input profile's name
+    ("Keyboard 1") as a player's controller was assigned; Windows has no
+    such thing, so it's off in core mode (`speedRun_renderControls`,
+    `src/main/speedrunner.cpp`; Jake). The missing-controller picture
+    ("P1 ?") stays: it's the warning a disconnected gamepad needs on
+    Android. Runs with no key pressed (all of ours) show it throughout.
+  - The rest through `World.wld` (1-B, 1-Bonus, 1-Boss, 1-Ep): 0 errors.
+    1-Bonus's and 1-Ep's story scenes play out (1-Ep's intro ends at
+    ~2500 frames, then the player walks on); 1-B starts in a closed pit
+    (a puzzle held-right can't solve). 1-Ep has no map spot: SMATRS loads
+    it from 1-Boss's defeat scene (`blotchDefeatScene.lua`), so leaving it
+    for the map puts Mario over open sea, as with Jolly Seaside.
+- *Chapter 2 sweep (2026-11-05):* the 13 Chapter 2 levels and 3-Prelude
+  with `-l`: 0 script errors, 0 unknown `mem()`. Found:
+  - Black bars beside 2-A's launch barrels (Jake saw them): SMBX2's
+    `npcutils.hideNPC` hides an NPC with frame -999; LunaLua's
+    `GLDraw::DrawSprite` draws nothing for a source outside the image, but
+    TheXTech's texture draws only clipped past the right/bottom edge, so the
+    GPU stretched the sheet's top row (the barrel's black outline) down the
+    sprite. Its texture draws now skip such sources
+    (`render_gl_frontend.cpp`). It showed only where a barrel was hidden
+    (its "[back only]" ghost-field shader), and only for sheets with opaque
+    edge pixels.
+  - Logs of 15,000-146,000 lines (2- Hidden Village, 2-6, 2-A, 2-7): every
+    write to NPC 0x74 (generator "on screen", set by SMATRS's
+    `spawnzones.lua`/`respawnRooms.lua` ~100 times a frame) and 0xE0
+    (SMBX2's `spawnAi2`) logged a MemEmu warning. Both are emulated now
+    (0xE0 as `ai2` on respawn, as SMBX's `DefaultSpecial2`), and unknown
+    object fields log once each.
+  - Story scenes (2-Epilogue, 3-Prelude, 2-Boss's intro) play out; in 2-1
+    held-right stops at a post.
 - *Next:*
   - Jake checks the loading screens and the map.
-  - The rest of the episode sweep (1-B to 1-Ep through `World.wld`) and
-    Jake's random-level sampling (below).
+  - Jake's random-level sampling (below).
   - Later: SMBX2's NPC type flags above, if an episode needs them; the
     image-load hitches on Android if they show there.
 - Done when: Chapter 1 is playable start to finish on desktop, from the

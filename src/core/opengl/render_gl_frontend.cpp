@@ -1487,6 +1487,11 @@ void RenderGL::renderTextureScaleEx(int xDst, int yDst, int wDst, int hDst,
 
     SDL_assert_release(tx.d.texture_id);
 
+    // smbx2compat: a source wholly outside the texture draws nothing, as in LunaLua
+    // (SMBX2 hides NPCs with frame -999; the GPU stretched the texture's edge instead)
+    if(xSrc >= tx.w || ySrc >= tx.h || xSrc + wSrc <= 0 || ySrc + hSrc <= 0)
+        return;
+
     // Don't go more than size of texture
     if(xSrc + wSrc > tx.w)
     {
@@ -1613,6 +1618,10 @@ void RenderGL::renderTexture(int xDst, int yDst, int wDst, int hDst,
 
     SDL_assert_release(tx.d.texture_id);
 
+    // smbx2compat: a source wholly outside the texture draws nothing, as in LunaLua
+    if(xSrc >= tx.w || ySrc >= tx.h || xSrc + wDst <= 0 || ySrc + hDst <= 0)
+        return;
+
     // Don't go more than size of texture
     if(xSrc + wDst > tx.w)
     {
@@ -1674,6 +1683,10 @@ void RenderGL::renderTextureFL(int xDst, int yDst, int wDst, int hDst,
     }
 
     SDL_assert_release(tx.d.texture_id);
+
+    // smbx2compat: a source wholly outside the texture draws nothing, as in LunaLua
+    if(xSrc >= tx.w || ySrc >= tx.h || xSrc + wDst <= 0 || ySrc + hDst <= 0)
+        return;
 
     // Don't go more than size of texture
     if(xSrc + wDst > tx.w)

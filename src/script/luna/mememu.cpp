@@ -1186,6 +1186,9 @@ protected:
 
         //! Lambda-type field pointer
         std::pair<Getter, Setter> field_lf;
+
+        //! smbx2compat: an unknown field's warning was logged (once each)
+        bool warned = false;
     };
 
     //! Basic map of addresses
@@ -1362,7 +1365,10 @@ public:
 
         if(vtype == VT_UNKNOWN)
         {
-            pLogWarning("MemEmu: Unknown %s::%s address to read: 0x%x", objName, FieldtypeToStr(ftype), static_cast<unsigned>(address));
+            // smbx2compat: once per field; scripts can hit one for every object every frame
+            if(!t->warned)
+                pLogWarning("MemEmu: Unknown %s::%s address to read: 0x%x", objName, FieldtypeToStr(ftype), static_cast<unsigned>(address));
+            t->warned = true;
             return 0;
         }
 
@@ -1504,7 +1510,10 @@ public:
 
         if(vtype == VT_UNKNOWN)
         {
-            pLogWarning("MemEmu: Unknown %s::%s address to write: 0x%x", objName, FieldtypeToStr(ftype), static_cast<unsigned>(address));
+            // smbx2compat: once per field (SMATRS wrote one ~100 times a frame)
+            if(!t->warned)
+                pLogWarning("MemEmu: Unknown %s::%s address to write: 0x%x", objName, FieldtypeToStr(ftype), static_cast<unsigned>(address));
+            t->warned = true;
             return;
         }
 
@@ -2188,6 +2197,20 @@ public:
         // insert(0x00000070, &NPC_t::GeneratorDirection);
         // insert(0x00000072, &NPC_t::GeneratorEffect);
         // insert(0x00000074, &NPC_t::GeneratorActive); // turned into bitfield, unused in Analogue Funk
+        // smbx2compat: a generator's "on screen" flag; SMATRS sets it to run a room's
+        // generators off screen (respawnRooms.lua)
+        insert(0x00000074, // GeneratorActive
+            [](const NPC_t& n, FIELDTYPE ftype)->num_t
+            {
+                return valueToMem((bool)n.GeneratorActive, ftype);
+            },
+            [](NPC_t& n, num_t in, FIELDTYPE ftype)->void
+            {
+                bool temp = n.GeneratorActive;
+                memToValue(temp, in, ftype);
+                n.GeneratorActive = temp;
+            }
+        );
         insert(0x00000076, // playerTemp
             [](const NPC_t& n, FIELDTYPE ftype)->num_t
             {
@@ -2226,6 +2249,7 @@ public:
         insert(0x000000dc, reinterpret_cast<vbint_t NPC_t::*>(&NPC_t::DefaultType));
         insert(0x000000de, &NPC_t::DefaultSpecial);
         // insert(0x000000e0, &NPC_t::DefaultSpecial2); // removed, was unused except by NPCID_MAGIC_DOOR and friends
+        insert(0x000000e0, &NPC_t::smbx2DefaultSpecial2); // smbx2compat: SMBX2's spawnAi2
         insert(0x000000e2, // Type
             [](const NPC_t& n, FIELDTYPE ftype)->num_t
             {

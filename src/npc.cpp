@@ -293,7 +293,8 @@ void Deactivate(int A)
 
             // DefaultSpecial
             NPC[A].Special = NPC[A].DefaultSpecial;
-            NPC[A].Special2 = 0; // NPC[A].DefaultSpecial2; // moved to Variant for the one type (NPCID_MAGIC_DOOR) that used it
+            // NPC[A].Special2 = NPC[A].DefaultSpecial2; // moved to Variant for the one type (NPCID_MAGIC_DOOR) that used it
+            NPC[A].Special2 = NPC[A].smbx2DefaultSpecial2; // smbx2compat: 0 unless a script set it (SMBX2's spawnAi2)
 
             // for generators, these store critical variables
             if(!NPC[A].Generator)

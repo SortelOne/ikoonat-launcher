@@ -32,6 +32,14 @@
 
 #include "gameplay_timer.h"
 
+#ifdef ENABLE_XTECH_LUA
+#   include "../script/include/xtech_lua_main.h" // smbx2compat
+// smbx2compat: SMBX2's own scripts run this level (core mode)
+#   define SMBX2_CORE() (!LevelEditor && xtech_lua_isSmbx2Core())
+#else
+#   define SMBX2_CORE() false
+#endif
+
 static      GameplayTimer s_gamePlayTimer;
 
 void speedRun_loadStats()
@@ -361,7 +369,9 @@ void speedRun_renderControls(int player, int screenZ, int align)
         player = 0;
 
     const bool player_missing = (player >= (int)Controls::g_InputMethods.size() || !Controls::g_InputMethods[player]);
-    const bool player_newly_connected = !player_missing && QuickReconnectScreen::g_active && QuickReconnectScreen::g_toast_duration[player];
+    // smbx2compat: SMBX2 episodes don't flash the input profile's name ("Keyboard 1")
+    // as a level starts, as on Windows; a disconnected controller still shows
+    const bool player_newly_connected = !player_missing && !SMBX2_CORE() && QuickReconnectScreen::g_active && QuickReconnectScreen::g_toast_duration[player];
     XPower::StatusInfo status_info = Controls::GetStatus(player);
 
     // Controller

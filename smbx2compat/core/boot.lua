@@ -68,6 +68,8 @@ core.jitOptSpec = os.getenv("SMBX2COMPAT_JITOPT")
 -- Debugging: SMBX2COMPAT_DEBUG=/path/file.lua runs that file once the level's
 -- scripts have loaded (before onStart), with core passed as its argument
 core.debugSpec = os.getenv("SMBX2COMPAT_DEBUG")
+-- for debug files, which SMBX2's lockdown keeps from require("ffi")
+core.ffi = require("ffi")
 
 
 -------------
