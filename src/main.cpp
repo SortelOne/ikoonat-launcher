@@ -34,6 +34,7 @@
 #include "main/asset_pack.h"
 #include "main/smbx2_mode.h" // smbx2compat
 #include "main/library_import.h" // smbx2compat
+#include "main/screen_library.h" // smbx2compat
 #include "main/translate.h"
 #include "core/language.h"
 #include "config.h"
@@ -381,6 +382,11 @@ int main(int argc, char**argv)
                                                    "folder or zip path",
                                                    cmd);
 
+        // smbx2compat: the Android library app's "Classic menu" (battle mode, the editor)
+        TCLAP::SwitchArg switchClassicMenu(std::string(), "classic-menu",
+                                           "Open TheXTech's own main menu instead of the episode library",
+                                           cmd, false);
+
         TCLAP::SwitchArg switchFrameSkip("f", "frameskip", "Enable frame skipping mode", false);
         TCLAP::SwitchArg switchDisableFrameSkip(std::string(), "no-frameskip", "Disable frame skipping mode", false);
         TCLAP::SwitchArg switchNoSound("s", "no-sound", "Disable sound", false);
@@ -581,6 +587,8 @@ int main(int argc, char**argv)
         g_smbx2DataOverride = smbx2Data.getValue();
         if(!episodeMode.getValue().empty() && !EpisodeMode_parse(episodeMode.getValue(), g_episodeModeOverride))
             std::fprintf(stderr, "Unknown --episode-mode %s (auto, smbx, smbx2); deciding per episode\n", episodeMode.getValue().c_str());
+
+        LibraryScreen::g_classicMenuOnly = switchClassicMenu.getValue();
 
         // smbx2compat: the library's importer without the game (tests, scripts)
         if(!libraryImport.getValue().empty())

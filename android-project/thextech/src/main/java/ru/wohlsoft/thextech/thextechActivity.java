@@ -13,6 +13,7 @@ import android.widget.EditText;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -53,6 +54,9 @@ public class thextechActivity extends SDLActivity
     static boolean gameRunning = false;
     private String levelToRun;
     private boolean editRequested = false;
+    // smbx2compat: the arguments Ikoonat's library starts the game with
+    // (io.github.sortelone.ikoonat.GameLauncher: user folder, asset pack, episode, slot, ...)
+    private String[] ikoonatArgs = null;
 
     protected String[] getLibraries()
     {
@@ -116,18 +120,26 @@ public class thextechActivity extends SDLActivity
                 args.add("--speed-run-semitransparent");
         }
 
-        if(editRequested)
-            args.add("-e");
-
-        if(!levelToRun.isEmpty())
-            args.add(levelToRun);
-
-        String gameAssetsPath = setup.getString("setup_assets_path", "");
-        if(!gameAssetsPath.isEmpty())
+        if(ikoonatArgs != null)
         {
-            File f = new File(gameAssetsPath);
-            if (f.exists() && f.isDirectory()) {
-                setGameAssetsPath(gameAssetsPath);
+            // smbx2compat: the library chose the folders and the episode
+            Collections.addAll(args, ikoonatArgs);
+        }
+        else
+        {
+            if(editRequested)
+                args.add("-e");
+
+            if(!levelToRun.isEmpty())
+                args.add(levelToRun);
+
+            String gameAssetsPath = setup.getString("setup_assets_path", "");
+            if(!gameAssetsPath.isEmpty())
+            {
+                File f = new File(gameAssetsPath);
+                if (f.exists() && f.isDirectory()) {
+                    setGameAssetsPath(gameAssetsPath);
+                }
             }
         }
 
@@ -143,6 +155,7 @@ public class thextechActivity extends SDLActivity
         super.onStart();
         gameRunning = true;
         levelToRun = "";
+        ikoonatArgs = null;
         // Detect current language of the system
         detectLanguage();
         Intent intent = getIntent();
@@ -154,6 +167,9 @@ public class thextechActivity extends SDLActivity
 
             if(extras.containsKey("edit-requested"))
                 editRequested = true;
+
+            if(extras.containsKey("ikoonat-args"))
+                ikoonatArgs = extras.getStringArray("ikoonat-args");
         }
     }
 

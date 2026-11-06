@@ -46,6 +46,7 @@
 #include "menu_main.h"
 #include "saved_layers.h"
 #include "main/smbx2_ids.h" // smbx2compat
+#include "main/episode_library.h" // smbx2compat
 #ifdef ENABLE_XTECH_LUA
 #include "xtech_lua_events.h" // smbx2compat
 #endif
@@ -117,16 +118,13 @@ static std::string s_legacy_save_path(const SelectWorld_t& w, int save_idx)
 }
 
 
-void FindSaves()
+// smbx2compat: one slot of FindSaves, also used while an episode plays (to
+// record the slot in the library), where the death counter must stay alone
+static void s_readSlotInfo(const SelectWorld_t &w, int A, SaveSlotInfo_t &info, bool withFails)
 {
-//    std::string newInput;
-    const auto &w = SelectWorld[selWorld];
     GamesaveData f;
 
-    for(auto A = 1; A <= maxSaveSlots; A++)
     {
-        auto& info = SaveSlotInfo[A];
-
         info = SaveSlotInfo_t();
         info.ConfigDefaults = 0;
 
@@ -176,6 +174,7 @@ void FindSaves()
             // How many stars collected
             maxActive += (int(f.totalStars) * 4);
             info.Stars = int(f.gottenStars.size());
+            info.MaxStars = int(f.totalStars); // smbx2compat
 
             curActive += (info.Stars * 4);
 
@@ -261,7 +260,7 @@ void FindSaves()
             savePath = makeGameSavePath(w.WorldFilePath,
                                         fmt::format_ne("fails-{0}.rip", A));
 
-            if(Files::fileExists(savePath))
+            if(withFails && Files::fileExists(savePath))
             {
                 gDeathCounter.counterFile = savePath;
                 gDeathCounter.TryLoadStats();
@@ -272,6 +271,47 @@ void FindSaves()
             }
         }
     }
+}
+
+void FindSaves()
+{
+    const auto &w = SelectWorld[selWorld];
+
+    for(auto A = 1; A <= maxSaveSlots; A++)
+        s_readSlotInfo(w, A, SaveSlotInfo[A], true);
+}
+
+// smbx2compat: each slot's stars, progress and play time in library.ini, so
+// the Android library app shows them without reading save files
+void SaveSlots_recordInLibrary(int slot)
+{
+    if(selWorld < 1 || selWorld >= (int)SelectWorld.size())
+        return;
+
+    const auto &w = SelectWorld[selWorld];
+    if(w.WorldFilePath.empty())
+        return;
+
+    std::string key = Library_key(Files::dirname(w.WorldFilePath));
+    LibraryEpisode_t e;
+    Library_get(key, e);
+
+    for(int A = 1; A <= maxSaveSlots && A <= c_librarySlots; A++)
+    {
+        if(slot > 0 && A != slot)
+            continue;
+
+        SaveSlotInfo_t info;
+        s_readSlotInfo(w, A, info, false);
+
+        LibrarySlot_t &out = e.slots[A - 1];
+        out.progress = info.Progress;
+        out.stars = (info.Progress >= 0) ? info.Stars : 0;
+        out.maxStars = (info.Progress >= 0) ? info.MaxStars : 0;
+        out.time = (info.Progress >= 0) ? info.Time : 0;
+    }
+
+    Library_set(key, e);
 }
 
 
@@ -393,6 +433,8 @@ void SaveGame()
 
     // Also, save the speed-running states
     speedRun_saveStats();
+
+    SaveSlots_recordInLibrary(selSave); // smbx2compat
 
     AppPathManager::syncFs();
 }
@@ -671,6 +713,10 @@ void DeleteSave(int world, int save)
     AddFile("fails-{0}.rip");
     AddFile("demos-{0}.dmo");
 
+    // smbx2compat: SMBX2's own save data (SaveData), which SMBX2's launcher
+    // deletes with the save
+    deleteList.push_back(fmt::format_ne("{0}save{1}-ext.dat", Files::dirname(w.WorldFilePath), save));
+
     // Clear all files in list
     for(auto &s : deleteList)
     {
@@ -695,6 +741,10 @@ void DeleteSave(int world, int save)
     }
 
 #undef AddFile
+
+    // smbx2compat: the library shows the slot as empty now
+    if(world == selWorld)
+        SaveSlots_recordInLibrary(save);
 
 #ifdef __EMSCRIPTEN__
     AppPathManager::syncFs();

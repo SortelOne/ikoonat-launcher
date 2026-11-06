@@ -590,8 +590,8 @@ int GameMain(const CmdLineSetup_t &setup)
         EpisodeMode_beginStartup();
 
     // smbx2compat: the episode library is the first screen, except for
-    // command-line level tests (SMBX2COMPAT_NOLIBRARY=1: TheXTech's menu)
-    LibraryScreen::g_enabled = !cmdline_content && !std::getenv("SMBX2COMPAT_NOLIBRARY");
+    // command-line level tests (SMBX2COMPAT_NOLIBRARY=1 or --classic-menu: TheXTech's menu)
+    LibraryScreen::g_enabled = !cmdline_content && !std::getenv("SMBX2COMPAT_NOLIBRARY") && !LibraryScreen::g_classicMenuOnly;
 
     // special case: go straight to asset pack menu
     if(g_config.pick_assets_on_start && !cmdline_content && setup.assetPack.empty() && GetAssetPacks().size() > 1)
@@ -1001,6 +1001,10 @@ int GameMain(const CmdLineSetup_t &setup)
         // quickly exit if returned to menu from world test
         else if(setup.testLevelMode && GameMenu)
         {
+            // smbx2compat: the play time since the last save, for the library app
+            if(selSave > 0)
+                SaveSlots_recordInLibrary(selSave);
+
             GracefulQuit();
             return 0;
         }
@@ -2651,6 +2655,7 @@ void StartEpisode()
     // smbx2compat: SMBX or SMBX2 mode for this episode, and its library picture
     EpisodeMode_begin(Files::dirname(wPath), selSave);
     LibraryScreen::thumbArm(Files::dirname(wPath));
+    SaveSlots_recordInLibrary(0);
 
     if(!OpenWorld(wPath))
     {

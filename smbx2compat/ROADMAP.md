@@ -1100,7 +1100,8 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
 
 ### Phase 7 — Android
 - Turn on Lua in `android-project/thextech/build.gradle`
-  (`-DTHEXTECH_ENABLE_LUA=ON`).
+  (`-DTHEXTECH_ENABLE_LUA=ON`). *Done 2026-11-06 with the native library
+  (arm64-v8a and x86_64 only); not built yet.*
 - LuaJIT cross-compile: arm64-v8a and x86_64 work from a macOS host; 32-bit ABIs
   (armeabi-v7a, x86) need a 32-bit host compiler, which macOS lacks. The target
   (AYN Odin 3) is arm64, so: **arm64-v8a (+ x86_64 for the emulator) only**.
@@ -1244,14 +1245,30 @@ Load time is ~2.5 s in the Debug build (see the Performance track).
   episode pictures captured ~45 s into play. Not yet: Back up saves,
   Remove episode, background choices (episode picture / title level),
   per-episode draw rate, the TheXTech asset pack import (Android).
-  *Next: restyle (Jake, 2026-11-06):* cleaner, more modern, with episode
-  cards like dribbble.com/shots/26033069-Profile-Card: tall cards with
-  big rounded corners and a soft shadow, the picture inset with rounded
-  corners (or filling the card and fading into the text), name with the
-  mode as a small pill, a gray line (author or full title), a stats row
-  (stars, play time) and a pill button (Continue/Play). Needs rounded
-  rectangles, shadows and fades the renderer lacks: small generated
-  textures (9-slice corners, blurred shadow, alpha ramp) tinted per theme.
+  *Restyle (Jake, 2026-11-06):* cleaner and more modern, with episode
+  cards like dribbble.com/shots/26033069-Profile-Card; Jake picked the card
+  whose picture fills it and fades into the text (name, mode pill, stats
+  row, pill Play button, accent ring when selected). Done on Android (below);
+  the Mac library stays as it is.
+  *Native Android library (Jake, 2026-11-06, replaces "inside the game" for
+  Android):* the Android app's library is a native Android screen (Kotlin,
+  Jetpack Compose) that starts the engine with the chosen episode, as
+  `run-level.sh` does (world file, `--save-slot`, `-n`, `-1 c<char>`); a
+  world started that way quits when the player leaves it, and the game runs
+  in its own process (`:game`), so the library comes back as it was. Why:
+  Android's own UI gives the restyle (rounded corners, shadows, fades,
+  animation), the file picker, share sheet, shortcuts and frontend intents
+  for free, and opens instantly. The Mac keeps the in-engine library,
+  simple, for building and testing. Both read and write the same files:
+  `settings/library.ini` (the engine also records each slot's stars,
+  progress and play time there when an episode starts, saves and ends, so
+  the app never parses save files), episode pictures in
+  `settings/library/`. Jake: controller navigation is a must; he can pick
+  his own picture for each card (a "launcher" feel), episode pictures are
+  the fallback. Claude writes it on the Mac without an Android SDK (no
+  compiler for it here); Jake builds it on his machine and tests on the
+  Odin. Files: `android-project/thextech/src/main/kotlin/io/github/
+  sortelone/ikoonat/`, design notes in its `README.md`.
 - Done when: SMATRS 1-1 runs on your phone.
 
 ## Performance track (started 2026-11-04)

@@ -103,6 +103,19 @@ bool Library_get(const std::string &key, LibraryEpisode_t &out)
     ini.read("last-slot", out.lastSlot, 0);
     ini.read("character", out.character, 1);
     ini.read("players", out.players, 1);
+
+    for(int i = 0; i < c_librarySlots; i++)
+    {
+        LibrarySlot_t &sl = out.slots[i];
+        std::string p = "slot" + std::to_string(i + 1) + "-";
+        long long t = 0;
+        ini.read((p + "progress").c_str(), sl.progress, -1);
+        ini.read((p + "stars").c_str(), sl.stars, 0);
+        ini.read((p + "max-stars").c_str(), sl.maxStars, 0);
+        ini.read((p + "time").c_str(), t, 0LL);
+        sl.time = (int64_t)t;
+    }
+
     ini.endGroup();
 
     return true;
@@ -121,6 +134,17 @@ void Library_set(const std::string &key, const LibraryEpisode_t &e)
     ini.setValue("last-slot", e.lastSlot);
     ini.setValue("character", e.character);
     ini.setValue("players", e.players);
+
+    for(int i = 0; i < c_librarySlots; i++)
+    {
+        const LibrarySlot_t &sl = e.slots[i];
+        std::string p = "slot" + std::to_string(i + 1) + "-";
+        ini.setValue((p + "progress").c_str(), sl.progress);
+        ini.setValue((p + "stars").c_str(), sl.stars);
+        ini.setValue((p + "max-stars").c_str(), sl.maxStars);
+        ini.setValue((p + "time").c_str(), (long long)sl.time);
+    }
+
     ini.endGroup();
 
     ini.writeIniFile();

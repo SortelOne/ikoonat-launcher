@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- smbx2compat: Ikoonat's library activity (dark window while Compose starts, no title bar) -->
+<resources>
+    <style name="Ikoonat.Library" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/ikoonat_window</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="ikoonat_window">#18191E</color>
+</resources>

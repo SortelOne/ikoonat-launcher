@@ -8,6 +8,7 @@ smaller ones are box-filtered from the 8x copy. Standard library only, plus
 macOS's iconutil for the .icns.
 
     python3 resources/ikoonat/make_icons.py
+    python3 resources/ikoonat/make_icons.py --android   (Android's launcher icons)
 """
 import os, shutil, struct, subprocess, sys, tempfile, zlib
 
@@ -120,5 +121,106 @@ def main():
         shutil.rmtree(tmp)
 
 
+# ---- Android (python3 resources/ikoonat/make_icons.py --android) ----
+
+ANDROID_RES = os.path.join(HERE, '..', '..', 'android-project', 'thextech')
+DENSITIES = {'mdpi': 1, 'hdpi': 1.5, 'xhdpi': 2, 'xxhdpi': 3, 'xxxhdpi': 4}
+# icon background per build type: release (main/devel) and debug, so they're told apart
+BACKGROUNDS = {'main': (0x22, 0x30, 0x2A), 'devel': (0x22, 0x30, 0x2A), 'debug': (0x3A, 0x2E, 0x22)}
+
+
+def art_at(art, height):
+    """The art at about this height: whole-pixel scaling when it fits, else box-filtered."""
+    k = height // len(art)
+    if k >= 1:
+        return scale(art, k)
+    th = max(1, height)
+    tw = max(1, round(th * len(art[0]) / len(art)))
+    return shrink(scale(art, 8), tw, th)
+
+
+def shape_mask(size, round_shape):
+    """Coverage (0-255) of a rounded square or a circle, 4x4 samples a pixel."""
+    r = size / 2 if round_shape else size * 0.22
+    rows = []
+    for y in range(size):
+        row = []
+        for x in range(size):
+            hits = 0
+            for sy in range(4):
+                for sx in range(4):
+                    px, py = x + (sx + 0.5) / 4, y + (sy + 0.5) / 4
+                    cx = min(max(px, r), size - r)
+                    cy = min(max(py, r), size - r)
+                    if (px - cx) ** 2 + (py - cy) ** 2 <= r * r:
+                        hits += 1
+            row.append(hits * 255 // 16)
+        rows.append(row)
+    return rows
+
+
+def over(dst, src):
+    """src drawn over dst (both straight RGBA)."""
+    sa = src[3] / 255
+    da = dst[3] / 255
+    a = sa + da * (1 - sa)
+    if a <= 0:
+        return (0, 0, 0, 0)
+    c = [round((src[i] * sa + dst[i] * da * (1 - sa)) / a) for i in range(3)]
+    return (c[0], c[1], c[2], round(a * 255))
+
+
+def legacy_icon(art, size, bg, round_shape):
+    mask = shape_mask(size, round_shape)
+    leaf = place(art_at(art, round(size * 0.6)), size)
+    out = []
+    for y in range(size):
+        row = []
+        for x in range(size):
+            base = (bg[0], bg[1], bg[2], mask[y][x])
+            px = leaf[y][x]
+            row.append(over(base, px) if px[3] and mask[y][x] else base)
+        out.append(row)
+    return out
+
+
+def android():
+    art = crop(read_png(os.path.join(HERE, 'leaf.png')))
+    for flavor, bg in BACKGROUNDS.items():
+        base = os.path.join(ANDROID_RES, 'icon', flavor)
+        for name, k in DENSITIES.items():
+            d = os.path.join(base, 'mipmap-' + name)
+            os.makedirs(d, exist_ok=True)
+            size = round(48 * k)
+            write_png(os.path.join(d, 'ic_launcher.png'), legacy_icon(art, size, bg, False))
+            write_png(os.path.join(d, 'ic_launcher_round.png'), legacy_icon(art, size, bg, True))
+            # adaptive icon foreground: 108dp, the art inside the 66dp safe circle
+            fg = round(108 * k)
+            write_png(os.path.join(d, 'ic_launcher_foreground.png'), place(art_at(art, round(fg * 0.5)), fg))
+        values = os.path.join(base, 'values')
+        os.makedirs(values, exist_ok=True)
+        with open(os.path.join(values, 'ic_launcher_background.xml'), 'w') as f:
+            f.write('<?xml version="1.0" encoding="utf-8"?>\n<resources>\n'
+                    '    <color name="ic_launcher_background">#%02X%02X%02X</color>\n</resources>\n' % bg)
+    # Android TV's banner (320x180 at xhdpi): the leaf on the background color
+    banner_h, banner_w = 180, 320
+    bg = BACKGROUNDS['main']
+    leaf = art_at(art, 112)
+    top, left = (banner_h - len(leaf)) // 2, (banner_w - len(leaf[0])) // 2
+    rows = []
+    for y in range(banner_h):
+        row = []
+        for x in range(banner_w):
+            base = (bg[0], bg[1], bg[2], 255)
+            if top <= y < top + len(leaf) and left <= x < left + len(leaf[0]) and leaf[y - top][x - left][3]:
+                base = over(base, leaf[y - top][x - left])
+            row.append(base)
+        rows.append(row)
+    write_png(os.path.join(ANDROID_RES, 'src', 'main', 'res', 'mipmap-xhdpi', 'ic_banner.png'), rows)
+
+
 if __name__ == '__main__':
-    main()
+    if '--android' in sys.argv:
+        android()
+    else:
+        main()

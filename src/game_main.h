@@ -88,6 +88,9 @@ void LoadSingleWorld(const std::string wPath);
 void FindLevels();
 
 void FindSaves();
+//! smbx2compat: copies a save slot's stars/progress/time (0: all slots) of the
+//! current episode into library.ini, for the Android library app
+void SaveSlots_recordInLibrary(int slot);
 
 extern std::string makeGameSavePath(std::string episode, std::string saveFile);
 

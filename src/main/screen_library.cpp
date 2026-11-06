@@ -70,6 +70,7 @@ namespace LibraryScreen
 {
 
 bool g_enabled = true;
+bool g_classicMenuOnly = false;
 bool g_LoopActive = false;
 bool g_classicVisit = false;
 bool g_returnRequested = false;

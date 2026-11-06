@@ -5,6 +5,9 @@ if (buildAsApplication) {
 } else {
     apply plugin: 'com.android.library'
 }
+// smbx2compat: Ikoonat's library is Kotlin + Jetpack Compose
+apply plugin: 'org.jetbrains.kotlin.android'
+apply plugin: 'org.jetbrains.kotlin.plugin.compose'
 
 def release_store_password = System.env.RELEASE_STORE_PASSWORD
 def release_key_password = System.env.RELEASE_KEY_PASSWORD
@@ -128,6 +131,13 @@ android {
 
     buildFeatures {
         buildConfig = true
+        compose = true // smbx2compat
+    }
+
+    // smbx2compat: Kotlin needs a Java target newer than the default 1.8
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 
     dependenciesInfo {
@@ -139,23 +149,28 @@ android {
 
     defaultConfig {
         if (buildAsApplication) {
-            applicationId "ru.wohlsoft.thextech"
+            // smbx2compat: Ikoonat Launcher installs beside TheXTech (the Java and
+            // JNI names stay ru.wohlsoft.thextech; only the app's ID changes)
+            applicationId "io.github.sortelone.ikoonat"
         }
 
-        minSdkVersion 16
+        // smbx2compat: Jetpack Compose needs Android 6 (the native code still targets 16)
+        minSdkVersion 23
         targetSdkVersion 36
 
         versionName xTechVersionString
         versionCode xTechVersionNumber
 
+        // smbx2compat: Lua on (SMBX2 core mode); LuaJIT cross-builds for 64-bit
+        // ABIs only from a macOS host, and the Odin 3 is arm64 (x86_64: emulator)
         externalNativeBuild {
             cmake {
-                abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
-                arguments "-DANDROID_PLATFORM=16", "-DANDROID_STL=c++_static"
+                abiFilters "arm64-v8a", "x86_64"
+                arguments "-DANDROID_PLATFORM=16", "-DANDROID_STL=c++_static", "-DTHEXTECH_ENABLE_LUA=ON"
             }
         }
         ndk{
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86", "x86_64"
+            abiFilters "arm64-v8a", "x86_64"
         }
     }
 
@@ -176,10 +191,10 @@ android {
             if(xTechVersionType == "-dev") {
                 applicationIdSuffix = '.dev.' + xTechBranch
                 android.sourceSets.release.res.srcDirs += project.projectDir.toString() + '/icon/devel'
-                manifestPlaceholders.dstAppName = "TheXTech DEV [" + xTechBranchOrig + "]"
+                manifestPlaceholders.dstAppName = "Ikoonat DEV [" + xTechBranchOrig + "]"
             } else {
                 android.sourceSets.release.res.srcDirs += project.projectDir.toString() + '/icon/main'
-                manifestPlaceholders.dstAppName = "@string/app_name"
+                manifestPlaceholders.dstAppName = "Ikoonat Launcher" // smbx2compat
             }
         }
         releaseci {
@@ -192,16 +207,16 @@ android {
             if(xTechVersionType == "-dev") {
                 applicationIdSuffix = '.dev.' + xTechBranch
                 android.sourceSets.releaseci.res.srcDirs += project.projectDir.toString() + '/icon/devel'
-                manifestPlaceholders.dstAppName = "TheXTech DEV [" + xTechBranchOrig + "]"
+                manifestPlaceholders.dstAppName = "Ikoonat DEV [" + xTechBranchOrig + "]"
             } else {
                 android.sourceSets.releaseci.res.srcDirs += project.projectDir.toString() + '/icon/main'
-                manifestPlaceholders.dstAppName = "@string/app_name"
+                manifestPlaceholders.dstAppName = "Ikoonat Launcher" // smbx2compat
             }
         }
         debug {
             applicationIdSuffix '.debug'
             versionNameSuffix '-DEVDEBUG'
-            manifestPlaceholders.dstAppName = "TheXTech [DEBUG]"
+            manifestPlaceholders.dstAppName = "Ikoonat [DEBUG]" // smbx2compat
             debuggable true
             android.sourceSets.debug.res.srcDirs += project.projectDir.toString() + '/icon/debug'
         }
@@ -278,8 +293,58 @@ android {
     }
 }
 
+// smbx2compat: Kotlin's JVM target to match Java's
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile).configureEach {
+    compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}
+
+// smbx2compat: core mode's scripts (smbx2compat/core) go into the APK's assets as
+// smbx2core/; Ikoonat's library copies them to Ikoonat/smbx2core (CoreScripts.kt)
+abstract class IkoonatCoreAssets extends DefaultTask {
+    @InputDirectory
+    @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getCoreDir()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputDir()
+
+    @TaskAction
+    void copyCore() {
+        def out = outputDir.get().asFile
+        out.deleteDir()
+        def src = coreDir.get().asFile
+        def dest = new File(out, 'smbx2core')
+        src.eachFileRecurse(groovy.io.FileType.FILES) { f ->
+            def target = new File(dest, src.toPath().relativize(f.toPath()).toString())
+            target.parentFile.mkdirs()
+            target.bytes = f.bytes
+        }
+    }
+}
+
+def ikoonatCoreAssets = tasks.register('ikoonatCoreAssets', IkoonatCoreAssets) {
+    coreDir.set(file('../../smbx2compat/core'))
+    outputDir.set(layout.buildDirectory.dir('generated/ikoonat-core'))
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(ikoonatCoreAssets, { it.outputDir })
+    }
+}
+
 dependencies {
     implementation fileTree(include: ['*.jar'], dir: 'jniLibs')
+
+    // smbx2compat: Ikoonat's library (Jetpack Compose)
+    implementation platform('androidx.compose:compose-bom:2025.10.01')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.animation:animation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.activity:activity-compose:1.10.1'
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
     //noinspection GradleDependency: the version 1.6.1 is last that support minSDK 16, newer version will require MinSDK 21
     implementation 'androidx.appcompat:appcompat:1.6.1'
     //noinspection GradleDependency: the version 2.1.4 is last that support minSDK 16, newer version will require MinSDK 21

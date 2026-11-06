@@ -28,9 +28,11 @@
 #   include <sys/types.h>
 #   include <sys/wait.h>
 #   include <unistd.h>
-#   include <spawn.h>
 #   include <fcntl.h>
+#   ifndef __ANDROID__
+#       include <spawn.h>
 extern char **environ;
+#   endif
 #endif
 
 #include <AppPath/app_path.h>
@@ -234,6 +236,13 @@ bool LibraryImport_canUnzip()
 // out Windows programs; unzip also refuses paths that leave the folder
 static bool s_unzip(const std::string &zip, const std::string &into, std::string &error)
 {
+#if defined(__ANDROID__)
+    // the Android app unpacks zips itself (Importer.kt); posix_spawn needs API 28
+    (void)zip;
+    (void)into;
+    error = "Zips are imported by the Android app.";
+    return false;
+#else
     std::vector<std::string> args =
     {
         "/usr/bin/unzip", "-qq", "-o", zip, "-d", into,
@@ -277,6 +286,7 @@ static bool s_unzip(const std::string &zip, const std::string &into, std::string
     }
 
     return true;
+#endif
 }
 
 // what a folder holds

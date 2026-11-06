@@ -614,6 +614,25 @@ drops a file, `SMBX2COMPAT_THUMBFRAMES=N` captures pictures sooner. Test
 imports and settings in a scratch data folder (`XTECH_DATA`, with a symlink
 to `assets-smbx13` and a copy of `userdir/settings/thextech.ini`), not Jake's.
 
+## Android app (native library)
+
+On Android the library is a native screen, not the engine's (Jake,
+2026-11-06): Kotlin + Jetpack Compose in
+`android-project/thextech/src/main/kotlin/io/github/sortelone/ikoonat/`
+(its `README.md` explains the pieces). It starts the game
+(`thextechActivity`, own process `:game`) with the episode's command-line
+arguments in the `ikoonat-args` extra, as `run-level.sh` does; the game
+quits back to it when the player leaves the episode. Engine side for it:
+`--classic-menu` (TheXTech's menu instead of the in-engine library) and
+`SaveSlots_recordInLibrary` (`src/main/game_save.cpp`: each slot's stars,
+progress and play time into `library.ini` when an episode starts, saves
+and ends; `DeleteSave` also deletes SMBX2's `save<N>-ext.dat`). The app ID
+is `io.github.sortelone.ikoonat`; the Java/JNI package stays
+`ru.wohlsoft.thextech`. Android launcher icons:
+`python3 resources/ikoonat/make_icons.py --android`. There is no Android
+SDK on this Mac (don't install one without asking): Kotlin changes can't
+be compiled here, so read them twice; Jake builds and tests on the Odin.
+
 ## Conventions
 
 - Match the surrounding code style (C++: 4-space indent, braces on new lines,

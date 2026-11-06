@@ -36,6 +36,8 @@ namespace LibraryScreen
 
 //! The library is the first screen (off for command-line level tests)
 extern bool g_enabled;
+//! --classic-menu: TheXTech's own menu instead (the Android app's library is native)
+extern bool g_classicMenuOnly;
 //! Its frame loop runs while true
 extern bool g_LoopActive;
 //! This menu visit shows TheXTech's classic menu instead

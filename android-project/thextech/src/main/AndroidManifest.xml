@@ -64,12 +64,8 @@
             android:theme="@style/Theme.AppCompat.NoActionBar"
             android:launchMode="singleInstance"
             android:screenOrientation="landscape">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <action android:name="android.intent.action.VIEW" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
+            <!-- smbx2compat: Ikoonat's library (below) is the app's launcher entry now;
+                 this activity still opens level and world files from file managers -->
 
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -159,6 +155,47 @@
             </intent-filter>
         </activity>
 
+        <!-- smbx2compat: Ikoonat Launcher's episode library (Kotlin, src/main/kotlin) -->
+        <activity
+            android:name="io.github.sortelone.ikoonat.LibraryActivity"
+            android:exported="true"
+            android:theme="@style/Ikoonat.Library"
+            android:launchMode="singleTask"
+            android:screenOrientation="sensorLandscape"
+            android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode|density|layoutDirection|locale">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- smbx2compat: starts an episode straight away, for home-screen shortcuts and
+             frontends (ES-DE, Daijisho): extra "episode" (world file or episode folder
+             path) or a file:// URI, optional extra "slot" (1-3) -->
+        <activity
+            android:name="io.github.sortelone.ikoonat.PlayActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- smbx2compat: shares logs from Ikoonat/logs through the share sheet -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/ikoonat_file_paths" />
+        </provider>
+
         <activity
             android:name=".GameSettings"
             android:theme="@style/Theme.AppCompat.DayNight"
@@ -170,8 +207,11 @@
                 android:value=".Launcher" />
         </activity>
 
+        <!-- smbx2compat: the game runs in its own process (it exits when the player
+             leaves an episode), so Ikoonat's library stays as it was meanwhile -->
         <activity
             android:name="thextechActivity"
+            android:process=":game"
             android:alwaysRetainTaskState="true"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:launchMode="singleInstance"

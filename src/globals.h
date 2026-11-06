@@ -2160,6 +2160,7 @@ struct SaveSlotInfo_t
     // Save progress percent, displayed at title. <0 value denotes uninitialized saves
     int Progress = -1;
     int Stars = 0;
+    int MaxStars = 0; // smbx2compat: the episode's stars (the save's totalStars)
     int Lives = 3;
     int Hundreds = 0;
     int Coins = 0;

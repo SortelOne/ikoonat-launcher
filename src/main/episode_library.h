@@ -24,11 +24,27 @@
 
 // smbx2compat: the episode library's own data, <settings>/library.ini: a
 // [library] group (where SMBX2's data folder is) and one group per episode,
-// named by Library_key. Play time per save slot is TheXTech's own
-// (timers<slot>.ini next to the save), so it isn't kept here.
+// named by Library_key. Each save slot's stars, progress and play time are
+// copied here (SaveSlots_recordInLibrary) for the Android library app; the
+// saves themselves stay TheXTech's.
 
 #include <string>
 #include <cstdint>
+
+//! Save slots the library records
+static const int c_librarySlots = 3;
+
+//! A save slot as the library shows it (slotN-progress, ... in library.ini)
+struct LibrarySlot_t
+{
+    //! progress in percent; -1: the slot is empty
+    int progress = -1;
+    int stars = 0;
+    //! stars the episode has (0: unknown)
+    int maxStars = 0;
+    //! play time in game frames (65 a second)
+    int64_t time = 0;
+};
 
 struct LibraryEpisode_t
 {
@@ -46,6 +62,8 @@ struct LibraryEpisode_t
     int character = 1;
     //! how many players start it (1 or 2)
     int players = 1;
+    //! the save slots as last recorded
+    LibrarySlot_t slots[c_librarySlots];
 };
 
 //! The group name for an episode folder: relative to the user folder when it's inside it, else absolute
