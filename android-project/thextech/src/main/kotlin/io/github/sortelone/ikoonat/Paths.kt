@@ -34,8 +34,9 @@ object Paths
     /** The game's user folder argument (with the slash the engine adds itself) */
     val userDirArg: String get() = root.absolutePath + "/"
 
+    /** What the game needs to find the pack (its UI graphics), not just any graphics folder */
     fun hasAssetPack(): Boolean =
-        File(assets, "gameinfo.ini").isFile && File(assets, "graphics").isDirectory
+        File(assets, "gameinfo.ini").isFile && File(assets, "graphics/ui").isDirectory
 
     fun hasSmbx2Data(): Boolean =
         File(smbx2, "scripts/base/engine/main.lua").isFile

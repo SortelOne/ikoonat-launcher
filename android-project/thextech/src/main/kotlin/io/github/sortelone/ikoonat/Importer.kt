@@ -2,13 +2,15 @@ package io.github.sortelone.ikoonat
 
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import java.io.File
 import java.io.FilterInputStream
 import java.io.InputStream
 import java.nio.charset.Charset
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipException
+import java.util.zip.ZipFile
 
 /** What an import is doing, for the progress screen (updated from the import's thread) */
 class ImportProgress
@@ -33,7 +35,7 @@ data class ImportResult(
  *  - SMBX2's data folder (has scripts/base/engine/main.lua) -> Ikoonat/smbx2
  *    (only scripts, graphics, sound, music, costumes, config and
  *    PGE/configs/SMBX2-Integration); episodes in its worlds/ are imported too
- *  - TheXTech's asset pack (gameinfo.ini and graphics/) -> Ikoonat/assets
+ *  - TheXTech's asset pack (gameinfo.ini and graphics/ui/) -> Ikoonat/assets
  *  - episodes (folders with a .wld/.wldx) -> Ikoonat/worlds/<name>; an
  *    existing episode is updated, its save files are never replaced
  * Windows programs (.exe, .dll, ...) are left out. Everything is unpacked
@@ -138,29 +140,50 @@ object Importer
 
     private fun unzip(context: Context, uri: Uri, dest: File, progress: ImportProgress)
     {
+        // Java's streaming reader (ZipInputStream) stops without an error at a stored
+        // entry whose sizes come after its data, as Windows' "Compress to ZIP" writes
+        // (an empty .nomedia ended an asset pack after its first 19 entries), so the
+        // zip is copied next to the import and read through its central directory
+        val zipFile = File(dest.parentFile, dest.name + ".zip")
+        val input = context.contentResolver.openInputStream(uri) ?: throw IllegalStateException("can't open the file")
+        CountingStream(input.buffered(1 shl 16), progress).use { src ->
+            zipFile.outputStream().use { out -> src.copyTo(out, 1 shl 16) }
+        }
+
         // names in old zips aren't UTF-8; Java's zip reader throws on those, so retry as DOS names
         try
         {
-            unzipWith(context, uri, dest, progress, Charsets.UTF_8)
+            unzipWith(zipFile, dest, progress, Charsets.UTF_8)
         }
         catch(e: IllegalArgumentException)
         {
-            dest.deleteRecursively()
-            dest.mkdirs()
-            progress.done = 0
-            unzipWith(context, uri, dest, progress, Charset.forName("IBM437"))
+            retryAsDos(zipFile, dest, progress)
         }
+        catch(e: ZipException)
+        {
+            retryAsDos(zipFile, dest, progress)
+        }
+        zipFile.delete()
     }
 
-    private fun unzipWith(context: Context, uri: Uri, dest: File, progress: ImportProgress, charset: Charset)
+    private fun retryAsDos(zipFile: File, dest: File, progress: ImportProgress)
+    {
+        dest.deleteRecursively()
+        dest.mkdirs()
+        unzipWith(zipFile, dest, progress, Charset.forName("IBM437"))
+    }
+
+    private fun unzipWith(zipFile: File, dest: File, progress: ImportProgress, charset: Charset)
     {
         val destPath = dest.canonicalPath + File.separator
-        val input = context.contentResolver.openInputStream(uri) ?: throw IllegalStateException("can't open the file")
-        ZipInputStream(CountingStream(input.buffered(1 shl 16), progress), charset).use { zip ->
+        val zip = if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) ZipFile(zipFile, ZipFile.OPEN_READ, charset) else ZipFile(zipFile)
+        zip.use { z ->
+            val entries = z.entries().toList()
+            progress.done = 0
+            progress.total = entries.sumOf { maxOf(it.size, 0L) }
             val buffer = ByteArray(1 shl 16)
-            while(true)
+            for(entry in entries)
             {
-                val entry = zip.nextEntry ?: break
                 val name = entry.name.replace('\\', '/')
                 val target = File(dest, name)
                 // never write outside the import folder ("zip slip")
@@ -174,13 +197,16 @@ object Importer
                 if(skipped(target.name))
                     continue
                 target.parentFile?.mkdirs()
-                target.outputStream().use { out ->
-                    while(true)
-                    {
-                        val n = zip.read(buffer)
-                        if(n < 0)
-                            break
-                        out.write(buffer, 0, n)
+                z.getInputStream(entry).use { input ->
+                    target.outputStream().use { out ->
+                        while(true)
+                        {
+                            val n = input.read(buffer)
+                            if(n < 0)
+                                break
+                            out.write(buffer, 0, n)
+                            progress.done += n
+                        }
                     }
                 }
             }
@@ -241,7 +267,7 @@ object Importer
 
     private fun isSmbx2Data(dir: File) = File(dir, "scripts/base/engine/main.lua").isFile
 
-    private fun isAssetPack(dir: File) = File(dir, "gameinfo.ini").isFile && File(dir, "graphics").isDirectory
+    private fun isAssetPack(dir: File) = File(dir, "gameinfo.ini").isFile && File(dir, "graphics/ui").isDirectory
 
     private fun isEpisode(dir: File) = dir.listFiles()?.any { it.isFile && Episodes.isWorldFile(it.name) } == true
 
