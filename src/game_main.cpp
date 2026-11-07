@@ -582,8 +582,12 @@ int GameMain(const CmdLineSetup_t &setup)
     bool cmdline_content = (!setup.testLevel.empty() || !setup.testReplay.empty() || setup.interprocess);
 
     // smbx2compat: a level test or an episode from the command line decides
-    // its mode before the default sprites load (main/smbx2_mode.h)
-    if(!setup.testLevel.empty())
+    // its mode before the default sprites load (main/smbx2_mode.h); with no
+    // asset pack there is nothing to start (finding SMBX2's data would assert
+    // in assetsRoot()), and TheXTech's "assets not found" screen comes next
+    if(init_failure)
+        pLogWarning("smbx2compat: no asset pack, so no episode mode");
+    else if(!setup.testLevel.empty())
         EpisodeMode_begin(Files::dirname(setup.testLevel), 0);
     else
         EpisodeMode_beginStartup();
