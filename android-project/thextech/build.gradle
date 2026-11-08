@@ -161,6 +161,12 @@ android {
         versionName xTechVersionString
         versionCode xTechVersionNumber
 
+        // smbx2compat: the test build's name (./gradlew -PikoonatBuild=v11 ...)
+        // and when it was built, shown under Settings' title
+        def ikoonatBuild = (project.findProperty('ikoonatBuild') ?: 'dev').toString().replaceAll(/[^\w.-]/, '')
+        buildConfigField "String", "IKOONAT_BUILD", "\"${ikoonatBuild}\""
+        buildConfigField "String", "BUILD_TIME", "\"${new Date().format('yyyy-MM-dd HH:mm')}\""
+
         // smbx2compat: Lua on (SMBX2 core mode); LuaJIT cross-builds for 64-bit
         // ABIs only from a macOS host, and the Odin 3 is arm64 (x86_64: emulator)
         externalNativeBuild {

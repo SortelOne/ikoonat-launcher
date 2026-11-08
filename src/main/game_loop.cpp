@@ -174,10 +174,28 @@ static bool s_ikoonatMenuCheck()
     bool backPressed = PauseScreen::g_backKeyHeld && !s_backWasHeld;
     s_backWasHeld = PauseScreen::g_backKeyHeld;
 
+    // after the menu closes, the scripts see no buttons until all are let go:
+    // the press that picked Continue (or the Start + Select still held)
+    // reached the game behind as well
+    static bool s_holdKeys = false;
+
     if(!xtech_lua_isSmbx2Core() || GameMenu || TestLevel || GamePaused != PauseCode::None)
     {
         s_comboFrames = 0;
         return false;
+    }
+
+    if(s_holdKeys)
+    {
+        bool any = false;
+        for(int p = 1; p <= numPlayers && p <= maxLocalPlayers; p++)
+        {
+            const Controls_t &k = Player[p].Controls;
+            any |= k.Up || k.Down || k.Left || k.Right || k.Jump || k.AltJump ||
+                   k.Run || k.AltRun || k.Drop || k.Start;
+            Player[p].Controls = Controls_t();
+        }
+        s_holdKeys = any;
     }
 
     // raw input, before onInputUpdate may change the players' keys
@@ -193,6 +211,7 @@ static bool s_ikoonatMenuCheck()
     pLogInfo("smbx2compat: Ikoonat menu (%s)", backPressed ? "Back" : "Start + Select");
     PauseScreen::RequestIkoonatMenu();
     PauseInit(PauseCode::PauseScreen, 0);
+    s_holdKeys = true;
     return true;
 }
 #endif

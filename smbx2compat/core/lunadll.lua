@@ -607,19 +607,58 @@ local function sizeDefines(source)
 end
 local overLimitLabels = {}
 
+-- Debugging: text swaps in shader sources as SMBX2 hands them over, before
+-- translation: { {find = "...", replace = "...", only = "..."}, ... } (plain
+-- text; only: the swap is made only in sources that contain it). A debug
+-- file (SMBX2COMPAT_DEBUG, or smbx2compat-debug.lua in the user folder) may
+-- replace the list; scripts that build their shaders in onStart see it.
+-- The one here is temporary: it colours the pixels of SMATRS's map terrain,
+-- which the Odin doesn't show, by what its shader sees (texture ok: as
+-- normal; blue: vertex colour transparent; red: texture position outside
+-- the texture; yellow: piece size 0; magenta: transparent texel otherwise).
+core.shaderPatches = {
+    {
+        only = "pieceSizeData", -- terrainShader.glsl, not terrainLikeShader.glsl
+        find = "o.albedo = texture2D(iChannel0,uv)*data.color;",
+        replace = "vec4 xt_dbg = texture2D(iChannel0,uv);\n" ..
+                  "if(xt_dbg.a > 0.5) o.albedo = xt_dbg*data.color;\n" ..
+                  "else if(data.color.a < 0.5) o.albedo = vec4(0.0,0.0,1.0,1.0);\n" ..
+                  "else if(uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) o.albedo = vec4(1.0,0.0,0.0,1.0);\n" ..
+                  "else if(width == 0u || height == 0u) o.albedo = vec4(1.0,1.0,0.0,1.0);\n" ..
+                  "else o.albedo = vec4(1.0,0.0,1.0,1.0);",
+    },
+}
+local patchesLogged = {}
+
+local function patchShader(source)
+    for i, p in ipairs(core.shaderPatches or {}) do
+        local at = p.find and (not p.only or string.find(source, p.only, 1, true)) and
+                   string.find(source, p.find, 1, true)
+        if at then
+            source = string.sub(source, 1, at - 1) .. (p.replace or "") .. string.sub(source, at + #p.find)
+            if not patchesLogged[p.find] then
+                patchesLogged[p.find] = true
+                core.log("shader patch " .. i .. " applied in " .. shaderLabel(source))
+            end
+        end
+    end
+    return source
+end
+
 local function compileShader(key)
     local s = shaders[key]
 
     local ok, err = false, "this renderer has no shaders"
     if glslHeader then
         local vs, fs, inits
-        local cacheKey = "glsl\0" .. s.vertex .. "\0" .. s.fragment
+        local vertex, fragment = patchShader(s.vertex), patchShader(s.fragment)
+        local cacheKey = "glsl\0" .. vertex .. "\0" .. fragment
         local kept = cacheGet(cacheKey)
         if kept then
             vs, fs, inits = string.match(kept, "^(.-)%z(.-)%z(.*)$")
         else
             local dropped, packed
-            vs, fs, inits, dropped, packed = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+            vs, fs, inits, dropped, packed = core.glsl.translate(vertex, fragment, glslHeader)
             if #packed > 0 then
                 core.log("shader arrays as vectors of four (Adreno misreads arrays of ints): " ..
                          table.concat(packed, ", ") .. " in " .. shaderLabel(s.fragment))

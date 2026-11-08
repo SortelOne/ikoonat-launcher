@@ -147,13 +147,14 @@ void probeUintUniforms(GLuint program, const ScriptDraw_t &d)
 
         const float *uv = d.count >= 3 ? d.uv : nullptr;
         pLogInfo("smbx2compat probe: %d vertices, uniform at %d (0x%X x%d): sent %u %u %u %u %u; GL has %u %u %u %u, next %u %u %u %u; "
-                 "uv %g,%g %g,%g %g,%g; color %g %g %g %g; error 0x%X",
+                 "uv %g,%g %g,%g %g,%g; color %g %g %g %g; primitive %u, target %d, depth test %d, clip planes %d, %d attributes; error 0x%X",
                  d.count, u.location, u.type, u.count,
                  sent[0], sent[1], sent[2], sent[3], sent[comps],
                  got0[0], got0[1], got0[2], got0[3], got1[0], got1[1], got1[2], got1[3],
                  uv ? uv[0] : -1.0f, uv ? uv[1] : -1.0f, uv ? uv[2] : -1.0f, uv ? uv[3] : -1.0f,
                  uv ? uv[4] : -1.0f, uv ? uv[5] : -1.0f,
-                 d.color[0], d.color[1], d.color[2], d.color[3], (unsigned)glGetError());
+                 d.color[0], d.color[1], d.color[2], d.color[3],
+                 d.primitive, d.target, (int)d.depthTest, d.clipPlaneCount, d.attributeCount, (unsigned)glGetError());
 
         if(++probes >= 6)
             return;

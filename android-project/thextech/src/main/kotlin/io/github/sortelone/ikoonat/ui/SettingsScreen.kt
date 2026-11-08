@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import io.github.sortelone.ikoonat.LibraryModel
 import io.github.sortelone.ikoonat.Paths
 import io.github.sortelone.ikoonat.Screen
+import ru.wohlsoft.thextech.BuildConfig
 
 class SettingsActions(
     val engineOptions: () -> Unit,
@@ -45,6 +46,10 @@ fun SettingsScreen(model: LibraryModel, actions: SettingsActions)
         ) {
             BackToLibrary({ model.screen = Screen.Grid })
             Text("Settings", color = pal.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Ikoonat ${BuildConfig.IKOONAT_BUILD} · built ${BuildConfig.BUILD_TIME}",
+                color = pal.sub, fontSize = 13.sp,
+            )
 
             Heading("Look")
             ChoiceRow("Theme", palettes.map { it.name }, s.theme, first) { model.updateSettings(s.copy(theme = it)) }
