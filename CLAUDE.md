@@ -686,6 +686,36 @@ keeping each build's unstripped `libthextech.so`) and tests on the Odin.
 Release APKs are signed with the building computer's debug key and keep
 the plain app ID (`thextech/build.gradle`).
 
+Script graphics on OpenGL ES (the Odin: Adreno 830, ES 3.2, 256 uniform
+vectors per stage):
+- glsl.lua translates for `#version 310 es` with
+  `GL_EXT_shader_implicit_conversions` where the driver has it; ES has no
+  uniform initializers, so glsl.lua takes them out and returns them as
+  `name=v,v\n` lines, which `scriptShaderCreate` sets after linking (part of
+  the program cache key); whole-number literals passed to GLSL 1.20's
+  float-only built-ins get `.0` (Adreno doesn't apply the extension there).
+- Non-square matrix and `uint` uniforms use ES3 functions loaded with
+  `SDL_GL_GetProcAddress` (`SCRIPT_GL3_UNIFORMS`, render_gl_script.cpp):
+  Android builds only have the ES2 header.
+- Captures blit instead of `glCopyTexSubImage2D`: ES can't copy the game
+  buffer (GL_RGB) into an RGBA texture, and every capture stayed empty.
+- `ScriptGLCheck` (render_gl_script.cpp) logs the first GL error before or
+  inside each kind of script operation (`smbx2compat: GL error 0x... in
+  script <op>`); it found the capture bug.
+- Android drops the GL context when the device sleeps ("Android: Render
+  Device Reset"): `FrmMain::restartRenderer` makes a new RenderGL, then
+  `xtech_lua_drawRendererRestarted` compiles every kept program again and
+  makes the capture buffers again under the same handles. Their contents
+  are lost (SMATRS's pause menu labels, drawn into buffers once, go blank).
+- Ikoonat's menu (`PauseScreen::RequestIkoonatMenu`, `s_ikoonatMenuCheck`
+  in game_loop.cpp): in SMBX2 mode Android's Back key (no longer the pause
+  key there) or Start + Drop Item held 60 frames opens TheXTech's pause
+  screen with Continue / Options / Quit to Library, without asking the
+  scripts (SMATRS greys out its own quit).
+- `EpisodeMode_begin` empties SMATRS's `<episode>/_loadscreen/data.txt` (the
+  next loading screen's card, written at level end): a game closed inside a
+  level showed that level's card at the next start.
+
 ## Conventions
 
 - Match the surrounding code style (C++: 4-space indent, braces on new lines,
