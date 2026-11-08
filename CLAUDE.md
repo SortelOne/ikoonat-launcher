@@ -741,7 +741,15 @@ vectors per stage):
   Device Reset"): `FrmMain::restartRenderer` makes a new RenderGL, then
   `xtech_lua_drawRendererRestarted` compiles every kept program again and
   makes the capture buffers again under the same handles. Their contents
-  are lost (SMATRS's pause menu labels, drawn into buffers once, go blank).
+  would be lost (SMATRS's pause menu labels, drawn into buffers once, went
+  blank), so `xtech_lua_drawWillLoseContext` reads every buffer into memory
+  at `SDL_APP_WILLENTERBACKGROUND` (`events_sdl.cpp`; the bundled SDL2 backs
+  up the EGL context only after the app has taken the background events, so
+  it still works there) and the restart writes them back
+  (`scriptBufferRead`/`scriptBufferWrite`, RGBA in GL's row order). If the
+  context survives, the copies go 10 frames after `DIDENTERFOREGROUND`. Logs:
+  `going to sleep; kept N capture buffers' pixels (MB, ms)`, then `restored
+  N buffers' pixels` or `the GL context outlasted the sleep`.
 - Ikoonat's menu (`PauseScreen::RequestIkoonatMenu`, `s_ikoonatMenuCheck`
   in game_loop.cpp): in SMBX2 mode Android's Back key (no longer the pause
   key there) or Start + Drop Item held 60 frames opens TheXTech's pause

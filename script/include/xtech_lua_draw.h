@@ -87,8 +87,16 @@ void xtech_lua_drawFrameEnd();
 void xtech_lua_drawReset();
 //! The renderer was made again (Android lost its GL context while asleep, a
 //! render mode change): builds the scripts' shaders and capture buffers again
-//! for the new one, under the same handles. Buffers come back empty.
+//! for the new one, under the same handles. Buffers get back the pixels
+//! xtech_lua_drawWillLoseContext kept, else come back empty.
 void xtech_lua_drawRendererRestarted();
+//! Android is about to sleep (SDL_APP_WILLENTERBACKGROUND, the GL context
+//! still current): keeps every capture buffer's pixels in memory, since the
+//! context may be gone on waking
+void xtech_lua_drawWillLoseContext();
+//! Awake again (SDL_APP_DIDENTERFOREGROUND): the kept pixels go a few frames
+//! later unless a renderer restart takes them first
+void xtech_lua_drawResumed();
 //! ownsDrawing: closing the state resets SMBX2's drawing (the level's state)
 void xtech_lua_register_draw(lua_State *L, bool ownsDrawing = true);
 //! The level's script set SMBX's screen size (FFI_GraphicsSetMainFramebufferSize)

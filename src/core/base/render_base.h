@@ -365,6 +365,11 @@ public:
     virtual void scriptBufferClear(int buffer);
     //! Copies the current view (top-left w x h) into the buffer
     virtual void scriptBufferCapture(int buffer);
+    //! smbx2compat: the buffer's pixels (w * h RGBA, in GL's row order), kept
+    //! while Android drops the GL context; false if unsupported
+    virtual bool scriptBufferRead(int buffer, std::vector<unsigned char> &pixels);
+    //! smbx2compat: puts pixels from scriptBufferRead back (a buffer of the same size)
+    virtual void scriptBufferWrite(int buffer, const std::vector<unsigned char> &pixels);
     //! Draws now, after the draws queued so far
     virtual void scriptDraw(const ScriptDraw_t &draw);
     //! After script draws (before the engine draws anything): puts back the engine's render target

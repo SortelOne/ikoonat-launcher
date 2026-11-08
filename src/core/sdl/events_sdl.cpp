@@ -32,6 +32,9 @@
 #include "frm_main.h"
 #include "game_main.h"
 #include "main/screen_library.h" // smbx2compat
+#ifdef ENABLE_XTECH_LUA
+#   include "xtech_lua_draw.h" // smbx2compat
+#endif
 #include "sound.h"
 #include "controls.h"
 
@@ -193,6 +196,11 @@ void EventsSDL::processEvent()
         g_frmMain.restartRenderer();
         break;
     case SDL_APP_WILLENTERBACKGROUND:
+#   ifdef ENABLE_XTECH_LUA
+        // smbx2compat: the GL context may not survive the sleep (SDL backs it
+        // up only after this event): keep SMBX2's capture buffers' pixels
+        xtech_lua_drawWillLoseContext();
+#   endif
         XRender::setBlockRender(true);
 #   if defined(MOBILE_WINDOW_FOCUS_TRACKING)
         if(!g_config.background_work && !LoadingInProcess)
@@ -202,6 +210,9 @@ void EventsSDL::processEvent()
         break;
     case SDL_APP_DIDENTERFOREGROUND:
         XRender::setBlockRender(false);
+#   ifdef ENABLE_XTECH_LUA
+        xtech_lua_drawResumed(); // smbx2compat
+#   endif
 #   if defined(MOBILE_WINDOW_FOCUS_TRACKING)
         if(!g_config.background_work && !LoadingInProcess)
             SoundPauseEngine(0);

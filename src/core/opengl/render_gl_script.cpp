@@ -941,6 +941,51 @@ void RenderGL::scriptBufferClear(int buffer)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 }
 
+// Android drops the GL context while the device sleeps (SDL_RENDER_DEVICE_RESET
+// on waking), and capture buffers came back empty: SMATRS draws its pause
+// menu labels into buffers once. xtech_lua_draw.cpp reads every buffer before
+// sleeping (SDL_APP_WILLENTERBACKGROUND, while the context still works) and
+// writes the pixels into the buffers made again for the new renderer.
+// RGBA bytes are a read every GL and GL ES framebuffer supports; rows stay in
+// GL's order (the framebuffer's rows are its texture's), so no flip either way.
+bool RenderGL::scriptBufferRead(int buffer, std::vector<unsigned char> &pixels)
+{
+    ScriptGLCheck gl_check("buffer read");
+    pixels.clear();
+    auto it = m_script_buffers.find(buffer);
+    if(it == m_script_buffers.end())
+        return false;
+
+    const ScriptBuffer_t &b = it->second;
+    pixels.resize((size_t)b.w * (size_t)b.h * 4);
+
+    scriptBindBuffer(it->first, b);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, b.w, b.h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    scriptDrawEnd();
+
+    return true;
+}
+
+void RenderGL::scriptBufferWrite(int buffer, const std::vector<unsigned char> &pixels)
+{
+    ScriptGLCheck gl_check("buffer write");
+    auto it = m_script_buffers.find(buffer);
+    if(it == m_script_buffers.end())
+        return;
+
+    const ScriptBuffer_t &b = it->second;
+    if(pixels.size() != (size_t)b.w * (size_t)b.h * 4)
+        return;
+
+    scriptDrawEnd();
+    glBindTexture(GL_TEXTURE_2D, b.texture);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, b.w, b.h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+}
+
 void RenderGL::scriptBufferCapture(int buffer)
 {
     ScriptGLCheck gl_check("capture");
@@ -1400,6 +1445,16 @@ void RenderGL::scriptBufferClear(int buffer)
 void RenderGL::scriptBufferCapture(int buffer)
 {
     AbstractRender_t::scriptBufferCapture(buffer);
+}
+
+bool RenderGL::scriptBufferRead(int buffer, std::vector<unsigned char> &pixels)
+{
+    return AbstractRender_t::scriptBufferRead(buffer, pixels);
+}
+
+void RenderGL::scriptBufferWrite(int buffer, const std::vector<unsigned char> &pixels)
+{
+    AbstractRender_t::scriptBufferWrite(buffer, pixels);
 }
 
 void RenderGL::scriptDraw(const ScriptDraw_t &draw)

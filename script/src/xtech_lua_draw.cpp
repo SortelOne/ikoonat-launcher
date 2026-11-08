@@ -38,6 +38,7 @@
 // mapped to the renderer's programs and buffers here.
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -193,6 +194,11 @@ std::unordered_map<std::string, std::string> s_failedPrograms; // sources -> err
 size_t s_idlePrograms = 0;
 // capture buffers' sizes (renderer ids), to make them again for a new renderer
 std::unordered_map<int, std::pair<int, int>> s_bufferSizes;
+// capture buffers' pixels (renderer ids), read before Android sleeps and
+// written into the buffers made again if the GL context went meanwhile
+// (xtech_lua_drawWillLoseContext); dropped a few frames after waking otherwise
+std::unordered_map<int, std::vector<unsigned char>> s_savedPixels;
+int s_savedFramesLeft = -1; // counting down once awake again (-1: asleep or none)
 constexpr size_t c_maxIdlePrograms = 256;
 bool s_loadScreenSwappedIn = false;
 
@@ -1452,6 +1458,16 @@ void xtech_lua_drawSkipFrame(bool skip)
 
 void xtech_lua_drawFrameEnd()
 {
+    // smbx2compat: awake again with the GL context kept (no renderer restart
+    // took the pixels read before sleeping): they aren't needed
+    if(s_savedFramesLeft >= 0 && s_savedFramesLeft-- == 0)
+    {
+        if(!s_savedPixels.empty())
+            pLogInfo("smbx2compat: the GL context outlasted the sleep; dropped the %d capture buffers' pixels kept for it",
+                     (int)s_savedPixels.size());
+        std::unordered_map<int, std::vector<unsigned char>>().swap(s_savedPixels);
+    }
+
     // a screenshot asked for in a frame that isn't drawn waits for the next one
     if(s_shotDue && !s_skipFrame)
     {
@@ -1483,6 +1499,61 @@ void xtech_lua_drawFrameEnd()
         s_bufferSizes.erase(id);
     }
     s_freedBuffers.clear();
+}
+
+void xtech_lua_drawWillLoseContext()
+{
+    std::unordered_map<int, std::vector<unsigned char>>().swap(s_savedPixels);
+    s_savedFramesLeft = -1;
+    if(s_bufferSizes.empty())
+        return;
+
+    // buffers freed this frame go at its end: not worth keeping
+    std::unordered_set<int> freed(s_freedBuffers.begin(), s_freedBuffers.end());
+    freed.insert(s_otherOwner.freedBuffers.begin(), s_otherOwner.freedBuffers.end());
+
+    auto start = std::chrono::steady_clock::now();
+    size_t bytes = 0;
+    bool outOfMemory = false;
+    for(auto &it : s_bufferSizes)
+    {
+        if(freed.count(it.first))
+            continue;
+
+        std::vector<unsigned char> pixels;
+        try
+        {
+            if(!g_render->scriptBufferRead(it.first, pixels))
+                continue;
+            bytes += pixels.size();
+            s_savedPixels.emplace(it.first, std::move(pixels));
+        }
+        catch(const std::bad_alloc &)
+        {
+            outOfMemory = true;
+            break;
+        }
+    }
+
+    if(outOfMemory)
+    {
+        pLogWarning("smbx2compat: not enough memory to keep the capture buffers' pixels while asleep (%d of %d read)",
+                    (int)s_savedPixels.size(), (int)s_bufferSizes.size());
+        std::unordered_map<int, std::vector<unsigned char>>().swap(s_savedPixels);
+        return;
+    }
+
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    pLogInfo("smbx2compat: going to sleep; kept %d capture buffers' pixels (%.1f MB, %d ms) in case the GL context goes",
+             (int)s_savedPixels.size(), (double)bytes / (1024.0 * 1024.0), (int)ms);
+}
+
+void xtech_lua_drawResumed()
+{
+    // a renderer restart (lost context) comes with the waking events, before
+    // any frame; give it a few frames anyway
+    if(!s_savedPixels.empty())
+        s_savedFramesLeft = 10;
 }
 
 void xtech_lua_drawRendererRestarted()
@@ -1530,6 +1601,7 @@ void xtech_lua_drawRendererRestarted()
 
     std::unordered_map<int, std::pair<int, int>> sizes;
     std::unordered_set<int> nonskippable;
+    int restored = 0;
     for(auto &it : s_bufferSizes)
     {
         int id = g_render->scriptBufferCreate(it.second.first, it.second.second);
@@ -1542,9 +1614,20 @@ void xtech_lua_drawRendererRestarted()
         sizes[id] = it.second;
         if(s_nonskippable.count(it.first))
             nonskippable.insert(id);
+
+        // smbx2compat: what it held before Android slept (SMATRS's pause menu
+        // labels, drawn into buffers once)
+        auto saved = s_savedPixels.find(it.first);
+        if(saved != s_savedPixels.end())
+        {
+            g_render->scriptBufferWrite(id, saved->second);
+            restored++;
+        }
     }
     s_bufferSizes.swap(sizes);
     s_nonskippable.swap(nonskippable);
+    std::unordered_map<int, std::vector<unsigned char>>().swap(s_savedPixels);
+    s_savedFramesLeft = -1;
 
     auto remap = [](const std::unordered_map<int, int> &ids, int id) -> int
     {
@@ -1611,8 +1694,8 @@ void xtech_lua_drawRendererRestarted()
     o.orderCursor = 0;
     o.redirects.clear();
 
-    pLogInfo("smbx2compat: renderer restarted; made %d script programs and %d capture buffers again (%d and %d lost)",
-             (int)programs.size(), (int)buffers.size(), lostPrograms, lostBuffers);
+    pLogInfo("smbx2compat: renderer restarted; made %d script programs and %d capture buffers again (%d and %d lost), restored %d buffers' pixels",
+             (int)programs.size(), (int)buffers.size(), lostPrograms, lostBuffers, restored);
 }
 
 void xtech_lua_drawReset()

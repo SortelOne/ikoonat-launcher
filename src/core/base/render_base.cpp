@@ -998,6 +998,19 @@ void AbstractRender_t::scriptBufferCapture(int buffer)
     UNUSED(buffer);
 }
 
+bool AbstractRender_t::scriptBufferRead(int buffer, std::vector<unsigned char> &pixels)
+{
+    UNUSED(buffer);
+    pixels.clear();
+    return false;
+}
+
+void AbstractRender_t::scriptBufferWrite(int buffer, const std::vector<unsigned char> &pixels)
+{
+    UNUSED(buffer);
+    UNUSED(pixels);
+}
+
 void AbstractRender_t::scriptDraw(const ScriptDraw_t &draw)
 {
     UNUSED(draw);

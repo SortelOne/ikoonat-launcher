@@ -870,6 +870,8 @@ public:
     void scriptBufferFree(int buffer) override;
     void scriptBufferClear(int buffer) override;
     void scriptBufferCapture(int buffer) override;
+    bool scriptBufferRead(int buffer, std::vector<unsigned char> &pixels) override;
+    void scriptBufferWrite(int buffer, const std::vector<unsigned char> &pixels) override;
     void scriptDraw(const ScriptDraw_t &draw) override;
     void scriptDrawEnd() override;
     void scriptRedirect(int buffer) override;
