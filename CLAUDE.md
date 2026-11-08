@@ -698,11 +698,11 @@ vectors per stage):
   get `.0` directly; `min`/`max`/`clamp` (int versions exist) get it when
   their first argument surely is a float, else go through `xt_<name>L`
   helpers overloaded for float and int types (`floatArguments`,
-  `limitHelpers`). Suspected cause of SMATRS's invisible map terrain on the
+  `limitHelpers`). This was the cause of SMATRS's invisible map terrain on the
   Odin: lib3d's alpha cutoff `clamp(sign(a - 0.5),0,1)` (terrain is the only
   ALPHA_CUTOFF material) discarded every pixel; v11/v12 showed the terrain's
   pixels never appear even as a plain colour, while uniforms, matrices and
-  geometry match the cliffs'. To be confirmed (v13).
+  geometry match the cliffs'. Confirmed in v13 (the terrain drew).
 - Uniform arrays of single ints/uints (SMATRS's map terrain: `variants`,
   `sizes`) are packed four to a vector for ES 3 (`packScalarArrays` in
   glsl.lua: `xt_p4_<name>` as `uvec4`/`ivec4`, uses rewritten to
