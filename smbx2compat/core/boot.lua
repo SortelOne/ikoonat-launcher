@@ -67,8 +67,18 @@ core.shotsSpec = os.getenv("SMBX2COMPAT_SHOTS")
 core.configSpec = os.getenv("SMBX2COMPAT_CONFIG") -- TheXTech options for the run (see the end)
 core.jitOptSpec = os.getenv("SMBX2COMPAT_JITOPT")
 -- Debugging: SMBX2COMPAT_DEBUG=/path/file.lua runs that file once the level's
--- scripts have loaded (before onStart), with core passed as its argument
+-- scripts have loaded (before onStart), with core passed as its argument.
+-- Without it (Android has no environment to set), smbx2compat-debug.lua in the
+-- user folder, if there is one.
 core.debugSpec = os.getenv("SMBX2COMPAT_DEBUG")
+if (core.debugSpec == nil or core.debugSpec == "") and __xtech_userDir then
+    local path = string.gsub(__xtech_userDir, "/*$", "/") .. "smbx2compat-debug.lua"
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        core.debugSpec = path
+    end
+end
 -- for debug files, which SMBX2's lockdown keeps from require("ffi") and os
 core.ffi = require("ffi")
 core.getenv = os.getenv
@@ -463,6 +473,7 @@ do
     function __onInit(episodePath, lvlName)
         local ret = onInit(scriptPath(normalize(episodePath)), lvlName)
         if core.debugSpec and core.debugSpec ~= "" then
+            core.log("running debug file " .. core.debugSpec)
             local chunk, err = loadstring(core.readFile(core.debugSpec) or "", "=" .. core.debugSpec)
             local ok
             if chunk then

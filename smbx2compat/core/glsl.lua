@@ -228,11 +228,134 @@ local function takeInitializers(source, inits, dropped)
     end))
 end
 
+-- An array size as SMBX2's preprocessor leaves it ("128*16 >> 2"); nil unless
+-- it is whole-number arithmetic
+local function evalSize(expr)
+    expr = string.match(expr, "^%s*(.-)%s*$")
+    if not string.find(expr, "^[%d%s%+%-%*/%%%(%)<>]+$") then
+        return nil
+    end
+    -- shifts bind looser than the rest: split at the last one outside brackets
+    local depth, at, op, i = 0, nil, nil, 1
+    while i <= #expr do
+        local c, two = string.sub(expr, i, i), string.sub(expr, i, i + 1)
+        if c == "(" then
+            depth = depth + 1
+        elseif c == ")" then
+            depth = depth - 1
+        elseif depth == 0 and (two == ">>" or two == "<<") then
+            at, op = i, two
+            i = i + 1
+        end
+        i = i + 1
+    end
+    if at then
+        local a, b = evalSize(string.sub(expr, 1, at - 1)), evalSize(string.sub(expr, at + 2))
+        if not a or not b then
+            return nil
+        end
+        return op == ">>" and math.floor(a / 2 ^ b) or a * 2 ^ b
+    end
+    if string.find(expr, "[<>]") then
+        return nil
+    end
+    local f = loadstring("return " .. expr)
+    local ok, v = pcall(f)
+    if ok and type(v) == "number" and v == math.floor(v) then
+        return v
+    end
+    return nil
+end
+
+local packedTypes = { uint = "uvec4", int = "ivec4" }
+
+-- Rewrites each use a[i] of the packed arrays (also inside other indices)
+local function packedUses(source, names)
+    for name in pairs(names) do
+        source = string.gsub(source, word(name) .. "%s*(%b[])", function(index)
+            local i = "int(" .. packedUses(string.sub(index, 2, -2), names) .. ")"
+            return "xt_p4_" .. name .. "[" .. i .. " >> 2][" .. i .. " & 3]"
+        end)
+    end
+    return source
+end
+
+-- Adreno (the AYN Odin's GPU) packs uniform arrays of single ints four to a
+-- vector and then reads them wrong by a dynamic index: SMATRS's map terrain
+-- (uint arrays) drew nothing there, while its vector arrays read fine. For ES,
+-- "uniform uint[N] a;" (N a multiple of 4) becomes "uniform uvec4 xt_p4_a[N/4];"
+-- and each a[i] xt_p4_a[int(i) >> 2][int(i) & 3]; lunadll.lua reports it as a
+-- uvec4 array, which SMBX2's ffi_graphics fills from the same N numbers.
+-- Arrays used other than by index stay as they are. Returns both sources and
+-- the names packed ("a[N]").
+local function packScalarArrays(vs, fs)
+    local sizes, uses = {}, {}
+    local function scan(source)
+        local function found(typeName, name, spec)
+            local n = evalSize(string.sub(spec, 2, -2))
+            if n and n > 0 and n % 4 == 0 and sizes[name] ~= false then
+                sizes[name] = { typeName, n }
+            else
+                sizes[name] = false
+            end
+        end
+        for typeName, spec, name in string.gmatch(source, "%f[%w_]uniform%s+(u?int)%s*(%b[])%s*([%a_][%w_]*)%s*;") do
+            found(typeName, name, spec)
+        end
+        for typeName, name, spec in string.gmatch(source, "%f[%w_]uniform%s+(u?int)%s+([%a_][%w_]*)%s*(%b[])%s*;") do
+            found(typeName, name, spec)
+        end
+    end
+    scan(vs)
+    scan(fs)
+
+    local names, list = {}, {}
+    for name, info in pairs(sizes) do
+        if info then
+            -- every use but the declarations must be an index
+            local ok = true
+            for _, source in ipairs({ vs, fs }) do
+                local rest = string.gsub(source, "%f[%w_]uniform%s+u?int%s*%b[]%s*" .. word(name) .. "%s*;", "")
+                rest = string.gsub(rest, "%f[%w_]uniform%s+u?int%s+" .. word(name) .. "%s*%b[]%s*;", "")
+                local _, all = string.gsub(rest, word(name), "")
+                local _, indexed = string.gsub(rest, word(name) .. "%s*%[", "")
+                if all ~= indexed then
+                    ok = false
+                end
+            end
+            if ok then
+                names[name] = info
+                list[#list + 1] = name .. "[" .. info[2] .. "]"
+            end
+        end
+    end
+    if #list == 0 then
+        return vs, fs, list
+    end
+
+    local function declare(typeName, name)
+        local info = names[name]
+        return "uniform " .. packedTypes[info[1]] .. " xt_p4_" .. name .. "[" .. (info[2] / 4) .. "];"
+    end
+    local function pack(source)
+        source = string.gsub(source, "%f[%w_]uniform%s+(u?int)%s*%b[]%s*([%a_][%w_]*)%s*;", function(typeName, name)
+            return names[name] and declare(typeName, name)
+        end)
+        source = string.gsub(source, "%f[%w_]uniform%s+(u?int)%s+([%a_][%w_]*)%s*%b[]%s*;", function(typeName, name)
+            return names[name] and declare(typeName, name)
+        end)
+        return packedUses(source, names)
+    end
+    table.sort(list)
+    return pack(vs), pack(fs), list
+end
+
 -- vertexSource, fragmentSource: what SMBX2 hands FFI_ShaderFromStrings (already
 -- run through its preprocessor). header: xtech_gfx_shaderHeader().
 -- Returns the vertex and fragment sources to compile, the uniform initializers
--- taken out for ES ("name=v,v,...\n" lines, "" if none) and a list of the
--- uniforms whose initializers were dropped.
+-- taken out for ES ("name=v,v,...\n" lines, "" if none), a list of the
+-- uniforms whose initializers were dropped and one of the arrays packed
+-- (packScalarArrays).
 function glsl.translate(vertexSource, fragmentSource, header)
     local targetVersion = tonumber(string.match(header, "#version%s+(%d+)")) or 100
     local modern = targetVersion >= 300
@@ -242,7 +365,7 @@ function glsl.translate(vertexSource, fragmentSource, header)
     local fs, fsCoords = translateCommon(fragmentSource, modern, sourceVersion(fragmentSource))
     local coords = math.max(vsCoords, fsCoords, 0)
 
-    local inits, dropped = {}, {}
+    local inits, dropped, packed = {}, {}, {}
     if es then
         vs = takeInitializers(vs, inits, dropped)
         fs = takeInitializers(fs, inits, dropped)
@@ -251,6 +374,9 @@ function glsl.translate(vertexSource, fragmentSource, header)
         end
         if sourceVersion(fragmentSource) < 130 then
             fs = floatArguments(fs)
+        end
+        if modern then
+            vs, fs, packed = packScalarArrays(vs, fs)
         end
     end
     local initLines = {}
@@ -341,13 +467,15 @@ function glsl.translate(vertexSource, fragmentSource, header)
         fsHead[#fsHead + 1] = "out vec4 xt_FragColor;\n"
     end
 
-    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs, table.concat(initLines), dropped
+    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs, table.concat(initLines), dropped, packed
 end
 
 -- A reported variable name as SMBX2 knows it; nil for the translation's own
 function glsl.scriptName(name)
     if string.sub(name, 1, 5) == "xt_r_" then
         return string.sub(name, 6)
+    elseif string.sub(name, 1, 6) == "xt_p4_" then -- packScalarArrays
+        return string.sub(name, 7)
     elseif string.find(name, "^xt_") or string.find(name, "^gl_") then
         return nil
     end

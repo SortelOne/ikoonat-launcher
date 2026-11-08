@@ -618,8 +618,12 @@ local function compileShader(key)
         if kept then
             vs, fs, inits = string.match(kept, "^(.-)%z(.-)%z(.*)$")
         else
-            local dropped
-            vs, fs, inits, dropped = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+            local dropped, packed
+            vs, fs, inits, dropped, packed = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+            if #packed > 0 then
+                core.log("shader arrays as vectors of four (Adreno misreads arrays of ints): " ..
+                         table.concat(packed, ", ") .. " in " .. shaderLabel(s.fragment))
+            end
             if #dropped > 0 then
                 -- uniform initializers ES can't take and glsl.lua can't work out
                 core.warn("shader uniforms start at 0 here (their initializers aren't plain numbers): " ..

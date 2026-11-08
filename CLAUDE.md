@@ -694,6 +694,19 @@ vectors per stage):
   `name=v,v\n` lines, which `scriptShaderCreate` sets after linking (part of
   the program cache key); whole-number literals passed to GLSL 1.20's
   float-only built-ins get `.0` (Adreno doesn't apply the extension there).
+- Uniform arrays of single ints/uints (SMATRS's map terrain: `variants`,
+  `sizes`) are packed four to a vector for ES 3 (`packScalarArrays` in
+  glsl.lua: `xt_p4_<name>` as `uvec4`/`ivec4`, uses rewritten to
+  `[int(i) >> 2][int(i) & 3]`; reported to scripts as the vector array, so
+  SMBX2's ffi_graphics fills it from the same numbers). Suspected Adreno
+  misreading of dynamically indexed scalar arrays: the terrain drew nothing
+  on the Odin, while every map shader with vector arrays drew. Not yet
+  confirmed on the device (v10); `probeUintUniforms` in
+  render_gl_script.cpp logs what the first such draws sent and what GL holds
+  (`smbx2compat probe:`), temporary.
+- Android has no environment for `SMBX2COMPAT_DEBUG`: boot.lua runs
+  `<user folder>/smbx2compat-debug.lua` when it exists (logged as `running
+  debug file ...`).
 - Non-square matrix and `uint` uniforms use ES3 functions loaded with
   `SDL_GL_GetProcAddress` (`SCRIPT_GL3_UNIFORMS`, render_gl_script.cpp):
   Android builds only have the ES2 header.

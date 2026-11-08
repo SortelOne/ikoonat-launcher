@@ -94,12 +94,14 @@ namespace
 
 typedef void (GL_APIENTRY *ScriptUniformUiv)(GLint location, GLsizei count, const GLuint *value);
 typedef void (GL_APIENTRY *ScriptUniformMatrixFv)(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+typedef void (GL_APIENTRY *ScriptGetUniformUiv)(GLuint program, GLint location, GLuint *params);
 
 struct ScriptGL3Uniforms
 {
     ScriptUniformUiv u1 = nullptr, u2 = nullptr, u3 = nullptr, u4 = nullptr;
     ScriptUniformMatrixFv m2x3 = nullptr, m2x4 = nullptr, m3x2 = nullptr;
     ScriptUniformMatrixFv m3x4 = nullptr, m4x2 = nullptr, m4x3 = nullptr;
+    ScriptGetUniformUiv get_uiv = nullptr; // probeUintUniforms
 } s_gl3;
 
 void loadScriptGL3Uniforms()
@@ -115,7 +117,47 @@ void loadScriptGL3Uniforms()
     FIND_PROC(s_gl3.m3x4, "glUniformMatrix3x4fv");
     FIND_PROC(s_gl3.m4x2, "glUniformMatrix4x2fv");
     FIND_PROC(s_gl3.m4x3, "glUniformMatrix4x3fv");
+    FIND_PROC(s_gl3.get_uiv, "glGetUniformuiv");
 #   undef FIND_PROC
+}
+
+// smbx2compat: temporary probe for SMATRS's map terrain on the Odin (Adreno),
+// which draws nothing there: logs what the first few draws with unsigned int
+// uniform arrays sent and what GL then holds (first two elements)
+void probeUintUniforms(GLuint program, const ScriptDraw_t &d)
+{
+    static int probes = 0;
+    if(probes >= 6 || !s_gl3.get_uiv)
+        return;
+
+    for(int i = 0; i < d.uniformCount; i++)
+    {
+        const ScriptDrawVar_t &u = d.uniforms[i];
+        if(u.location < 0 || !u.data || u.count < 2)
+            continue;
+
+        int comps = (u.type == GL_UNSIGNED_INT) ? 1 : (u.type == GL_UNSIGNED_INT_VEC4) ? 4 : 0;
+        if(!comps || u.count * comps < 5)
+            continue;
+
+        const GLuint *sent = static_cast<const GLuint *>(u.data);
+        GLuint got0[4] = {0, 0, 0, 0}, got1[4] = {0, 0, 0, 0};
+        s_gl3.get_uiv(program, u.location, got0);
+        s_gl3.get_uiv(program, u.location + 1, got1);
+
+        const float *uv = d.count >= 3 ? d.uv : nullptr;
+        pLogInfo("smbx2compat probe: %d vertices, uniform at %d (0x%X x%d): sent %u %u %u %u %u; GL has %u %u %u %u, next %u %u %u %u; "
+                 "uv %g,%g %g,%g %g,%g; color %g %g %g %g; error 0x%X",
+                 d.count, u.location, u.type, u.count,
+                 sent[0], sent[1], sent[2], sent[3], sent[comps],
+                 got0[0], got0[1], got0[2], got0[3], got1[0], got1[1], got1[2], got1[3],
+                 uv ? uv[0] : -1.0f, uv ? uv[1] : -1.0f, uv ? uv[2] : -1.0f, uv ? uv[3] : -1.0f,
+                 uv ? uv[4] : -1.0f, uv ? uv[5] : -1.0f,
+                 d.color[0], d.color[1], d.color[2], d.color[3], (unsigned)glGetError());
+
+        if(++probes >= 6)
+            return;
+    }
 }
 
 } // namespace
@@ -1146,6 +1188,10 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
             break;
         }
     }
+
+#ifdef SCRIPT_GL3_UNIFORMS_LOADED
+    probeUintUniforms(prog.program, d);
+#endif
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, tex0);

@@ -609,6 +609,9 @@ static void loadSmbx2Level(const std::string &dataRoot, const std::string &coreD
     // SMBX2 writes reports into <SMBX>/logs; core mode sends them to our log folder
     lua_pushstring(g_L, AppPathManager::logsDir().c_str());
     lua_setglobal(g_L, "__xtech_logsDir");
+    // smbx2compat-debug.lua there is the debug file when SMBX2COMPAT_DEBUG isn't set (Android)
+    lua_pushstring(g_L, AppPathManager::userAppDirSTD().c_str());
+    lua_setglobal(g_L, "__xtech_userDir");
 
     // boot.lua sets up the host side of LunaLua, then runs main.lua
     if(!loadAndRunLuaFile(coreDir + "/boot.lua", "smbx2core/boot.lua"))
