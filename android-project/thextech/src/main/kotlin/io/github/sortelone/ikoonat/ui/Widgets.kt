@@ -143,6 +143,13 @@ fun PillButton(
     }
 }
 
+/** Top of every page but the grid: back to the library (touch; B and Android's Back do the same) */
+@Composable
+fun BackToLibrary(onClick: () -> Unit, modifier: Modifier = Modifier)
+{
+    PillButton("‹  Library", onClick, modifier = modifier, size = 14.sp)
+}
+
 // ---- pictures ----
 
 private object PictureCache

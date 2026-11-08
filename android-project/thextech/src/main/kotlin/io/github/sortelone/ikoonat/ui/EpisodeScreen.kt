@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import io.github.sortelone.ikoonat.Episode
 import io.github.sortelone.ikoonat.Episodes
 import io.github.sortelone.ikoonat.LibraryModel
+import io.github.sortelone.ikoonat.Screen
 import io.github.sortelone.ikoonat.SlotInfo
 
 /** What the episode page asks the activity to do (pickers, the share sheet, the game) */
@@ -85,6 +86,8 @@ fun EpisodeScreen(model: LibraryModel, e: Episode, actions: EpisodeActions)
             Modifier.weight(0.58f).fillMaxHeight().verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            BackToLibrary({ model.screen = Screen.Grid })
+
             val cont = e.continueSlot
             PillButton(
                 if(e.hasAnySave) "Continue  ·  Slot $cont" else "Play  ·  Slot $cont",

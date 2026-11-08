@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.sortelone.ikoonat.LibraryModel
 import io.github.sortelone.ikoonat.Paths
+import io.github.sortelone.ikoonat.Screen
 
 class SettingsActions(
     val engineOptions: () -> Unit,
@@ -42,6 +43,7 @@ fun SettingsScreen(model: LibraryModel, actions: SettingsActions)
             Modifier.widthIn(max = 640.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            BackToLibrary({ model.screen = Screen.Grid })
             Text("Settings", color = pal.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
 
             Heading("Look")

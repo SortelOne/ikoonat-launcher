@@ -36,6 +36,7 @@ fun ImportScreen(model: LibraryModel, pickZip: () -> Unit, pickFolder: () -> Uni
             Modifier.widthIn(max = 640.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            BackToLibrary({ model.screen = Screen.Grid })
             Text("Import", color = pal.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Text(
                 "Pick a zip or a folder. Ikoonat sorts out what's inside: episodes (SMBX 1.3 or SMBX2), " +
