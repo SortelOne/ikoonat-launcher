@@ -34,6 +34,13 @@ void RequestForcedPause(PauseCode code);
 
 void Init(int plr, bool LegacyPause);
 
+// smbx2compat: Ikoonat's menu (SMBX2 mode, where episodes run their own pause
+// menus): the next Init builds Continue, Options and Quit to Library, so
+// an episode that greys out its own quit can still be left
+void RequestIkoonatMenu();
+//! Android's Back key is down (control/keyboard.cpp)
+extern bool g_backKeyHeld;
+
 void ControlsLogic();
 bool Logic();
 void Render();

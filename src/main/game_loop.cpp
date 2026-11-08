@@ -160,6 +160,43 @@ void CheckActive();//in game_main.cpp
 
 GameLoopInterrupt g_gameLoopInterrupt;
 
+#ifdef ENABLE_XTECH_LUA
+// smbx2compat: Ikoonat's menu in SMBX2 mode, where the episode's scripts take
+// over the pause menu (and may grey out its quit, SMATRS often does): opened
+// by Android's Back key or by holding Start and Select (Drop Item) for about
+// a second, in any frame the level runs or a script holds paused, without
+// asking the scripts. Called right after the frame's input is read.
+static bool s_ikoonatMenuCheck()
+{
+    static bool s_backWasHeld = false;
+    static int s_comboFrames = 0;
+
+    bool backPressed = PauseScreen::g_backKeyHeld && !s_backWasHeld;
+    s_backWasHeld = PauseScreen::g_backKeyHeld;
+
+    if(!xtech_lua_isSmbx2Core() || GameMenu || TestLevel || GamePaused != PauseCode::None)
+    {
+        s_comboFrames = 0;
+        return false;
+    }
+
+    // raw input, before onInputUpdate may change the players' keys
+    const Controls_t &c = Player[1].Controls;
+    if(c.Start && c.Drop)
+        s_comboFrames++;
+    else
+        s_comboFrames = 0;
+
+    if(!backPressed && s_comboFrames != 60)
+        return false;
+
+    pLogInfo("smbx2compat: Ikoonat menu (%s)", backPressed ? "Back" : "Start + Select");
+    PauseScreen::RequestIkoonatMenu();
+    PauseInit(PauseCode::PauseScreen, 0);
+    return true;
+}
+#endif
+
 void GameLoop()
 {
     if(GamePaused != PauseCode::None)
@@ -241,6 +278,11 @@ resume_IntroEvents:
     {
         g_microStats.start_task(MicroStats::Controls);
         Controls::Update();
+        if(s_ikoonatMenuCheck())
+        {
+            g_microStats.end_frame();
+            return;
+        }
         g_microStats.start_task(MicroStats::Script);
         xtech_lua_smbx2PausedFrame();
         UpdateGraphics();
@@ -271,6 +313,12 @@ resume_IntroEvents:
         QuickReconnectScreen::Logic();
 
 #ifdef ENABLE_XTECH_LUA
+    if(s_ikoonatMenuCheck())
+    {
+        g_microStats.end_frame();
+        return;
+    }
+
     // smbx2compat: SMBX2's onInputUpdate and onTick come right after input is
     // read, as in LunaLua, so scripts can see and override this frame's keys
     xtech_lua_smbx2AfterInput();

@@ -43,8 +43,11 @@
 
 #include <Logger/logger.h>
 
+#include "main/screen_pause.h" // smbx2compat: g_backKeyHeld
+
 #ifdef ENABLE_XTECH_LUA
 #   include "xtech_lua_events.h" // smbx2compat
+extern bool xtech_lua_isSmbx2Core();
 #endif
 
 namespace Controls
@@ -994,7 +997,13 @@ void InputMethodType_Keyboard::UpdateControlsPost()
     l_SharedControls.QuitCredits |= (returnPressed && !altPressed);
     l_SharedControls.QuitCredits |= (escBackPressed && !altPressed);
 
-    l_SharedControls.Pause |= backPressed;
+    // smbx2compat: in SMBX2 mode Back opens Ikoonat's menu (game_loop.cpp)
+    // instead of the episode's own pause menu
+    PauseScreen::g_backKeyHeld = backPressed;
+#ifdef ENABLE_XTECH_LUA
+    if(!xtech_lua_isSmbx2Core())
+#endif
+        l_SharedControls.Pause |= backPressed;
     l_SharedControls.Pause |= (escPausePressed && !altPressed);
 
     l_SharedControls.MenuUp |= upPressed;

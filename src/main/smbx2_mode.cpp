@@ -373,6 +373,26 @@ void EpisodeMode_begin(const std::string &episodeDir, int slot)
         e.lastSlot = slot;
     Library_set(key, e);
 
+    // SMATRS hands each loading screen its card in <episode>/_loadscreen/data.txt,
+    // written as a level ends (onExit) and emptied as it is read. A game closed
+    // inside a level (Android: swiped away) or left from Ikoonat's menu there
+    // left that level's card behind, and the next start showed it while loading
+    // the map. Emptied here, the start gets the plain loading screen, as after
+    // SMATRS's own quit.
+    if(smbx2 && slot > 0)
+    {
+        std::string cardFile = episodeDir;
+        if(!cardFile.empty() && cardFile.back() != '/')
+            cardFile.push_back('/');
+        cardFile += "_loadscreen/data.txt";
+        if(Files::fileExists(cardFile))
+        {
+            FILE *f = Files::utf8_fopen(cardFile.c_str(), "wb");
+            if(f)
+                std::fclose(f);
+        }
+    }
+
     s_apply(smbx2, smbx2);
 }
 

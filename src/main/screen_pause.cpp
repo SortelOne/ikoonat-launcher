@@ -90,6 +90,16 @@ static std::array<bool, maxLocalPlayers> s_leftright_release;
 uint8_t g_pending_action = 255;
 static bool s_force_exit = false;
 
+// smbx2compat: Ikoonat's menu (RequestIkoonatMenu)
+bool g_backKeyHeld = false;
+static bool s_ikoonat_next = false;   // the next Init builds Ikoonat's menu
+static bool s_ikoonat_active = false; // the menu shown is Ikoonat's
+
+void RequestIkoonatMenu()
+{
+    s_ikoonat_next = true;
+}
+
 static void s_push_unpause()
 {
     XMessage::Message unpause;
@@ -167,6 +177,7 @@ static void s_OptionsScreen_Resume()
 {
     // re-initialize / re-translate pause menu
     SoundPause[SFX_Pause] = 1;
+    s_ikoonat_next = s_ikoonat_active; // smbx2compat
     Init(s_pause_plr, s_pause_type == PauseType::Legacy);
 
     // set MenuCursor correctly
@@ -270,6 +281,18 @@ static bool s_Quit()
     return true;
 }
 
+// smbx2compat: Ikoonat's menu leaves without saving, as SMBX2's own quit
+// (Misc.exitEngine) does; the episode's own saves are its business
+static bool s_QuitToLibrary()
+{
+    XRender::setTargetTexture();
+    XRender::clearBuffer();
+    XRender::repaint();
+    QuitEpisodeToMenu("Ikoonat menu");
+    XEvents::doEvents();
+    return true;
+}
+
 void UnlockCheats()
 {
     s_cheat_menu_bits = 15;
@@ -315,10 +338,21 @@ void Init(int plr, bool LegacyPause)
 
     bool CanSave = (LevelSelect || IsHubLevel) && !Cheater && !TestLevel;
 
+    bool ikoonat = s_ikoonat_next;
+    s_ikoonat_next = false;
+    s_ikoonat_active = ikoonat;
+
     // add pause menu items
 
+    // smbx2compat: Ikoonat's menu (a level test keeps its own: Quit Testing)
+    if(ikoonat && s_pause_type == PauseType::Modern)
+    {
+        s_items.push_back(MenuItem{g_gameStrings.pauseItemContinue, s_Continue});
+        s_items.push_back(MenuItem{g_mainMenu.mainOptions, s_OptionsScreen, true});
+        s_items.push_back(MenuItem{"Quit to Library", s_QuitToLibrary, true});
+    }
     // level test
-    if(s_pause_type == PauseType::Testing)
+    else if(s_pause_type == PauseType::Testing)
     {
         bool inter_screen = (LevelBeatCode <= BEATCODE_RESTART);
         bool start_screen = (LevelBeatCode == BEATCODE_SETUP);
