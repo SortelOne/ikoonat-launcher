@@ -612,22 +612,7 @@ local overLimitLabels = {}
 -- text; only: the swap is made only in sources that contain it). A debug
 -- file (SMBX2COMPAT_DEBUG, or smbx2compat-debug.lua in the user folder) may
 -- replace the list; scripts that build their shaders in onStart see it.
--- The one here is temporary: it colours the pixels of SMATRS's map terrain,
--- which the Odin doesn't show, by what its shader sees (texture ok: as
--- normal; blue: vertex colour transparent; red: texture position outside
--- the texture; yellow: piece size 0; magenta: transparent texel otherwise).
-core.shaderPatches = {
-    {
-        only = "pieceSizeData", -- terrainShader.glsl, not terrainLikeShader.glsl
-        find = "o.albedo = texture2D(iChannel0,uv)*data.color;",
-        replace = "vec4 xt_dbg = texture2D(iChannel0,uv);\n" ..
-                  "if(xt_dbg.a > 0.5) o.albedo = xt_dbg*data.color;\n" ..
-                  "else if(data.color.a < 0.5) o.albedo = vec4(0.0,0.0,1.0,1.0);\n" ..
-                  "else if(uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) o.albedo = vec4(1.0,0.0,0.0,1.0);\n" ..
-                  "else if(width == 0u || height == 0u) o.albedo = vec4(1.0,1.0,0.0,1.0);\n" ..
-                  "else o.albedo = vec4(1.0,0.0,1.0,1.0);",
-    },
-}
+core.shaderPatches = {}
 local patchesLogged = {}
 
 local function patchShader(source)

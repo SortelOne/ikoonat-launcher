@@ -694,6 +694,15 @@ vectors per stage):
   `name=v,v\n` lines, which `scriptShaderCreate` sets after linking (part of
   the program cache key); whole-number literals passed to GLSL 1.20's
   float-only built-ins get `.0` (Adreno doesn't apply the extension there).
+  GLSL 1.30+ sources too (lib3d's): there only the float-only built-ins
+  get `.0` directly; `min`/`max`/`clamp` (int versions exist) get it when
+  their first argument surely is a float, else go through `xt_<name>L`
+  helpers overloaded for float and int types (`floatArguments`,
+  `limitHelpers`). Suspected cause of SMATRS's invisible map terrain on the
+  Odin: lib3d's alpha cutoff `clamp(sign(a - 0.5),0,1)` (terrain is the only
+  ALPHA_CUTOFF material) discarded every pixel; v11/v12 showed the terrain's
+  pixels never appear even as a plain colour, while uniforms, matrices and
+  geometry match the cliffs'. To be confirmed (v13).
 - Uniform arrays of single ints/uints (SMATRS's map terrain: `variants`,
   `sizes`) are packed four to a vector for ES 3 (`packScalarArrays` in
   glsl.lua: `xt_p4_<name>` as `uvec4`/`ivec4`, uses rewritten to
@@ -706,8 +715,8 @@ vectors per stage):
   (`smbx2compat probe:`), temporary.
   v10 on the Odin: GL holds the arrays as sent (and packed, the 96-piece
   terrain fits), yet the terrain still doesn't show, so packing wasn't the
-  cause; v11 colours the terrain's pixels by what its shader sees (a patch
-  in `core.shaderPatches`, below).
+  cause; v11 coloured the terrain's pixels by what its shader sees (a patch
+  in `core.shaderPatches`, below; removed again in v13).
 - Android has no environment for `SMBX2COMPAT_DEBUG`: boot.lua runs
   `<user folder>/smbx2compat-debug.lua` when it exists (logged as `running
   debug file ...`). `core.shaderPatches` (lunadll.lua) swaps text in shader

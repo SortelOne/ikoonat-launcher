@@ -121,25 +121,95 @@ local function splitArguments(text)
     return list
 end
 
+-- The ones GLSL 1.30 and later also have for ints
+local intToo = { abs = true, sign = true, min = true, max = true, clamp = true }
+
+local function wholeNumber(arg)
+    return string.match(arg, "^(%s*[-+]?%s*%d+)(%s*)$")
+end
+
+-- A first argument that is certainly a float: it has a decimal number in it
+-- and isn't converted to an int type
+local function surelyFloat(arg)
+    if string.find(arg, "^%s*[iu]vec%d") or string.find(arg, "^%s*u?int%s*%(") then
+        return false
+    end
+    return string.find(arg, "%f[%w_]%d+%.") ~= nil
+end
+
 -- A whole number passed straight to one of those ("max(1, x)", "clamp(n, 0, 1)")
 -- is a float in GLSL 1.20. ESSL also has int versions of some, and Adreno's
 -- implicit conversions don't cover calls that mix the two, so for ES the
--- number gets its ".0".
-local function floatArguments(source)
+-- number gets its ".0". GLSL 1.30+ sources (modern) have the int versions
+-- too: there the ".0" goes only to the float-only functions, and min, max
+-- and clamp with a whole number either get it when their first argument is
+-- surely a float, or else go through xt_<name>L, overloaded for float and
+-- int types (limitHelpers), so the compiler picks by type. On the Odin,
+-- lib3d's alpha cutoff, clamp(sign(a - 0.5),0,1), came out ~0 and threw away
+-- every pixel of SMATRS's map terrain (the only ALPHA_CUTOFF material).
+-- used: names of the helpers needed.
+local function floatArguments(source, modern, used)
     return (string.gsub(source, "(%f[%w_][%a_][%w_]*)(%s*)(%b())", function(name, space, args)
-        local inner = floatArguments(string.sub(args, 2, -2))
+        local inner = floatArguments(string.sub(args, 2, -2), modern, used)
         if floatFunctions[name] then
             local list = splitArguments(inner)
+            local limits = modern and intToo[name]
+            local hasNumber = false
             for i, arg in ipairs(list) do
-                local number, after = string.match(arg, "^(%s*[-+]?%s*%d+)(%s*)$")
-                if number then
-                    list[i] = number .. ".0" .. after
+                if wholeNumber(arg) then
+                    hasNumber = true
                 end
             end
-            inner = table.concat(list, ",")
+            if hasNumber and limits then
+                if name == "abs" or name == "sign" then
+                    return name .. space .. "(" .. inner .. ")"
+                end
+                local first
+                for _, arg in ipairs(list) do
+                    if not wholeNumber(arg) then
+                        first = arg
+                        break
+                    end
+                end
+                if not (first and surelyFloat(first)) then
+                    used[name] = true
+                    return "xt_" .. name .. "L" .. space .. "(" .. inner .. ")"
+                end
+            end
+            if hasNumber then
+                for i, arg in ipairs(list) do
+                    local number, after = wholeNumber(arg)
+                    if number then
+                        list[i] = number .. ".0" .. after
+                    end
+                end
+                inner = table.concat(list, ",")
+            end
         end
         return name .. space .. "(" .. inner .. ")"
     end))
+end
+
+-- xt_clampL/xt_minL/xt_maxL for floatArguments
+local function limitHelpers(used)
+    local out = {}
+    local floats = { "float", "vec2", "vec3", "vec4" }
+    local ints = { "int", "ivec2", "ivec3", "ivec4" }
+    for _, name in ipairs({ "clamp", "min", "max" }) do
+        if used[name] then
+            for k, t in ipairs(floats) do
+                for _, pair in ipairs({ { t, "float" }, { ints[k], "int" } }) do
+                    local v, s = pair[1], pair[2]
+                    if name == "clamp" then
+                        out[#out + 1] = v .. " xt_clampL(" .. v .. " x, " .. s .. " a, " .. s .. " b) { return clamp(x, a, b); }\n"
+                    else
+                        out[#out + 1] = v .. " xt_" .. name .. "L(" .. v .. " x, " .. s .. " y) { return " .. name .. "(x, y); }\n"
+                    end
+                end
+            end
+        end
+    end
+    return table.concat(out)
 end
 
 -- Values per uniform type, for initializers
@@ -366,15 +436,12 @@ function glsl.translate(vertexSource, fragmentSource, header)
     local coords = math.max(vsCoords, fsCoords, 0)
 
     local inits, dropped, packed = {}, {}, {}
+    local vsHelpers, fsHelpers = {}, {}
     if es then
         vs = takeInitializers(vs, inits, dropped)
         fs = takeInitializers(fs, inits, dropped)
-        if sourceVersion(vertexSource) < 130 then
-            vs = floatArguments(vs)
-        end
-        if sourceVersion(fragmentSource) < 130 then
-            fs = floatArguments(fs)
-        end
+        vs = floatArguments(vs, sourceVersion(vertexSource) >= 130, vsHelpers)
+        fs = floatArguments(fs, sourceVersion(fragmentSource) >= 130, fsHelpers)
         if modern then
             vs, fs, packed = packScalarArrays(vs, fs)
         end
@@ -416,6 +483,8 @@ function glsl.translate(vertexSource, fragmentSource, header)
             fsHead[#fsHead + 1] = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n" ..
                                   "#else\nprecision mediump float;\n#endif\n"
         end
+        vsHead[#vsHead + 1] = limitHelpers(vsHelpers)
+        fsHead[#fsHead + 1] = limitHelpers(fsHelpers)
     end
 
     vsHead[#vsHead + 1] = attribute .. " vec4 xt_Vertex;\n" ..
