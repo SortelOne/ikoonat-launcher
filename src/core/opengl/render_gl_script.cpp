@@ -50,7 +50,11 @@
 // match only for an unscaled camera at the screen's top-left (one player).
 
 #include <array>
+#include <cstdlib>
 #include <cstring>
+#include <unordered_map>
+
+#include <SDL2/SDL_video.h>
 
 #include <Logger/logger.h>
 
@@ -61,8 +65,112 @@
 
 #if defined(RENDERGL_HAS_SHADERS) && defined(RENDERGL_HAS_FBO)
 
+// GLSL 3.30 / ESSL 3.00 uniform types (non-square matrices, as SMATRS's lights
+// are, and unsigned ints). Android builds get only the ES 2 headers (gl_inc.h),
+// so there the types are defined here and the functions loaded at the first
+// program (loadScriptGL3Uniforms); an ES 2 context never reports these types.
+#if defined(THEXTECH_BUILD_GL_DESKTOP_MODERN)
+#   define SCRIPT_GL3_UNIFORMS
+#elif defined(THEXTECH_BUILD_GL_ES_MODERN) && defined(RENDERGL_LOAD_ES3_SYMBOLS)
+#   define SCRIPT_GL3_UNIFORMS
+#   define SCRIPT_GL3_UNIFORMS_LOADED
+
+#   ifndef GL_UNSIGNED_INT_VEC2
+#       define GL_UNSIGNED_INT_VEC2 0x8DC6
+#       define GL_UNSIGNED_INT_VEC3 0x8DC7
+#       define GL_UNSIGNED_INT_VEC4 0x8DC8
+#   endif
+#   ifndef GL_FLOAT_MAT2x3
+#       define GL_FLOAT_MAT2x3 0x8B65
+#       define GL_FLOAT_MAT2x4 0x8B66
+#       define GL_FLOAT_MAT3x2 0x8B67
+#       define GL_FLOAT_MAT3x4 0x8B68
+#       define GL_FLOAT_MAT4x2 0x8B69
+#       define GL_FLOAT_MAT4x3 0x8B6A
+#   endif
+
 namespace
 {
+
+typedef void (GL_APIENTRY *ScriptUniformUiv)(GLint location, GLsizei count, const GLuint *value);
+typedef void (GL_APIENTRY *ScriptUniformMatrixFv)(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+
+struct ScriptGL3Uniforms
+{
+    ScriptUniformUiv u1 = nullptr, u2 = nullptr, u3 = nullptr, u4 = nullptr;
+    ScriptUniformMatrixFv m2x3 = nullptr, m2x4 = nullptr, m3x2 = nullptr;
+    ScriptUniformMatrixFv m3x4 = nullptr, m4x2 = nullptr, m4x3 = nullptr;
+} s_gl3;
+
+void loadScriptGL3Uniforms()
+{
+#   define FIND_PROC(f, name) f = reinterpret_cast<decltype(f)>(SDL_GL_GetProcAddress(name))
+    FIND_PROC(s_gl3.u1, "glUniform1uiv");
+    FIND_PROC(s_gl3.u2, "glUniform2uiv");
+    FIND_PROC(s_gl3.u3, "glUniform3uiv");
+    FIND_PROC(s_gl3.u4, "glUniform4uiv");
+    FIND_PROC(s_gl3.m2x3, "glUniformMatrix2x3fv");
+    FIND_PROC(s_gl3.m2x4, "glUniformMatrix2x4fv");
+    FIND_PROC(s_gl3.m3x2, "glUniformMatrix3x2fv");
+    FIND_PROC(s_gl3.m3x4, "glUniformMatrix3x4fv");
+    FIND_PROC(s_gl3.m4x2, "glUniformMatrix4x2fv");
+    FIND_PROC(s_gl3.m4x3, "glUniformMatrix4x3fv");
+#   undef FIND_PROC
+}
+
+} // namespace
+
+#   define glUniform1uiv s_gl3.u1
+#   define glUniform2uiv s_gl3.u2
+#   define glUniform3uiv s_gl3.u3
+#   define glUniform4uiv s_gl3.u4
+#   define glUniformMatrix2x3fv s_gl3.m2x3
+#   define glUniformMatrix2x4fv s_gl3.m2x4
+#   define glUniformMatrix3x2fv s_gl3.m3x2
+#   define glUniformMatrix3x4fv s_gl3.m3x4
+#   define glUniformMatrix4x2fv s_gl3.m4x2
+#   define glUniformMatrix4x3fv s_gl3.m4x3
+#endif
+
+namespace
+{
+
+// Finds which script operation leaves a GL error (the engine only notices one
+// at its next texture load): each operation checks on the way in (an error
+// from before it, the engine's or an earlier call's) and out (its own), logs
+// each kind once, and the checks stop after a while.
+int s_gl_checks_left = 200000;
+std::unordered_map<std::string, bool> s_gl_errors_logged;
+
+struct ScriptGLCheck
+{
+    const char *what;
+
+    explicit ScriptGLCheck(const char *w) : what(w)
+    {
+        check("before");
+    }
+
+    ~ScriptGLCheck()
+    {
+        check("in");
+    }
+
+    void check(const char *where)
+    {
+        if(s_gl_checks_left <= 0)
+            return;
+        s_gl_checks_left--;
+
+        GLenum err;
+        while((err = glGetError()) != GL_NO_ERROR)
+        {
+            std::string key = std::string(where) + ' ' + what + ' ' + std::to_string((unsigned)err);
+            if(s_gl_errors_logged.size() < 32 && s_gl_errors_logged.emplace(key, true).second)
+                pLogWarning("smbx2compat: GL error 0x%04X %s script %s (logged once)", (unsigned)err, where, what);
+        }
+    }
+};
 
 using Mat4 = std::array<GLfloat, 16>;
 
@@ -231,6 +339,7 @@ void RenderGL::scriptClearDepth(GLfloat value)
 
 void RenderGL::scriptDrawEnd()
 {
+    ScriptGLCheck gl_check("draw end");
     if(!m_script_bound_buffer)
         return;
 
@@ -245,6 +354,7 @@ void RenderGL::scriptDrawEnd()
 
 void RenderGL::scriptRedirect(int buffer)
 {
+    ScriptGLCheck gl_check("redirect");
     ScriptBuffer_t *b = nullptr;
     if(buffer)
     {
@@ -305,7 +415,31 @@ const char *RenderGL::scriptShaderHeader()
         return nullptr;
 
     if(m_gl_profile == SDL_GL_CONTEXT_PROFILE_ES)
+    {
+        // SMBX2's GLSL 1.20 mixes ints and floats (max(x, 0), x * 2), which
+        // ESSL allows only with this extension (ES 3.1+)
+        static const bool implicit_conversions = m_has_es3_shaders &&
+            (m_gl_majver > 3 || (m_gl_majver == 3 && m_gl_minver >= 1)) &&
+            SDL_GL_ExtensionSupported("GL_EXT_shader_implicit_conversions");
+        static bool logged = false;
+        if(!logged)
+        {
+            logged = true;
+            // the uniform limits decide whether lib3d's lit shaders fit (SMATRS's map)
+            GLint vertex_vectors = 0, fragment_vectors = 0;
+            glGetIntegerv(GL_MAX_VERTEX_UNIFORM_VECTORS, &vertex_vectors);
+            glGetIntegerv(GL_MAX_FRAGMENT_UNIFORM_VECTORS, &fragment_vectors);
+            glGetError();
+            pLogInfo("Render GL: script shaders as ESSL %s, %s implicit int -> float conversions; uniform vectors: %d vertex, %d fragment",
+                     implicit_conversions ? "3.10" : (m_has_es3_shaders ? "3.00" : "1.00"),
+                     implicit_conversions ? "with" : "without",
+                     (int)vertex_vectors, (int)fragment_vectors);
+        }
+
+        if(implicit_conversions)
+            return "#version 310 es\n#extension GL_EXT_shader_implicit_conversions : require\n";
         return m_has_es3_shaders ? "#version 300 es\n" : "#version 100\n";
+    }
 
     if(m_gl_majver > 3 || (m_gl_majver == 3 && m_gl_minver >= 3))
         return "#version 330\n";
@@ -365,7 +499,7 @@ static int uniformComponents(GLenum type)
     case GL_FLOAT_MAT2: return 4;
     case GL_FLOAT_MAT3: return 9;
     case GL_FLOAT_MAT4: return 16;
-#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+#ifdef SCRIPT_GL3_UNIFORMS
     case GL_UNSIGNED_INT:      return 1;
     case GL_UNSIGNED_INT_VEC2: return 2;
     case GL_UNSIGNED_INT_VEC3: return 3;
@@ -384,7 +518,7 @@ static bool uniformIsFloat(GLenum type)
     {
     case GL_FLOAT: case GL_FLOAT_VEC2: case GL_FLOAT_VEC3: case GL_FLOAT_VEC4:
     case GL_FLOAT_MAT2: case GL_FLOAT_MAT3: case GL_FLOAT_MAT4:
-#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+#ifdef SCRIPT_GL3_UNIFORMS
     case GL_FLOAT_MAT2x3: case GL_FLOAT_MAT2x4: case GL_FLOAT_MAT3x2:
     case GL_FLOAT_MAT3x4: case GL_FLOAT_MAT4x2: case GL_FLOAT_MAT4x3:
 #endif
@@ -415,7 +549,7 @@ static void setUniformElement(GLint loc, GLenum type, const GLuint *raw)
     case GL_BOOL_VEC3:    glUniform3iv(loc, 1, iv); break;
     case GL_INT_VEC4:
     case GL_BOOL_VEC4:    glUniform4iv(loc, 1, iv); break;
-#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+#ifdef SCRIPT_GL3_UNIFORMS
     case GL_UNSIGNED_INT:      glUniform1uiv(loc, 1, raw); break;
     case GL_UNSIGNED_INT_VEC2: glUniform2uiv(loc, 1, raw); break;
     case GL_UNSIGNED_INT_VEC3: glUniform3uiv(loc, 1, raw); break;
@@ -433,11 +567,48 @@ static void setUniformElement(GLint loc, GLenum type, const GLuint *raw)
     }
 }
 
-// Keeps each uniform element's value as linked, for scriptShaderReset
-// (initial: ScriptProgram_t::initial)
-template<class InitialList>
-static void readInitialUniforms(GLuint program, InitialList &initial, std::vector<GLuint> &values)
+using UniformInits = std::unordered_map<std::string, std::vector<double>>;
+
+// glsl.lua's "name=v,v,...\n" lines: the GLSL initializers it took out of the
+// sources for ES, which has none
+static UniformInits parseUniformInits(const char *text)
 {
+    UniformInits out;
+    const char *p = text ? text : "";
+    while(*p)
+    {
+        const char *eq = std::strchr(p, '=');
+        const char *end = std::strchr(p, '\n');
+        if(!end)
+            end = p + std::strlen(p);
+        if(eq && eq < end)
+        {
+            std::vector<double> &v = out[std::string(p, eq)];
+            const char *s = eq + 1;
+            while(s < end)
+            {
+                char *next = nullptr;
+                v.push_back(std::strtod(s, &next));
+                if(next == s)
+                    break;
+                s = (*next == ',') ? next + 1 : next;
+            }
+        }
+        p = *end ? end + 1 : end;
+    }
+    return out;
+}
+
+// Keeps each uniform element's value as linked, for scriptShaderReset
+// (initial: ScriptProgram_t::initial); a uniform in inits gets those values
+// first, as its GLSL initializer would have given it
+template<class InitialList>
+static void readInitialUniforms(GLuint program, InitialList &initial, std::vector<GLuint> &values,
+                                const UniformInits &inits)
+{
+    if(!inits.empty())
+        glUseProgram(program);
+
     GLint count = 0, max_len = 0;
     glGetProgramiv(program, GL_ACTIVE_UNIFORMS, &count);
     glGetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &max_len);
@@ -465,7 +636,27 @@ static void readInitialUniforms(GLuint program, InitialList &initial, std::vecto
 
             size_t offset = values.size();
             values.resize(offset + 16, 0);
-            if(uniformIsFloat(type))
+
+            auto init = (size == 1) ? inits.find(base) : inits.end();
+            if(init != inits.end())
+            {
+                const std::vector<double> &v = init->second;
+                for(int c = 0; c < comps && c < (int)v.size(); c++)
+                {
+                    if(uniformIsFloat(type))
+                    {
+                        GLfloat f = (GLfloat)v[(size_t)c];
+                        std::memcpy(&values[offset + (size_t)c], &f, sizeof(f));
+                    }
+                    else
+                    {
+                        GLint n = (GLint)v[(size_t)c];
+                        std::memcpy(&values[offset + (size_t)c], &n, sizeof(n));
+                    }
+                }
+                setUniformElement(loc, type, &values[offset]);
+            }
+            else if(uniformIsFloat(type))
                 glGetUniformfv(program, loc, reinterpret_cast<GLfloat *>(&values[offset]));
             else
                 glGetUniformiv(program, loc, reinterpret_cast<GLint *>(&values[offset]));
@@ -474,15 +665,28 @@ static void readInitialUniforms(GLuint program, InitialList &initial, std::vecto
             initial.push_back({loc, type, offset});
         }
     }
+
+    if(!inits.empty())
+        GLProgramObject::s_forget_active_program();
 }
 
-int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
+int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, const char *initializers, std::string &error)
 {
+    ScriptGLCheck gl_check("shader create");
     if(!scriptShaderHeader())
     {
         error = "shaders need OpenGL 3.3 or OpenGL ES";
         return 0;
     }
+
+#ifdef SCRIPT_GL3_UNIFORMS_LOADED
+    static bool gl3_loaded = false;
+    if(!gl3_loaded && m_has_es3_shaders)
+    {
+        gl3_loaded = true;
+        loadScriptGL3Uniforms();
+    }
+#endif
 
     GLuint vs = compileShader(GL_VERTEX_SHADER, vertex, error);
     if(!vs)
@@ -549,7 +753,7 @@ int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::
     p.u_texmat = glGetUniformLocation(program, "xt_TexMatrix0");
     p.u_clip_count = glGetUniformLocation(program, "xt_ClipPlanes");
     p.u_clip_planes = glGetUniformLocation(program, "xt_ClipPlane");
-    readInitialUniforms(program, p.initial, p.initial_values);
+    readInitialUniforms(program, p.initial, p.initial_values, parseUniformInits(initializers));
 
     int id = ++m_script_next_id;
     m_script_programs[id] = p;
@@ -569,6 +773,7 @@ void RenderGL::scriptShaderFree(int shader)
 
 void RenderGL::scriptShaderReset(int shader)
 {
+    ScriptGLCheck gl_check("shader reset");
     auto it = m_script_programs.find(shader);
     if(it == m_script_programs.end())
         return;
@@ -617,6 +822,7 @@ void RenderGL::scriptShaderVariables(int shader, bool attributes, std::vector<Sc
 
 int RenderGL::scriptBufferCreate(int w, int h)
 {
+    ScriptGLCheck gl_check("buffer create");
     if(!scriptShaderHeader() || w <= 0 || h <= 0)
         return 0;
 
@@ -675,6 +881,7 @@ void RenderGL::scriptBufferFree(int buffer)
 
 void RenderGL::scriptBufferClear(int buffer)
 {
+    ScriptGLCheck gl_check("buffer clear");
     auto it = m_script_buffers.find(buffer);
     if(it == m_script_buffers.end())
         return;
@@ -693,6 +900,7 @@ void RenderGL::scriptBufferClear(int buffer)
 
 void RenderGL::scriptBufferCapture(int buffer)
 {
+    ScriptGLCheck gl_check("capture");
     auto it = m_script_buffers.find(buffer);
     if(it == m_script_buffers.end() || !scriptCurrentFB() || buffer == m_script_redirect)
         return;
@@ -720,6 +928,22 @@ void RenderGL::scriptBufferCapture(int buffer)
 
     r = r * scale;
 
+#ifdef THEXTECH_BUILD_GL_ES_MODERN
+    // OpenGL ES can't copy the game buffer (GL_RGB) into a capture buffer
+    // (GL_RGBA) with glCopyTexSubImage2D, which may not add components
+    // (GL_INVALID_OPERATION: every capture stayed empty on Android); a blit
+    // may, giving alpha 1 as the desktop copy does
+    if(m_gl_profile == SDL_GL_CONTEXT_PROFILE_ES && glBlitFramebuffer)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, scriptCurrentFB());
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, it->second.fb);
+        glBlitFramebuffer(r.x, r.y, r.x + (GLint)(w * scale), r.y + (GLint)(h * scale),
+                          0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, scriptCurrentFB());
+        return;
+    }
+#endif
+
     glBindTexture(GL_TEXTURE_2D, it->second.texture);
     glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, r.x, r.y,
                         (GLsizei)(w * scale), (GLsizei)(h * scale));
@@ -727,6 +951,7 @@ void RenderGL::scriptBufferCapture(int buffer)
 
 void RenderGL::scriptDraw(const ScriptDraw_t &d)
 {
+    ScriptGLCheck gl_check("draw");
     static bool warned_type = false, warned_attr = false;
 
     if(d.count <= 0 || !d.xy || d.primitive > GL_TRIANGLE_FAN)
@@ -883,7 +1108,7 @@ void RenderGL::scriptDraw(const ScriptDraw_t &d)
         case GL_INT_VEC2:     glUniform2iv(u.location, u.count, iv); break;
         case GL_INT_VEC3:     glUniform3iv(u.location, u.count, iv); break;
         case GL_INT_VEC4:     glUniform4iv(u.location, u.count, iv); break;
-#ifdef THEXTECH_BUILD_GL_DESKTOP_MODERN
+#ifdef SCRIPT_GL3_UNIFORMS
         case GL_UNSIGNED_INT:      glUniform1uiv(u.location, u.count, static_cast<const GLuint *>(u.data)); break;
         case GL_UNSIGNED_INT_VEC2: glUniform2uiv(u.location, u.count, static_cast<const GLuint *>(u.data)); break;
         case GL_UNSIGNED_INT_VEC3: glUniform3uiv(u.location, u.count, static_cast<const GLuint *>(u.data)); break;
@@ -1090,9 +1315,9 @@ const char *RenderGL::scriptShaderHeader()
     return AbstractRender_t::scriptShaderHeader();
 }
 
-int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
+int RenderGL::scriptShaderCreate(const char *vertex, const char *fragment, const char *initializers, std::string &error)
 {
-    return AbstractRender_t::scriptShaderCreate(vertex, fragment, error);
+    return AbstractRender_t::scriptShaderCreate(vertex, fragment, initializers, error);
 }
 
 void RenderGL::scriptShaderFree(int shader)

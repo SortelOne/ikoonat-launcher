@@ -589,33 +589,65 @@ function dll.FFI_ShaderFree(obj)
     xtech_gfx_shaderFree(key)
 end
 
+-- A shader's uniform array sizes ("variants[128*96 >> 2], ...") and MAX_*
+-- defines: scripts that retry smaller after an over-limit failure change
+-- these, so the log can tell each try apart and say which one fit
+local function sizeDefines(source)
+    local found = {}
+    for name, value in string.gmatch(source, "#define%s+(MAX_[%w_]+)%s+(%d+)") do
+        found[#found + 1] = name .. "=" .. value
+    end
+    for size, name in string.gmatch(source, "uniform%s+[%w_]+%s*%[([^%]]+)%]%s*([%w_]+)") do
+        found[#found + 1] = name .. "[" .. size .. "]"
+    end
+    for name, size in string.gmatch(source, "uniform%s+[%w_]+%s+([%w_]+)%s*%[([^%]]+)%]") do
+        found[#found + 1] = name .. "[" .. size .. "]"
+    end
+    return table.concat(found, ", ")
+end
+local overLimitLabels = {}
+
 local function compileShader(key)
     local s = shaders[key]
 
     local ok, err = false, "this renderer has no shaders"
     if glslHeader then
-        local vs, fs
+        local vs, fs, inits
         local cacheKey = "glsl\0" .. s.vertex .. "\0" .. s.fragment
         local kept = cacheGet(cacheKey)
         if kept then
-            local split = string.find(kept, "\0", 1, true)
-            vs, fs = string.sub(kept, 1, split - 1), string.sub(kept, split + 1)
+            vs, fs, inits = string.match(kept, "^(.-)%z(.-)%z(.*)$")
         else
-            vs, fs = core.glsl.translate(s.vertex, s.fragment, glslHeader)
-            cacheSet(cacheKey, vs .. "\0" .. fs)
+            local dropped
+            vs, fs, inits, dropped = core.glsl.translate(s.vertex, s.fragment, glslHeader)
+            if #dropped > 0 then
+                -- uniform initializers ES can't take and glsl.lua can't work out
+                core.warn("shader uniforms start at 0 here (their initializers aren't plain numbers): " ..
+                          table.concat(dropped, ", ") .. " in " .. shaderLabel(s.fragment))
+            end
+            cacheSet(cacheKey, vs .. "\0" .. fs .. "\0" .. inits)
         end
-        ok, err = xtech_gfx_shaderCompile(key, vs, fs)
+        ok, err = xtech_gfx_shaderCompile(key, vs, fs, inits)
     end
 
     if ok then
         s.uniforms = engineVariables(key, false)
         s.attributes = engineVariables(key, true)
-    elseif string.find(tostring(err), "[Ll]imit") or string.find(tostring(err), "exceeded") then
+        local label = shaderLabel(s.fragment)
+        if overLimitLabels[label] then
+            core.warn("shader fits this GPU with " .. sizeDefines(s.fragment) .. ": " .. label)
+        end
+    elseif string.find(tostring(err), "[Ll]imit") or string.find(tostring(err), "exceeded") or
+           string.find(tostring(err), "cannot find a suitable location") then
         -- Over this GPU's limits (SMATRS's map terrain asks for more uniforms than
-        -- macOS allows). Report it uncompiled with no variables, as a GPU that
-        -- can't take it does, so scripts with smaller fallbacks try those.
-        core.warn("shader over this GPU's limits (scripts may retry smaller): " ..
-                  shaderLabel(s.fragment) .. "\n" .. tostring(err))
+        -- macOS allows; Adreno says its "Uniform variants cannot find a suitable
+        -- location/component"). Report it uncompiled with no variables, as a GPU
+        -- that can't take it does, so scripts with smaller fallbacks try those.
+        local label = shaderLabel(s.fragment)
+        overLimitLabels[label] = true
+        local sizes = sizeDefines(s.fragment)
+        core.warn("shader over this GPU's limits (scripts may retry smaller)" ..
+                  (sizes ~= "" and " with " .. sizes or "") .. ": " .. label .. "\n" .. tostring(err))
         s.uniforms, s.attributes, s.overLimit = {}, {}, true
     else
         core.warn("shader didn't compile here (drawn without it): " ..

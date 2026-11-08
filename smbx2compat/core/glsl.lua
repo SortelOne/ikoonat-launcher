@@ -25,9 +25,18 @@ called by a main() of ours. The vertex one passes the position in the view
 GL does) to the fragment one, which discards pixels behind any of the
 xt_ClipPlanes planes in xt_ClipPlane (set by the engine for every draw).
 
-What isn't handled yet: ES's lack of implicit int -> float conversion (SMBX2's
-shaders rely on it; desktop GLSL allows it) and built-ins besides the ones
-above. A shader that doesn't compile is drawn without.
+OpenGL ES differs from the GLSL 1.20 SMBX2 writes in two ways its shaders rely on:
+- No uniform initializers ("uniform vec2 frame = vec2(1.0, 1.0);"): for ES they
+  are taken out, and translate() returns their values ("name=v,v,...\n" lines),
+  which the engine sets after linking (render_gl_script.cpp). A value that isn't
+  numbers (an expression) is dropped; translate() names those too.
+- No implicit int -> float conversion (max(x, 0), x * 2): the engine's header
+  turns on GL_EXT_shader_implicit_conversions where the GPU has it (ESSL 3.10);
+  without it such shaders still don't compile. Adreno's doesn't cover built-in
+  calls that mix ints and floats (max(1, x)), so whole numbers passed straight
+  to GLSL 1.20's float-only built-ins get a ".0" (floatArguments).
+Built-ins besides the ones above aren't handled. A shader that doesn't compile
+is drawn without.
 ]]
 
 local glsl = {}
@@ -85,9 +94,145 @@ local function sourceVersion(source)
     return tonumber(string.match(source, "#[ \t]*version[ \t]+(%d+)")) or 110
 end
 
+-- GLSL 1.20's built-in functions, all for floats only
+local floatFunctions = {}
+for name in string.gmatch("radians degrees sin cos tan asin acos atan pow exp log exp2 log2 " ..
+                          "sqrt inversesqrt abs sign floor ceil fract mod min max clamp mix " ..
+                          "step smoothstep length distance dot cross normalize faceforward " ..
+                          "reflect refract", "%S+") do
+    floatFunctions[name] = true
+end
+
+-- Splits a call's arguments at its top-level commas
+local function splitArguments(text)
+    local list, depth, start = {}, 0, 1
+    for i = 1, #text do
+        local c = string.sub(text, i, i)
+        if c == "(" or c == "[" then
+            depth = depth + 1
+        elseif c == ")" or c == "]" then
+            depth = depth - 1
+        elseif c == "," and depth == 0 then
+            list[#list + 1] = string.sub(text, start, i - 1)
+            start = i + 1
+        end
+    end
+    list[#list + 1] = string.sub(text, start)
+    return list
+end
+
+-- A whole number passed straight to one of those ("max(1, x)", "clamp(n, 0, 1)")
+-- is a float in GLSL 1.20. ESSL also has int versions of some, and Adreno's
+-- implicit conversions don't cover calls that mix the two, so for ES the
+-- number gets its ".0".
+local function floatArguments(source)
+    return (string.gsub(source, "(%f[%w_][%a_][%w_]*)(%s*)(%b())", function(name, space, args)
+        local inner = floatArguments(string.sub(args, 2, -2))
+        if floatFunctions[name] then
+            local list = splitArguments(inner)
+            for i, arg in ipairs(list) do
+                local number, after = string.match(arg, "^(%s*[-+]?%s*%d+)(%s*)$")
+                if number then
+                    list[i] = number .. ".0" .. after
+                end
+            end
+            inner = table.concat(list, ",")
+        end
+        return name .. space .. "(" .. inner .. ")"
+    end))
+end
+
+-- Values per uniform type, for initializers
+local typeComponents = {
+    float = 1, int = 1, uint = 1, bool = 1,
+    vec2 = 2, vec3 = 3, vec4 = 4, ivec2 = 2, ivec3 = 3, ivec4 = 4,
+    uvec2 = 2, uvec3 = 3, uvec4 = 4, bvec2 = 2, bvec3 = 3, bvec4 = 4,
+    mat2 = 4, mat3 = 9, mat4 = 16, mat2x2 = 4, mat3x3 = 9, mat4x4 = 16,
+    mat2x3 = 6, mat2x4 = 8, mat3x2 = 6, mat3x4 = 12, mat4x2 = 8, mat4x3 = 12,
+}
+
+local function constant(text)
+    text = string.match(text, "^%s*(.-)%s*$")
+    if text == "true" then
+        return 1
+    elseif text == "false" then
+        return 0
+    end
+    return tonumber((string.gsub(text, "[fFuU]$", "")))
+end
+
+-- An initializer's values ("1.0", "vec2(800.0, 600.0)", "vec4(1.0)", "mat3(1.0)"),
+-- as GL sets them (matrices column by column); nil unless it is all numbers
+local function initializerValues(typeName, expr)
+    local comps = typeComponents[typeName]
+    if not comps then
+        return nil
+    end
+
+    local value = constant(expr)
+    if value and comps == 1 then
+        return { value }
+    end
+
+    local ctor, args = string.match(expr, "^%s*([%w_]+)%s*(%b())%s*$")
+    if ctor ~= typeName then
+        return nil
+    end
+    local values = {}
+    for arg in string.gmatch(string.sub(args, 2, -2), "[^,]+") do
+        values[#values + 1] = constant(arg)
+        if values[#values] == nil then
+            return nil
+        end
+    end
+
+    if #values == comps then
+        return values
+    elseif #values == 1 then
+        local columns, rows = string.match(typeName, "^mat(%d)x?(%d?)$")
+        local out = {}
+        if columns then
+            -- matN(x): x down the diagonal
+            columns, rows = tonumber(columns), tonumber(rows) or tonumber(columns)
+            for c = 0, columns - 1 do
+                for r = 0, rows - 1 do
+                    out[#out + 1] = (c == r) and values[1] or 0
+                end
+            end
+        else
+            for i = 1, comps do
+                out[i] = values[1]
+            end
+        end
+        return out
+    end
+    return nil
+end
+
+-- Takes "= value" off uniform declarations (ES has no uniform initializers);
+-- inits gets "name=v,v,..." for each, dropped the names whose value isn't numbers
+local function takeInitializers(source, inits, dropped)
+    return (string.gsub(source, "%f[%w_](uniform%s[^;{}=]-)%s*=%s*([^;{}]+);", function(decl, expr)
+        local typeName, name = string.match(decl, "([%w_]+)%s+([%a_][%w_]*)%s*$")
+        local values = name and initializerValues(typeName, expr)
+        if values then
+            local text = {}
+            for i, v in ipairs(values) do
+                text[i] = string.format("%.9g", v)
+            end
+            inits[name] = name .. "=" .. table.concat(text, ",")
+        else
+            dropped[#dropped + 1] = name or decl
+        end
+        return decl .. ";"
+    end))
+end
+
 -- vertexSource, fragmentSource: what SMBX2 hands FFI_ShaderFromStrings (already
 -- run through its preprocessor). header: xtech_gfx_shaderHeader().
--- Returns the vertex and fragment sources to compile.
+-- Returns the vertex and fragment sources to compile, the uniform initializers
+-- taken out for ES ("name=v,v,...\n" lines, "" if none) and a list of the
+-- uniforms whose initializers were dropped.
 function glsl.translate(vertexSource, fragmentSource, header)
     local targetVersion = tonumber(string.match(header, "#version%s+(%d+)")) or 100
     local modern = targetVersion >= 300
@@ -96,6 +241,23 @@ function glsl.translate(vertexSource, fragmentSource, header)
     local vs, vsCoords = translateCommon(vertexSource, modern, sourceVersion(vertexSource))
     local fs, fsCoords = translateCommon(fragmentSource, modern, sourceVersion(fragmentSource))
     local coords = math.max(vsCoords, fsCoords, 0)
+
+    local inits, dropped = {}, {}
+    if es then
+        vs = takeInitializers(vs, inits, dropped)
+        fs = takeInitializers(fs, inits, dropped)
+        if sourceVersion(vertexSource) < 130 then
+            vs = floatArguments(vs)
+        end
+        if sourceVersion(fragmentSource) < 130 then
+            fs = floatArguments(fs)
+        end
+    end
+    local initLines = {}
+    for _, line in pairs(inits) do
+        initLines[#initLines + 1] = line .. "\n"
+    end
+    table.sort(initLines)
 
     vs = string.gsub(vs, word("ftransform") .. "%s*%(%s*%)", "(xt_MVP * xt_Vertex)")
     vs = swap(vs, "gl_Vertex", "xt_Vertex")
@@ -179,7 +341,7 @@ function glsl.translate(vertexSource, fragmentSource, header)
         fsHead[#fsHead + 1] = "out vec4 xt_FragColor;\n"
     end
 
-    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs
+    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs, table.concat(initLines), dropped
 end
 
 -- A reported variable name as SMBX2 knows it; nil for the translation's own

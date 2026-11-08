@@ -950,10 +950,11 @@ const char *AbstractRender_t::scriptShaderHeader()
     return nullptr;
 }
 
-int AbstractRender_t::scriptShaderCreate(const char *vertex, const char *fragment, std::string &error)
+int AbstractRender_t::scriptShaderCreate(const char *vertex, const char *fragment, const char *initializers, std::string &error)
 {
     UNUSED(vertex);
     UNUSED(fragment);
+    UNUSED(initializers);
     error = "shaders aren't supported by this renderer";
     return 0;
 }

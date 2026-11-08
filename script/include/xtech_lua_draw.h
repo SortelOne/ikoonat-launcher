@@ -85,6 +85,10 @@ void xtech_lua_drawSkipFrame(bool skip);
 void xtech_lua_drawCameraStart(int screenZ);
 void xtech_lua_drawFrameEnd();
 void xtech_lua_drawReset();
+//! The renderer was made again (Android lost its GL context while asleep, a
+//! render mode change): builds the scripts' shaders and capture buffers again
+//! for the new one, under the same handles. Buffers come back empty.
+void xtech_lua_drawRendererRestarted();
 //! ownsDrawing: closing the state resets SMBX2's drawing (the level's state)
 void xtech_lua_register_draw(lua_State *L, bool ownsDrawing = true);
 //! The level's script set SMBX's screen size (FFI_GraphicsSetMainFramebufferSize)

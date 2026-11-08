@@ -191,6 +191,8 @@ std::unordered_map<std::string, int> s_programBySources;
 std::unordered_map<int, KeptProgram> s_keptPrograms;
 std::unordered_map<std::string, std::string> s_failedPrograms; // sources -> error
 size_t s_idlePrograms = 0;
+// capture buffers' sizes (renderer ids), to make them again for a new renderer
+std::unordered_map<int, std::pair<int, int>> s_bufferSizes;
 constexpr size_t c_maxIdlePrograms = 256;
 bool s_loadScreenSwappedIn = false;
 
@@ -1117,17 +1119,19 @@ int lua_shaderHeader(lua_State *L)
     return 1;
 }
 
-// xtech_gfx_shaderCompile(handle, vertexSource, fragmentSource) -> true | false, error
+// xtech_gfx_shaderCompile(handle, vertexSource, fragmentSource[, initializers]) -> true | false, error
+// initializers: glsl.lua's uniform values for OpenGL ES ("name=v,v,...\n" lines)
 int lua_shaderCompile(lua_State *L)
 {
     uintptr_t key = (uintptr_t)luaL_checknumber(L, 1);
     const char *vs = luaL_checkstring(L, 2);
     const char *fs = luaL_checkstring(L, 3);
+    const char *inits = luaL_optstring(L, 4, "");
 
     // SMBX2COMPAT_SHADERCACHE=0: a new program each time (to compare)
     static const bool keep = !(std::getenv("SMBX2COMPAT_SHADERCACHE") && std::strcmp(std::getenv("SMBX2COMPAT_SHADERCACHE"), "0") == 0);
 
-    std::string sources = std::string(s_loadScreenSwappedIn ? "L" : "") + '\0' + vs + '\0' + fs;
+    std::string sources = std::string(s_loadScreenSwappedIn ? "L" : "") + '\0' + vs + '\0' + fs + '\0' + inits;
     auto failed = keep ? s_failedPrograms.find(sources) : s_failedPrograms.end();
     if(failed != s_failedPrograms.end())
     {
@@ -1151,7 +1155,7 @@ int lua_shaderCompile(lua_State *L)
     else
     {
         std::string error;
-        id = g_render->scriptShaderCreate(vs, fs, error);
+        id = g_render->scriptShaderCreate(vs, fs, inits, error);
         if(!id)
         {
             s_failedPrograms[sources] = error;
@@ -1233,6 +1237,7 @@ int lua_bufferCreate(lua_State *L)
     if(id)
     {
         s_buffers[key] = id;
+        s_bufferSizes[id] = {w, h};
         if(nonskippable)
             s_nonskippable.insert(id);
         else
@@ -1475,8 +1480,139 @@ void xtech_lua_drawFrameEnd()
     {
         g_render->scriptBufferFree(id);
         s_nonskippable.erase(id);
+        s_bufferSizes.erase(id);
     }
     s_freedBuffers.clear();
+}
+
+void xtech_lua_drawRendererRestarted()
+{
+    // The old renderer's GL objects went with it, and the new one numbers its
+    // own from 1 again: compile every kept program and make every capture
+    // buffer again, then point all handles (both Lua states') at the new ids.
+    std::unordered_map<int, int> programs, buffers;
+    int lostPrograms = 0, lostBuffers = 0;
+
+    std::unordered_map<std::string, int> bySources;
+    std::unordered_map<int, KeptProgram> kept;
+    for(auto &it : s_keptPrograms)
+    {
+        // sources: owner prefix \0 vertex \0 fragment \0 initializers
+        const std::string &s = it.second.sources;
+        size_t a = s.find('\0');
+        size_t b = (a == std::string::npos) ? a : s.find('\0', a + 1);
+        size_t c = (b == std::string::npos) ? b : s.find('\0', b + 1);
+        int id = 0;
+        if(c != std::string::npos)
+        {
+            std::string vs = s.substr(a + 1, b - a - 1);
+            std::string fs = s.substr(b + 1, c - b - 1);
+            std::string error;
+            id = g_render->scriptShaderCreate(vs.c_str(), fs.c_str(), s.c_str() + c + 1, error);
+        }
+        if(!id)
+        {
+            lostPrograms++;
+            continue;
+        }
+        programs[it.first] = id;
+        bySources[s] = id;
+        kept[id] = it.second;
+    }
+    s_programBySources.swap(bySources);
+    s_keptPrograms.swap(kept);
+    s_idlePrograms = 0;
+    for(auto &it : s_keptPrograms)
+    {
+        if(it.second.users <= 0)
+            s_idlePrograms++;
+    }
+
+    std::unordered_map<int, std::pair<int, int>> sizes;
+    std::unordered_set<int> nonskippable;
+    for(auto &it : s_bufferSizes)
+    {
+        int id = g_render->scriptBufferCreate(it.second.first, it.second.second);
+        if(!id)
+        {
+            lostBuffers++;
+            continue;
+        }
+        buffers[it.first] = id;
+        sizes[id] = it.second;
+        if(s_nonskippable.count(it.first))
+            nonskippable.insert(id);
+    }
+    s_bufferSizes.swap(sizes);
+    s_nonskippable.swap(nonskippable);
+
+    auto remap = [](const std::unordered_map<int, int> &ids, int id) -> int
+    {
+        auto it = ids.find(id);
+        return it != ids.end() ? it->second : 0;
+    };
+    auto remapHandles = [&](std::unordered_map<uintptr_t, int> &handles, const std::unordered_map<int, int> &ids)
+    {
+        for(auto it = handles.begin(); it != handles.end();)
+        {
+            int id = remap(ids, it->second);
+            if(id)
+            {
+                it->second = id;
+                ++it;
+            }
+            else
+                it = handles.erase(it);
+        }
+    };
+    auto remapList = [&](std::vector<int> &list, const std::unordered_map<int, int> &ids)
+    {
+        std::vector<int> out;
+        for(int id : list)
+        {
+            int n = remap(ids, id);
+            if(n)
+                out.push_back(n);
+        }
+        list.swap(out);
+    };
+
+    OwnerState &o = s_otherOwner;
+    remapHandles(s_shaders, programs);
+    remapHandles(o.shaders, programs);
+    remapHandles(s_buffers, buffers);
+    remapHandles(o.buffers, buffers);
+    remapList(s_freedShaders, programs);
+    remapList(o.freedShaders, programs);
+    remapList(s_freedBuffers, buffers);
+    remapList(o.freedBuffers, buffers);
+    s_standardShader = remap(programs, s_standardShader);
+    o.standardShader = remap(programs, o.standardShader);
+
+    // draws queued for the old renderer hold its ids: drop them (one frame)
+    s_ops.clear();
+    s_vertices.clear();
+    s_texts.clear();
+    s_scriptOps.clear();
+    s_floats.clear();
+    s_vars.clear();
+    s_varData.clear();
+    s_order.clear();
+    s_orderCursor = 0;
+    s_redirects.clear();
+    o.ops.clear();
+    o.vertices.clear();
+    o.texts.clear();
+    o.scriptOps.clear();
+    o.floats.clear();
+    o.vars.clear();
+    o.varData.clear();
+    o.order.clear();
+    o.orderCursor = 0;
+    o.redirects.clear();
+
+    pLogInfo("smbx2compat: renderer restarted; made %d script programs and %d capture buffers again (%d and %d lost)",
+             (int)programs.size(), (int)buffers.size(), lostPrograms, lostBuffers);
 }
 
 void xtech_lua_drawReset()

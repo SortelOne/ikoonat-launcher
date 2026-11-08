@@ -69,6 +69,10 @@ typedef EventsSDL EventsUsed;
 
 #include "fontman/font_manager.h"
 
+#ifdef ENABLE_XTECH_LUA
+#   include "xtech_lua_draw.h" // smbx2compat
+#endif
+
 #include "frm_main.h"
 
 FrmMain g_frmMain;
@@ -407,6 +411,13 @@ bool FrmMain::restartRenderer()
 
         res = false;
     }
+
+#        ifdef ENABLE_XTECH_LUA
+    // smbx2compat: the old GL context took SMBX2 scripts' shaders and capture
+    // buffers with it (Android, after sleep: Mario and the sky drew nothing)
+    if(res)
+        xtech_lua_drawRendererRestarted();
+#        endif
 
 #    else
     // SDL, no OpenGL

@@ -862,7 +862,7 @@ public:
 
     // smbx2compat: SMBX2's shaders and capture buffers, render_gl_script.cpp
     const char *scriptShaderHeader() override;
-    int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error) override;
+    int scriptShaderCreate(const char *vertex, const char *fragment, const char *initializers, std::string &error) override;
     void scriptShaderFree(int shader) override;
     void scriptShaderReset(int shader) override;
     void scriptShaderVariables(int shader, bool attributes, std::vector<ScriptShaderVar_t> &out) override;

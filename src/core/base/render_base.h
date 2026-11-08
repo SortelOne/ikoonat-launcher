@@ -349,8 +349,10 @@ public:
 
     //! First line(s) for script shader sources ("#version ..."), nullptr if unsupported
     virtual const char *scriptShaderHeader();
-    //! Compiles a program; 0 on failure (error says why)
-    virtual int scriptShaderCreate(const char *vertex, const char *fragment, std::string &error);
+    //! Compiles a program; 0 on failure (error says why). initializers: uniform
+    //! values to set after linking, "name=v,v,...\n" lines (glsl.lua takes GLSL
+    //! initializers out for OpenGL ES, which has none)
+    virtual int scriptShaderCreate(const char *vertex, const char *fragment, const char *initializers, std::string &error);
     virtual void scriptShaderFree(int shader);
     //! Sets all of the program's uniforms to 0, as in a newly linked program
     //! (programs are kept across levels)
