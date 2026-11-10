@@ -50,8 +50,17 @@ jit.opt.start("sizemcode=8192", "maxmcode=8192")
 local jitOpt = jit.opt -- main.lua's lockdown hides jit
 
 -- SMBX2COMPAT_PROFILE turns on the timing probe (profile.lua); ffi_mem.lua
--- counts mem() calls into profileMemCalls when it's set
+-- counts mem() calls into profileMemCalls when it's set. Without it (Android),
+-- the first line of smbx2compat-profile.txt in the user folder, if there is one
+-- ("spikes" logs every slow frame).
 core.profileSpec = os.getenv("SMBX2COMPAT_PROFILE")
+if (core.profileSpec == nil or core.profileSpec == "") and __xtech_userDir then
+    local f = io.open(string.gsub(__xtech_userDir, "/*$", "/") .. "smbx2compat-profile.txt", "rb")
+    if f then
+        core.profileSpec = string.match(f:read("*l") or "", "^%s*(.-)%s*$")
+        f:close()
+    end
+end
 if core.profileSpec and core.profileSpec ~= "" and core.profileSpec ~= "0" then
     core.profileMemCalls = {get = 0, set = 0, string = 0}
     if string.find(core.profileSpec, "memcallers", 1, true) then

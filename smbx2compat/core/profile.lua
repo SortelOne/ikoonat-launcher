@@ -11,6 +11,16 @@
                                             here (the end of boot.lua) through
                                             the level's scripts and onStart to
                                             the first frame drawn
+    SMBX2COMPAT_PROFILE=spikes              the whole level, and each frame over
+    SMBX2COMPAT_PROFILE=spikes=40           25 (40) ms of work, or 50 (80) ms
+                                            from the last frame's end, logged
+                                            as it happens ("profile spike: ..."),
+                                            with its events, slowest listener,
+                                            heap change and the functions the
+                                            sampler caught in it (up to 80 a
+                                            level). On Android: "spikes" as the
+                                            first line of smbx2compat-profile.txt
+                                            in the Ikoonat folder.
 
   Over that range it measures, then logs once as "[smbx2core] profile ...":
     - frame time: from the engine's onLoop call to the end of its render
@@ -41,6 +51,15 @@ local firstFrame, lastFrame = string.match(spec, "^(%d+)%-(%d+)")
 local sampling = not string.find(spec, "nosample", 1, true)
 local loading = string.find(spec, "load", 1, true) ~= nil
 firstFrame, lastFrame = tonumber(firstFrame) or 100, tonumber(lastFrame) or 400
+local spikeMs = string.match(spec, "spikes=?(%d*)")
+if spikeMs then
+    spikeMs = tonumber(spikeMs) or 25
+    if not string.find(spec, "^%d+%-%d+") then
+        firstFrame, lastFrame = 1, math.huge
+    end
+end
+local spikesLogged, lastFrameEnd = 0, nil
+local frameSamples = {} -- this frame's sampled functions (spikes)
 
 local frame = 0         -- frames since onStart
 local active = false    -- inside the measured range
@@ -125,6 +144,10 @@ local function sample(thread, samples, vmstate)
     vmSamples[vmstate] = (vmSamples[vmstate] or 0) + samples
     local f = jitProfile.dumpstack(thread, "F", 1)
     selfFuncs[f] = (selfFuncs[f] or 0) + samples
+    if spikeMs then
+        local key = f .. (vmstate == "G" and " (GC)" or "")
+        frameSamples[key] = (frameSamples[key] or 0) + samples
+    end
     local l = jitProfile.dumpstack(thread, "l", 1)
     selfLines[l] = (selfLines[l] or 0) + samples
     -- Each function once per sample, however deep the recursion
@@ -346,6 +369,9 @@ function __xtech_onLoop(...)
     stopsAtFrameStart = traceEvents.stop
     frameEvents, gcAtFrameStart = {}, collectgarbage("count")
     frameTopListener, frameTopTime = "none", 0
+    if spikeMs then
+        frameSamples = {}
+    end
     onLoop(...)
     frameLua = clock() - frameStart
 end
@@ -399,6 +425,23 @@ function __xtech_onRenderEnd(...)
         if busy > busyMax then
             busyMax = busy
         end
+        -- spikes: work over the limit, or a long wait since the last frame
+        -- (the driver, presenting, the engine outside these hooks)
+        local now = clock()
+        local wall = lastFrameEnd and (now - lastFrameEnd) or 0
+        lastFrameEnd = now
+        if spikeMs and spikesLogged < 80 and (busy * 1000 >= spikeMs or wall * 1000 >= 2 * spikeMs) then
+            spikesLogged = spikesLogged + 1
+            local parts = {}
+            for _, e in ipairs(top(frameSamples, 6)) do
+                parts[#parts + 1] = e[1] .. " " .. e[2]
+            end
+            log(string.format("spike: frame %d, %s ms work (Lua %s), %s ms since the last frame; %d traces compiled, " ..
+                              "heap %+.0f KB, slowest listener %s %s; events: %s; sampled: %s",
+                frame, ms(busy), ms(frameLua), ms(wall), compiled, collectgarbage("count") - gcAtFrameStart,
+                frameTopListener, ms(frameTopTime), table.concat(frameEvents, " "),
+                #parts > 0 and table.concat(parts, ", ") or "nothing"))
+        end
         frameStart = nil
     end
     if active and frame >= lastFrame then
@@ -415,4 +458,9 @@ function __xtech_onExit(...)
     return onExit(...)
 end
 
-xtech_misc_log("[smbx2core] profiling frames " .. firstFrame .. "-" .. lastFrame)
+if spikeMs then
+    xtech_misc_log("[smbx2core] profiling: logging frames over " .. spikeMs .. " ms" ..
+                   (lastFrame == math.huge and "" or (" in frames " .. firstFrame .. "-" .. lastFrame)))
+else
+    xtech_misc_log("[smbx2core] profiling frames " .. firstFrame .. "-" .. lastFrame)
+end

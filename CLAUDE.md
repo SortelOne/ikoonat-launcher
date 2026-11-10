@@ -555,7 +555,11 @@ How it works (details in `core/boot.lua`'s header):
   `memcallers`, the lines reading most, slowest frames with their slowest
   listener, JIT traces and flushes, LuaJIT's sampler; with `load`, LuaJIT's
   sampler over the level's load, from boot.lua to the first frame drawn);
-  results log as `[smbx2core] profile ...`.
+  results log as `[smbx2core] profile ...`. `spikes[=MS]` covers the whole
+  level and logs each frame over MS (25) ms of work, or 2xMS since the last
+  frame, as it happens (`profile spike: ...`: events, slowest listener, heap
+  change, functions sampled in that frame). On Android the spec is the
+  first line of `smbx2compat-profile.txt` in the user folder.
   Compare the best or median of 3 runs (some runs are ~25% slower overall).
   `SMBX2COMPAT_JITOPT="hotloop=56,..."` overrides SMBX2's JIT options for
   trials. For native time, `sample` the running game (ROADMAP.md,
