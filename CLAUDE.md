@@ -703,6 +703,26 @@ vectors per stage):
   ALPHA_CUTOFF material) discarded every pixel; v11/v12 showed the terrain's
   pixels never appear even as a plain colour, while uniforms, matrices and
   geometry match the cliffs'. Confirmed in v13 (the terrain drew).
+- Drivers without `GL_EXT_shader_implicit_conversions` (the Retroid Pocket
+  Nova: Adreno 740, driver of 12/2023; header `#version 300 es`) compiled
+  none of SMATRS's map, intro book or lighting shaders (`const int` and
+  `float` mixed). `core/glsltypes.lua` (`glsl.types`) follows each ES
+  shader's types (declarations, structs, functions, the preprocessor's
+  active branches and object-like macros) and writes the conversions out
+  (`1` -> `1.0`, `float(i)`, `vec2(iv)`): mixed arithmetic and comparisons,
+  assignments, returns, `?:`, the shader's own functions' arguments and the
+  built-ins' (GLSL < 1.30: all float-only, so every int argument). It leaves
+  what it can't type alone; a shader it can't parse (a function-like macro
+  left in) falls back to `floatArguments` (logged `shader types not
+  followed`), and a converted shader that doesn't compile is retried
+  without (logged `compiles only without glsltypes.lua's conversions`).
+  Checked offline with `smbx2compat/test/glsl/esconvert.lua` (glslc): of
+  262 SMBX2/SMATRS shader variants, 108 failed under ES rules before, 1
+  after (SMBX2's `map3d/texturetiler.frag`, unused by SMATRS). ES 3.x
+  built-ins and reserved words no SMBX2 shader version has (`imageSize`,
+  SMATRS's uniform name) are renamed `xt_r_*`, and GLSL 1.30 sources'
+  variables named like 1.30 built-in functions (`texture`, `textureSize` in
+  poison.glsl) are renamed where they aren't called.
 - Uniform arrays of single ints/uints (SMATRS's map terrain: `variants`,
   `sizes`) are packed four to a vector for ES 3 (`packScalarArrays` in
   glsl.lua: `xt_p4_<name>` as `uvec4`/`ivec4`, uses rewritten to

@@ -364,12 +364,11 @@ local function arraySize(spec)
     if expr == nil or expr == "" then
         return nil
     end
-    if string.find(expr, "^[%d%s%+%-%*/%(%)]+$") then
-        local f = loadstring("return " .. expr)
-        local ok, n = pcall(f)
-        if ok and type(n) == "number" then
-            return math.floor(n)
-        end
+    -- "128*16 >> 2" (SMATRS's map terrain): a 1 there made SMBX2 refuse its
+    -- 3072 values ("expected 1 values") when the shader didn't compile
+    local n = core.glsl.evalSize(expr)
+    if n then
+        return n
     end
     return 1
 end
@@ -641,9 +640,10 @@ local function compileShader(key)
         local kept = cacheGet(cacheKey)
         if kept then
             vs, fs, inits = string.match(kept, "^(.-)%z(.-)%z(.*)$")
+            ok, err = xtech_gfx_shaderCompile(key, vs, fs, inits)
         else
-            local dropped, packed
-            vs, fs, inits, dropped, packed = core.glsl.translate(vertex, fragment, glslHeader)
+            local dropped, packed, conversions
+            vs, fs, inits, dropped, packed, conversions = core.glsl.translate(vertex, fragment, glslHeader)
             if #packed > 0 then
                 core.log("shader arrays as vectors of four (Adreno misreads arrays of ints): " ..
                          table.concat(packed, ", ") .. " in " .. shaderLabel(s.fragment))
@@ -653,9 +653,25 @@ local function compileShader(key)
                 core.warn("shader uniforms start at 0 here (their initializers aren't plain numbers): " ..
                           table.concat(dropped, ", ") .. " in " .. shaderLabel(s.fragment))
             end
+            if #conversions.failed > 0 then
+                -- GPUs without implicit int -> float conversions may not take it
+                core.log("shader types not followed (" .. table.concat(conversions.failed, "; ") ..
+                         "): " .. shaderLabel(s.fragment))
+            end
+            ok, err = xtech_gfx_shaderCompile(key, vs, fs, inits)
+            if not ok and conversions.count > 0 then
+                -- glsltypes.lua got something wrong: the translation without it
+                -- still compiles where the GPU converts by itself (the Odin)
+                local vs2, fs2, inits2 = core.glsl.translate(vertex, fragment, glslHeader, { conversions = false })
+                local ok2 = xtech_gfx_shaderCompile(key, vs2, fs2, inits2)
+                if ok2 then
+                    core.warn("shader compiles only without glsltypes.lua's conversions: " ..
+                              shaderLabel(s.fragment) .. "\n" .. tostring(err))
+                    ok, err, vs, fs, inits = true, nil, vs2, fs2, inits2
+                end
+            end
             cacheSet(cacheKey, vs .. "\0" .. fs .. "\0" .. inits)
         end
-        ok, err = xtech_gfx_shaderCompile(key, vs, fs, inits)
     end
 
     if ok then

@@ -369,6 +369,7 @@ if not loadScreen then -- LunaLua's loading screen state has none of these
     core.extraSettings = runCoreFile("extrasettings.lua")
 end
 core.glsl = runCoreFile("glsl.lua")
+core.glsl.types = runCoreFile("glsltypes.lua") -- int -> float conversions for OpenGL ES
 
 do
     local ffi = require("ffi")

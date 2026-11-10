@@ -30,11 +30,15 @@ OpenGL ES differs from the GLSL 1.20 SMBX2 writes in two ways its shaders rely o
   are taken out, and translate() returns their values ("name=v,v,...\n" lines),
   which the engine sets after linking (render_gl_script.cpp). A value that isn't
   numbers (an expression) is dropped; translate() names those too.
-- No implicit int -> float conversion (max(x, 0), x * 2): the engine's header
-  turns on GL_EXT_shader_implicit_conversions where the GPU has it (ESSL 3.10);
-  without it such shaders still don't compile. Adreno's doesn't cover built-in
-  calls that mix ints and floats (max(1, x)), so whole numbers passed straight
-  to GLSL 1.20's float-only built-ins get a ".0" (floatArguments).
+- No implicit int -> float conversion (max(x, 0), x * 2, float a = 0): for ES,
+  glsltypes.lua (glsl.types, set by boot.lua) works out the shader's types
+  and writes every conversion out, so it compiles on any ES GPU (the Retroid
+  Pocket Nova's Adreno 740 driver has no implicit conversions at all). The
+  engine's header also turns on GL_EXT_shader_implicit_conversions where the
+  GPU has it (ESSL 3.10; the AYN Odin's Adreno 830). Where glsltypes can't
+  follow a shader, the older fix is used: whole numbers passed straight to
+  GLSL 1.20's float-only built-ins get a ".0" (floatArguments), which with
+  the extension is enough.
 Built-ins besides the ones above aren't handled. A shader that doesn't compile
 is drawn without.
 ]]
@@ -50,6 +54,33 @@ local laterNames = {
     "determinant", "inverse", "uint", "uvec2", "uvec3", "uvec4",
 }
 
+-- Of those, the functions: a GLSL 1.30 source calls them (texture(...)) but may
+-- also use the names for its own variables (SMATRS's poison.glsl has a
+-- "texture" and a "textureSize"), which desktop GLSL allows and ES doesn't
+local laterFunctions = {
+    "texture", "textureSize", "textureLod", "textureProj", "textureOffset",
+    "textureGrad", "texelFetch", "round", "roundEven", "trunc", "sinh", "cosh",
+    "tanh", "asinh", "acosh", "atanh", "isnan", "isinf", "modf", "determinant", "inverse",
+}
+
+-- Built-ins and reserved words of OpenGL ES 3.x that no SMBX2 shader version
+-- has (SMATRS has uniforms named imageSize; the Odin's header is ESSL 3.10)
+local esNames = {
+    "imageLoad", "imageStore", "imageSize", "imageAtomicAdd", "imageAtomicMin", "imageAtomicMax",
+    "imageAtomicAnd", "imageAtomicOr", "imageAtomicXor", "imageAtomicExchange", "imageAtomicCompSwap",
+    "buffer", "shared", "coherent", "volatile", "restrict", "readonly", "writeonly", "filter",
+    "resource", "common", "partition", "active", "superp", "precise",
+    "barrier", "memoryBarrier", "memoryBarrierBuffer", "memoryBarrierImage", "memoryBarrierShared",
+    "memoryBarrierAtomicCounter", "groupMemoryBarrier", "atomicCounter", "atomicCounterIncrement",
+    "atomicCounterDecrement", "atomicAdd", "atomicMin", "atomicMax", "atomicAnd", "atomicOr",
+    "atomicXor", "atomicExchange", "atomicCompSwap", "bitfieldExtract", "bitfieldInsert",
+    "bitfieldReverse", "bitCount", "findLSB", "findMSB", "uaddCarry", "usubBorrow", "umulExtended",
+    "imulExtended", "frexp", "ldexp", "fma", "packUnorm2x16", "packSnorm2x16", "unpackUnorm2x16",
+    "unpackSnorm2x16", "packHalf2x16", "unpackHalf2x16", "packUnorm4x8", "packSnorm4x8",
+    "unpackUnorm4x8", "unpackSnorm4x8", "textureGather", "textureGatherOffset", "textureGatherOffsets",
+    "floatBitsToInt", "floatBitsToUint", "intBitsToFloat", "uintBitsToFloat",
+}
+
 local function word(name)
     return "%f[%w_]" .. name .. "%f[^%w_]"
 end
@@ -59,13 +90,32 @@ local function swap(source, name, by)
     return (string.gsub(source, word(name), by))
 end
 
+-- Replaces name where it isn't called
+local function swapUncalled(source, name, by)
+    return (string.gsub(source, word(name) .. "()(%s*)(.?)", function(at, space, after)
+        if after == "(" then
+            return name .. space .. after
+        end
+        return by .. space .. after
+    end))
+end
+
 -- Common to both stages; returns the source and the highest gl_TexCoord index
-local function translateCommon(source, modern, version)
+local function translateCommon(source, modern, version, es)
     -- the header supplies #version
     source = string.gsub(source, "#[ \t]*version[^\n]*", "")
 
     if modern and version < 130 then
         for _, name in ipairs(laterNames) do
+            source = swap(source, name, "xt_r_" .. name)
+        end
+    elseif modern then
+        for _, name in ipairs(laterFunctions) do
+            source = swapUncalled(source, name, "xt_r_" .. name)
+        end
+    end
+    if es and modern then
+        for _, name in ipairs(esNames) do
             source = swap(source, name, "xt_r_" .. name)
         end
     end
@@ -424,24 +474,49 @@ end
 -- run through its preprocessor). header: xtech_gfx_shaderHeader().
 -- Returns the vertex and fragment sources to compile, the uniform initializers
 -- taken out for ES ("name=v,v,...\n" lines, "" if none), a list of the
--- uniforms whose initializers were dropped and one of the arrays packed
--- (packScalarArrays).
-function glsl.translate(vertexSource, fragmentSource, header)
+-- uniforms whose initializers were dropped, one of the arrays packed
+-- (packScalarArrays) and the int -> float conversions written out:
+-- { count = n, failed = { "fragment: why", ... } } (glsltypes.lua).
+-- options.conversions = false: without glsltypes (lunadll.lua retries so if
+-- a converted shader doesn't compile).
+function glsl.translate(vertexSource, fragmentSource, header, options)
     local targetVersion = tonumber(string.match(header, "#version%s+(%d+)")) or 100
     local modern = targetVersion >= 300
     local es = string.find(header, " es") ~= nil or targetVersion == 100
 
-    local vs, vsCoords = translateCommon(vertexSource, modern, sourceVersion(vertexSource))
-    local fs, fsCoords = translateCommon(fragmentSource, modern, sourceVersion(fragmentSource))
+    local vs, vsCoords = translateCommon(vertexSource, modern, sourceVersion(vertexSource), es)
+    local fs, fsCoords = translateCommon(fragmentSource, modern, sourceVersion(fragmentSource), es)
     local coords = math.max(vsCoords, fsCoords, 0)
 
     local inits, dropped, packed = {}, {}, {}
+    local conversions = { count = 0, failed = {} }
     local vsHelpers, fsHelpers = {}, {}
     if es then
         vs = takeInitializers(vs, inits, dropped)
         fs = takeInitializers(fs, inits, dropped)
-        vs = floatArguments(vs, sourceVersion(vertexSource) >= 130, vsHelpers)
-        fs = floatArguments(fs, sourceVersion(fragmentSource) >= 130, fsHelpers)
+        local vsTyped, fsTyped
+        if glsl.types and not (options and options.conversions == false) then
+            local predefined = { __VERSION__ = targetVersion }
+            local n, why
+            vs, n, why = glsl.types.convert(vs, sourceVersion(vertexSource), predefined)
+            vsTyped = n ~= nil
+            conversions.count = conversions.count + (n or 0)
+            if why then
+                conversions.failed[#conversions.failed + 1] = "vertex: " .. why
+            end
+            fs, n, why = glsl.types.convert(fs, sourceVersion(fragmentSource), predefined)
+            fsTyped = n ~= nil
+            conversions.count = conversions.count + (n or 0)
+            if why then
+                conversions.failed[#conversions.failed + 1] = "fragment: " .. why
+            end
+        end
+        if not vsTyped then
+            vs = floatArguments(vs, sourceVersion(vertexSource) >= 130, vsHelpers)
+        end
+        if not fsTyped then
+            fs = floatArguments(fs, sourceVersion(fragmentSource) >= 130, fsHelpers)
+        end
         if modern then
             vs, fs, packed = packScalarArrays(vs, fs)
         end
@@ -536,8 +611,11 @@ function glsl.translate(vertexSource, fragmentSource, header)
         fsHead[#fsHead + 1] = "out vec4 xt_FragColor;\n"
     end
 
-    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs, table.concat(initLines), dropped, packed
+    return table.concat(vsHead) .. vs, table.concat(fsHead) .. fs, table.concat(initLines), dropped, packed,
+           conversions
 end
+
+glsl.evalSize = evalSize
 
 -- A reported variable name as SMBX2 knows it; nil for the translation's own
 function glsl.scriptName(name)
