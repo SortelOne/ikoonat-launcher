@@ -19,6 +19,7 @@
  */
 
 #include <algorithm>
+#include <cstdlib> // smbx2compat: SMBX2COMPAT_PADKEYS
 
 #include <AppPath/app_path.h>
 #include <Utils/files.h>
@@ -826,6 +827,95 @@ bool ProcessEvent(const SDL_Event* ev)
     return false;
 }
 
+// smbx2compat: SMBX2COMPAT_PADKEYS="600-680:start+drop,700:down,720:jump"
+// holds player 1's buttons on those frames (Update calls since the episode
+// left the main menu; "a-b" both included), for test runs of in-game menus
+// such as Ikoonat's (game_loop.cpp), which the library's test keys can't reach
+struct TestPadKey_t
+{
+    int from = 0;
+    int to = 0;
+    Controls_t keys;
+};
+
+static void s_testPadKeys(Controls_t &c)
+{
+    static bool s_parsed = false;
+    static std::vector<TestPadKey_t> s_keys;
+    static int s_frame = 0;
+
+    if(!s_parsed)
+    {
+        s_parsed = true;
+        const char *env = std::getenv("SMBX2COMPAT_PADKEYS");
+        std::string spec = env ? env : "";
+        size_t pos = 0;
+        while(pos < spec.size())
+        {
+            size_t end = spec.find(',', pos);
+            if(end == std::string::npos)
+                end = spec.size();
+            std::string item = spec.substr(pos, end - pos);
+            pos = end + 1;
+
+            size_t colon = item.find(':');
+            if(colon == std::string::npos)
+                continue;
+            TestPadKey_t k;
+            k.from = std::atoi(item.c_str());
+            size_t dash = item.find('-');
+            k.to = (dash != std::string::npos && dash < colon) ? std::atoi(item.c_str() + dash + 1) : k.from;
+            std::string names = item.substr(colon + 1) + "+";
+            size_t n = 0;
+            while(n < names.size())
+            {
+                size_t plus = names.find('+', n);
+                std::string name = names.substr(n, plus - n);
+                n = plus + 1;
+                if(name == "up") k.keys.Up = true;
+                else if(name == "down") k.keys.Down = true;
+                else if(name == "left") k.keys.Left = true;
+                else if(name == "right") k.keys.Right = true;
+                else if(name == "jump") k.keys.Jump = true;
+                else if(name == "altjump") k.keys.AltJump = true;
+                else if(name == "run") k.keys.Run = true;
+                else if(name == "altrun") k.keys.AltRun = true;
+                else if(name == "drop") k.keys.Drop = true;
+                else if(name == "start") k.keys.Start = true;
+            }
+            s_keys.push_back(k);
+        }
+        if(!s_keys.empty())
+            pLogInfo("smbx2compat: SMBX2COMPAT_PADKEYS: %d key ranges", (int)s_keys.size());
+    }
+
+    if(s_keys.empty())
+        return;
+
+    if(GameMenu)
+    {
+        s_frame = 0;
+        return;
+    }
+
+    s_frame++;
+    for(const TestPadKey_t &k : s_keys)
+    {
+        if(s_frame < k.from || s_frame > k.to)
+            continue;
+        c.Up |= k.keys.Up;
+        c.Down |= k.keys.Down;
+        c.Left |= k.keys.Left;
+        c.Right |= k.keys.Right;
+        c.Jump |= k.keys.Jump;
+        c.AltJump |= k.keys.AltJump;
+        c.Run |= k.keys.Run;
+        c.AltRun |= k.keys.AltRun;
+        c.Drop |= k.keys.Drop;
+        c.Start |= k.keys.Start;
+    }
+}
+
 // 1. Calls the UpdateControlsPre hooks of loaded InputMethodTypes
 //    a. Syncs hardware state as needed
 // 2. Updates Player and Editor controls by calling currently bound InputMethods
@@ -892,6 +982,9 @@ bool Update(bool check_lost_devices)
 
         if(g_hotkeysPressed[Hotkeys::Buttons::LegacyPause] == i + 1)
             newControls.Start = true;
+
+        if(i == 0)
+            s_testPadKeys(newControls); // smbx2compat: test runs
 
         // push messages corresponding to controls press / release
         XMessage::PushControls(i, newControls);

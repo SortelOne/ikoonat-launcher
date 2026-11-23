@@ -42,6 +42,14 @@ workspace 1, and from Claude's shell they need the sandbox off.
   turn, one process (the default-sprite switch each way):
   `SMBX2COMPAT_LIBCYCLE="SMATRS Chapter 1+2|the invasion 2" SMBX2COMPAT_QUITAFTER=900 SMBX2COMPAT_LIBKEYS="60:do,100:do" XTECH_BUILD=build-release run-level.sh menu 300`
   (back up SMATRS's `save3-ext.dat` as above).
+- `SMBX2COMPAT_PADKEYS="600:jump,1200-1270:start+drop,1300:jump"` holds
+  player 1's buttons (up/down/left/right/jump/altjump/run/altrun/drop/
+  start, joined with `+`) on those frames (`a-b` inclusive), counted from
+  when the episode left the menu (`Controls::Update` calls, so paused
+  frames count). For in-game menus the library's test keys can't reach:
+  Ikoonat's menu (Start + Drop held 60 frames) on SMATRS's title opens at
+  frame 1259 above, `1300:jump` picks Continue; then `down`, `down`,
+  `jump` picks Quit to Library (`Ikoonat menu: leaving the episode`).
 - `lsprobe.lua` — finds what keeps old loading screens alive in that
   state; needs a temporary hook in `core/loadscreen.lua` (in its header).
 

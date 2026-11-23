@@ -1659,6 +1659,22 @@ on the merged engine (TheXTech `bc30bf2f` -> `69d73af1`), Release build.
   existing folder from round 2), play and Quit. A deliberate overflow in a
   small program checked that reports reach `log_path`.
 
+*The Mac after the Android round (Jake asked, 2026-11-23):* `0eeffd4d`
+(the 15 commits from the Windows PC: GLSL ES, sleep, Ikoonat's menu).
+- Regression set as expected on Release and on ASan (`REG_SLOW=3`), no
+  ASan reports. 1-1 Release, 3 runs: 5.26-5.74 ms a frame (Lua ~3.1,
+  engine ~2.3; 6.5 on 11-06 at full draw rate), loads 3.4-4.9 s.
+- Desktop shaders unchanged: 1-1, 2-1 and the map's screenshots right; the
+  map terrain still settles at 16 pieces (`128*16 >> 2`).
+- The soak (`episode.sh`, the 11-06 sample, 12 levels): no script errors;
+  memory grows only with the caches at new levels (kept programs 75 ->
+  169, script pictures 1256 -> 2906), no handles left.
+- Switch loop, 5 minutes: 15 exits, no errors, resident 166-168 MB,
+  textures 448, GL programs 71. Library import (zip, twice, play, quit) in
+  a scratch folder: fine.
+- Ikoonat's menu on the Mac (Start + Drop, `SMBX2COMPAT_PADKEYS`, new):
+  opens over SMATRS's title, Continue resumes, Quit to Library leaves.
+
 ## Risks
 
 - **Scale:** SMATRS leans on almost all of SMBX2. Expect a long tail of

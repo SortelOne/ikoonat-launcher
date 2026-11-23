@@ -778,7 +778,11 @@ vectors per stage):
   in game_loop.cpp): in SMBX2 mode Android's Back key (no longer the pause
   key there) or Start + Drop Item held 60 frames opens TheXTech's pause
   screen with Continue / Options / Quit to Library, without asking the
-  scripts (SMATRS greys out its own quit).
+  scripts (SMATRS greys out its own quit). On the Mac: Start + Drop Item,
+  or in a test run `SMBX2COMPAT_PADKEYS="1200-1270:start+drop,1300:jump"`
+  (player 1's buttons on those frames since the episode left the menu;
+  `Controls::Update`, `s_testPadKeys` in `control/controls.cpp`), which
+  also gets past SMATRS's own title menus.
 - `EpisodeMode_begin` empties SMATRS's `<episode>/_loadscreen/data.txt` (the
   next loading screen's card, written at level end): a game closed inside a
   level showed that level's card at the next start.
