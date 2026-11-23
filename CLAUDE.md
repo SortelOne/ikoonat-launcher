@@ -1,6 +1,6 @@
 # TheXTech-Lua + smbx2compat
 
-Personal, private fork of [vkdfkc/TheXTech-Lua](https://github.com/vkdfkc/TheXTech-Lua)
+Personal, public fork of [vkdfkc/TheXTech-Lua](https://github.com/vkdfkc/TheXTech-Lua)
 (TheXTech with LuaJIT scripting via luabind). The goal is to run SMBX2 (LunaLua)
 episodes, starting with SMATRS (Super Mario and the Rainbow Stars), through a Lua
 compatibility layer. Desktop (macOS) first, Android later.
@@ -795,5 +795,8 @@ vectors per stage):
 - Don't commit game assets, episodes, or build output.
 - Commits use Jake's GitHub no-reply address
   (`19493690+SortelOne@users.noreply.github.com`; GitHub refuses pushes
-  that expose the account's own email). The repo is private; making it
-  public needs Jake's explicit go.
+  that expose the account's own email). The repo is public on GitHub
+  (`SortelOne/ikoonat-launcher`, made public 2026-11-23, Jake's go), so
+  never commit game data, secrets or anything personal. Files adapted from
+  SMBX2's scripts credit the SMBX2 team at the top
+  (`core/override/base/engine/lockdown.lua`, `core/patches.lua`).

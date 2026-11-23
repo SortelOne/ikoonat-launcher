@@ -46,11 +46,11 @@ accepted. NDK 23 is TheXTech's choice; `thextech/build.gradle` names it.)
 
 ## 2. The repo (once)
 
-The repo is private, so sign in to GitHub first:
+Sign in to GitHub first (the repo is public, but pushing needs it):
 
 ```bash
 gh auth login
-gh repo clone SortelOne/TheXTech-Lua ~/TheXTech-Lua -- --recurse-submodules
+gh repo clone SortelOne/ikoonat-launcher ~/TheXTech-Lua -- --recurse-submodules
 cd ~/TheXTech-Lua
 git config user.name "Jake Bales"
 git config user.email 19493690+SortelOne@users.noreply.github.com

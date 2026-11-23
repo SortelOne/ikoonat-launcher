@@ -1,4 +1,8 @@
 --[[
+  Adapted from SMBX2's base/engine/lockdown.lua, by the SMBX2 team
+  (https://codehaus.moe); much of the sandboxing below is theirs, with
+  changes for this engine. Credit to them.
+
   smbx2compat core: replaces SMBX2's base/engine/lockdown.lua, which opens and
   reads files through LunaDll.dll. Same globals and the same sandboxing; plain
   Lua io underneath, with every path going through boot.lua's resolver

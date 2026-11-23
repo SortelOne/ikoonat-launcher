@@ -1,4 +1,7 @@
 --[[
+  The text to find below is quoted from SMBX2's scripts, by the SMBX2 team
+  (https://codehaus.moe); credit to them.
+
   Small source edits to SMBX2 files, applied in memory as boot.lua loads them
   (the files on disk stay untouched). Keys are paths under scripts/, lowercase.
   Each entry is { exact text to find, replacement, why }; the first match is
